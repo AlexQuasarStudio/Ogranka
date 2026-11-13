@@ -12,6 +12,7 @@ const App = {
   viewers: [],
   poll: null,
   partialDone: 0,
+  uploading: false,
   colPct: 50,
   solo: null,
 };
@@ -738,6 +739,12 @@ function updateProgress(st) {
   if (elapsed >= 1) parts.push(`прошло ${fmtDur(elapsed)}`);
   if (st.state === "running" && eta) parts.push(`осталось ~${fmtDur(eta)}`);
   $("progressTime").textContent = parts.join(" · ");
+  const busy = App.uploading || (st.state === "running" && (st.progress || 0) < 0.30);
+  $("loadOverlay").classList.toggle("hidden", !busy);
+  if (busy) {
+    $("loadTitle").textContent = st.stage || "Загрузка модели…";
+    $("loadSub").textContent = st.detail || "";
+  }
 }
 
 function showProgress(stage, detail) {
@@ -752,6 +759,8 @@ function showProgress(stage, detail) {
 function hideProgress() {
   clearTimeout(App.hideTimer);
   $("progress").classList.add("hidden");
+  $("loadOverlay").classList.add("hidden");
+  $("statusText").classList.remove("running");
   document.body.classList.remove("progress-on");
 }
 
@@ -762,6 +771,8 @@ function showProgressError(msg) {
   $("progress").classList.remove("hidden");
   $("progress").classList.add("error");
   $("progressClose").classList.remove("hidden");
+  $("loadOverlay").classList.add("hidden");
+  $("statusText").classList.remove("running");
   document.body.classList.add("progress-on");
   $("progressText").textContent = "Ошибка";
   $("progressPct").textContent = "";
@@ -795,6 +806,7 @@ async function setFiles(fileList, folder) {
   if (!files.length) { alert("Нужны файлы .obj или .txt"); return; }
   const sources = [];
   const started = Date.now() / 1000;
+  App.uploading = true;
   showProgress(`Загрузка файлов 0/${files.length}`, folder ? "папка" : "файлы");
   for (let i = 0; i < files.length; i++) {
     const f = files[i];
@@ -810,7 +822,8 @@ async function setFiles(fileList, folder) {
                        started, eta: null });
     } catch (e) { console.warn(e); }
   }
-  if (!sources.length) { showProgressError("Не удалось загрузить файлы"); return; }
+  if (!sources.length) { App.uploading = false; showProgressError("Не удалось загрузить файлы"); return; }
+  App.uploading = false;
   App.sources = sources;
   $("fileName").textContent = (folder ? "папка: " : "файлы: ") + sources.length;
   $("harm").value = 32;
@@ -819,15 +832,19 @@ async function setFiles(fileList, folder) {
   $("progressPct").textContent = "100%";
   $("barFill").style.width = "100%";
   $("progressDetail").textContent = `${sources.length} файл(ов)`;
+  $("loadOverlay").classList.add("hidden");
   App.hideTimer = setTimeout(hideProgress, 1200);
 }
 
 async function run() {
   $("runBtn").disabled = true;
+  App.uploading = false;
   App.meshes = {};
   App.partialDone = 0;
   App.lastProgress = null;
   showProgress("Отправка задания", "подготовка параметров");
+  $("statusText").textContent = "Выполняется";
+  $("statusText").classList.add("running");
   try {
     const r = await fetch("/api/run", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -857,6 +874,7 @@ function poll() {
       App.lastProgress = st;
       updateProgress(st);
       $("statusText").textContent = st.state === "running" ? "Выполняется" : st.state === "done" ? "Готово" : st.state || "";
+      $("statusText").classList.toggle("running", st.state === "running");
       if (st.state === "running" && st.done && st.done !== App.partialDone) {
         App.partialDone = st.done;
         const data = await (await fetch("/api/results")).json();
