@@ -179,8 +179,6 @@ body.progress-on .workspace { padding-bottom: 104px; }
 .split-v:hover { background: #2a3a57; }
 .workspace-bottom { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
 .workspace.solo-mode { overflow: hidden; }
-.vmode { display: none; max-width: 170px; flex: 0 0 auto; }
-#viewers.solo .viewer-card.is-solo .vmode { display: block; }
 
 .hud { position: absolute; right: 8px; bottom: 8px; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; pointer-events: none; }
 .axes { display: flex; gap: 4px; pointer-events: auto; }

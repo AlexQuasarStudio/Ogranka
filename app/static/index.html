@@ -29,12 +29,12 @@
   <aside class="panel">
     <h3>Источник</h3>
     <div class="demo-grid">
+      <button class="demo" data-demo="cube" title="Куб: 8 вершин, 6 граней">Куб</button>
+      <button class="demo" data-demo="prism" title="Правильная восьмиугольная призма: 16 вершин, 10 граней">Призма</button>
       <button class="demo" data-demo="octa">Октаэдр</button>
       <button class="demo" data-demo="icosa">Икосаэдр</button>
       <button class="demo" data-demo="dodeca">Додекаэдр</button>
       <button class="demo" data-demo="diamond">Бриллиант</button>
-      <button class="demo" data-demo="cube" title="Куб: 8 вершин, 6 граней">Куб</button>
-      <button class="demo" data-demo="prism" title="Правильная восьмиугольная призма: 16 вершин, 10 граней">Призма</button>
     </div>
     <label class="file-drop" for="fileInput" title="Можно выбрать сразу несколько файлов">Файлы: OBJ или TXT (можно много)</label>
     <input type="file" id="fileInput" accept=".obj,.txt" multiple hidden>
@@ -82,7 +82,7 @@
 
   <section class="workspace">
     <div class="model-row">
-      <label>модель <select id="modelSel"></select></label>
+      <label title="Модель; [ и ] переключают">модель <select id="modelSel"></select></label>
       <span id="batchInfo" class="meta"></span>
     </div>
 
@@ -201,7 +201,8 @@
       вьюпорт, <b>Esc</b> — вернуть сетку, <b>+/−</b> — добавить
       или убрать окно, <b>V</b> — грани/вершины, <b>C</b> — общая камера,
       <b>A</b> — выделить всё, <b>Alt+A</b> — снять, <b>G</b> — сбросить вид,
-      <b>O</b> — скачать OBJ, <b>S</b> — скриншот, <b>?</b> — справка,
+      <b>O</b> — скачать OBJ, <b>S</b> — скриншот, <b>[</b> и <b>]</b> —
+      предыдущая и следующая модель, <b>?</b> — справка,
       <b>I</b> — о программе.</p>
       <h3>Экспорт</h3>
       <p>OBJ — выбранная модель, PNG — окно, CSV — все метрики.</p>

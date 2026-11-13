@@ -180,12 +180,7 @@ class Viewer {
     this.mode = "solid_edges";
     this.selTarget = "face";
 
-    const vmode = card.querySelector(".vmode");
-  vmode.innerHTML = $("colorMode").innerHTML;
-  vmode.value = App.mode;
-  vmode.onchange = () => setViewMode(vmode.value);
-
-  this.hudCur = card.querySelector(".cur");
+    this.hudCur = card.querySelector(".cur");
     card.querySelectorAll(".ax").forEach((b) => b.onclick = () => this.alignAxis(b.dataset.a));
     this.canvas.addEventListener("pointermove", (e) => this.cursorInfo(e));
 
@@ -568,7 +563,7 @@ function areaColor(t) {
 function makeCard() {
   const card = document.createElement("div");
   card.className = "viewer-card";
-  card.innerHTML = `<div class="viewer-head"><select class="vsel"></select><select class="vmode" title="Режим отображения"></select><span class="vmeta meta"></span><button class="vmax" title="Развернуть этот вьюпорт">⤢</button></div>
+  card.innerHTML = `<div class="viewer-head"><select class="vsel"></select><span class="vmeta meta"></span><button class="vmax" title="Развернуть этот вьюпорт">⤢</button></div>
                     <div class="canvas-wrap"><canvas></canvas>
                       <div class="hud">
                         <div class="axes"><button class="ax x" data-a="x" title="Вид вдоль X">X</button><button class="ax y" data-a="y" title="Вид вдоль Y">Y</button><button class="ax z" data-a="z" title="Вид вдоль Z">Z</button></div>
@@ -807,14 +802,20 @@ async function meshOf(id) {
 function setViewMode(mode) {
   App.mode = mode;
   $("colorMode").value = mode;
-  App.viewers.forEach((v) => {
-    v.rebuild(mode);
-    const s = v.card.querySelector(".vmode");
-    if (s) s.value = mode;
-  });
+  App.viewers.forEach((v) => v.rebuild(mode));
 }
 
 function currentModel() { return App.models[App.modelIdx]; }
+
+function cycleModel(delta) {
+  if (App.models.length < 2) return;
+  const n = App.models.length;
+  App.modelIdx = (App.modelIdx + delta + n) % n;
+  App.liveSeq++;
+  clearTimeout(App.liveTimer);
+  $("modelSel").value = String(App.modelIdx);
+  renderModel();
+}
 
 function updateDiff() {
   const model = currentModel();
@@ -1345,6 +1346,11 @@ function init() {
     const k = e.key.toLowerCase();
     const modes = ["solid_edges", "solid", "face", "area", "wire", "edges", "points"];
     if (/^[1-7]$/.test(e.key)) { setViewMode(modes[+e.key - 1]); e.preventDefault(); return; }
+    if (e.code === "BracketLeft" || e.code === "BracketRight") {
+      e.preventDefault();
+      cycleModel(e.code === "BracketRight" ? 1 : -1);
+      return;
+    }
     if (k === "r") { if (!$("runBtn").disabled) run(); }
     else if (k === "f") { if (App.solo) toggleSolo(App.solo); else if (App.viewers[0]) toggleSolo(App.viewers[0]); }
     else if (k === "v") { const s = $("selTarget"); s.value = s.value === "face" ? "vertex" : "face"; s.dispatchEvent(new Event("change")); }
