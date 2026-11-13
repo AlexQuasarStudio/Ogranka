@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Огранка</title>
+<link rel="icon" href="/favicon.png">
+<link rel="stylesheet" href="/style.css">
+<script src="/vendor/three.min.js"></script>
+<script src="/vendor/OrbitControls.js"></script>
+<script src="/vendor/lines/LineSegmentsGeometry.js"></script>
+<script src="/vendor/lines/LineMaterial.js"></script>
+<script src="/vendor/lines/LineSegments2.js"></script>
+</head>
+<body>
+<header>
+  <div class="brand">Огранка <span class="brand-sub">восстановление формы</span></div>
+  <div class="header-right">
+    <div id="statusText" class="status">Готов к запуску</div>
+    <button id="helpBtn" class="help-btn" title="Справка по программе">?</button>
+  </div>
+</header>
+
+<main>
+  <aside class="panel">
+    <h3>Источник</h3>
+    <div class="demo-grid">
+      <button class="demo" data-demo="octa">Октаэдр</button>
+      <button class="demo" data-demo="icosa">Икосаэдр</button>
+      <button class="demo" data-demo="dodeca">Додекаэдр</button>
+      <button class="demo" data-demo="diamond">Бриллиант</button>
+    </div>
+    <label class="file-drop" for="fileInput" title="Можно выбрать сразу несколько файлов">Файлы: OBJ или TXT (можно много)</label>
+    <input type="file" id="fileInput" accept=".obj,.txt" multiple hidden>
+    <label class="file-drop" for="dirInput" title="Все .obj и .txt, включая подпапки">Папка с моделями (с подпапками)</label>
+    <input type="file" id="dirInput" webkitdirectory hidden>
+    <div id="fileName" class="hint">демо: октаэдр</div>
+
+    <h3>Шум</h3>
+    <label class="check"><input type="checkbox" id="noise8" title="Шум r8: амплитуда 0.008" checked> r8 — 0.008</label>
+    <label class="check"><input type="checkbox" id="noise80" title="Шум r80: амплитуда 0.08" checked> r80 — 0.08</label>
+    <label class="check"><input type="checkbox" id="noiseCustom" title="Свои уровни шума через запятую"> свой уровень:</label>
+    <input id="customNoise" class="wide" value="0.02, 0.05" title="значения через запятую">
+
+    <h3>Сглаживание</h3>
+    <label class="check"><input type="checkbox" id="mFft" title="Ряд Фурье + метод наименьших квадратов" checked> Фурье + МНК</label>
+    <label class="check"><input type="checkbox" id="mUni" title="Скользящее среднее по окну k" checked> «соседи»</label>
+    <label class="check"><input type="checkbox" id="mNone" title="Без сглаживания — для сравнения"> без сглаживания</label>
+    <div class="row"><span>M гармоник</span><input type="number" id="harm" title="Число гармоник ряда; не меньше числа вершин сечения" value="32" min="2" max="64"></div>
+    <div class="row"><span>окно k</span><input type="number" id="win" title="Полуширина окна усреднения" value="5" min="1" max="15"></div>
+
+    <h3>Восстановление</h3>
+    <div class="row"><span>допуск площади, %</span><input type="number" id="lossPct" value="0.1" min="0.01" max="10" step="0.01" title="Сколько площади разрешено потерять при упрощении"></div>
+    <div class="row"><span>угол слияния, °</span><input type="number" id="angleDeg" value="1" min="0.1" max="20" step="0.1" title="Грани с углом меньше этого сливаются"></div>
+    <div class="row"><span>режим</span>
+      <select id="mode" title="Полуплоскости — для реальных огранок; максимумы — исходный метод">
+        <option value="envelope">полуплоскости</option>
+        <option value="maxima">максимумы</option>
+      </select>
+    </div>
+    <label class="check"><input type="checkbox" id="minimal" title="Строить минимальный многогранник автоматически" checked> минимальный многогранник</label>
+
+    <h3>Сетка</h3>
+    <div class="row"><span>слоёв</span><input type="number" id="layers" title="Число горизонтальных сечений" value="60" min="10" max="120"></div>
+    <div class="row"><span>направлений</span><input type="number" id="angles" title="Число направлений на слой" value="720" min="90" max="1440"></div>
+
+    <button id="runBtn" title="Запустить весь конвейер" class="primary">Запустить конвейер</button>
+  </aside>
+
+  <section class="workspace">
+    <div class="model-row">
+      <label>модель <select id="modelSel"></select></label>
+      <span id="batchInfo" class="meta"></span>
+    </div>
+
+    <div id="viewers" class="viewer-grid"></div>
+
+    <div id="hsplit" class="split-h" title="Потяните, чтобы изменить высоту вьюпортов"></div>
+    <div id="workspaceBottom" class="workspace-bottom">
+    <div class="toolbar">
+      <label>раскраска
+        <select id="colorMode" title="Режим раскраски модели">
+          <option value="solid_edges">заливка + рёбра</option>
+          <option value="solid">однотонная</option>
+          <option value="face">грани разными цветами</option>
+          <option value="area">по площади грани</option>
+          <option value="wire">каркас</option>
+          <option value="edges">рёбра</option>
+          <option value="points">вершины</option>
+        </select>
+      </label>
+      <label>выделять
+        <select id="selTarget" title="Что выделять кликом">
+          <option value="face">грани</option>
+          <option value="vertex">вершины</option>
+        </select>
+      </label>
+      <button id="fsBtn" title="Во весь экран">⛶</button>
+      <button id="addView" title="Добавить окно сравнения (до 6)">+ окно</button>
+      <button id="delView" title="Убрать последнее окно">− окно</button>
+      <label class="check"><input type="checkbox" id="syncCam" title="Вращение и зум повторяются во всех окнах" checked> общая камера</label>
+      <button id="selAll" title="Выделить всё (A)">Выделить всё</button>
+      <button id="selClear" title="Снять выделение (Alt+A)">Снять выделение</button>
+      <button id="resetBtn">Сбросить вид</button>
+      <button id="objBtn">Скачать OBJ</button>
+      <button id="pngBtn">Скриншот</button>
+      <button id="clearCache" title="Удалить сохранённые результаты и загруженные файлы">Очистить кеш</button>
+      <a id="csvLink" href="/api/export.csv">CSV метрик</a>
+    </div>
+
+    <div class="diff" id="selectionInfo">Выделение: —</div>
+    <div class="diff" id="diffLine">Сравнение: —</div>
+    <div class="table-wrap">
+      <table id="metricsTable">
+        <thead>
+          <tr><th>вариант</th><th>качество</th><th>MSE</th><th>RMSE</th><th>d<sub>max</sub></th><th>вершин</th><th>граней</th><th>точек</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="table-wrap batch">
+      <table id="batchTable">
+        <thead>
+          <tr><th>модель</th><th>лучший вариант</th><th>MSE</th><th>RMSE</th><th>d<sub>max</sub></th><th>качество</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    </div>
+  </section>
+</main>
+
+<div id="progress" class="progress hidden">
+  <div class="bar"><div id="barFill"></div></div>
+  <span id="progressText">—</span>
+</div>
+
+
+<div id="helpModal" class="modal hidden">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2>Справка</h2>
+      <button id="helpClose" class="help-close" title="Закрыть">×</button>
+    </div>
+    <div class="modal-body">
+      <h3>Оценка качества</h3>
+      <p>Считается по RMSE: <b>хорошо</b> — меньше 0.006, <b>средне</b> — меньше 0.03,
+      <b>плохо</b> — больше. Бейдж стоит в таблице вариантов, у каждого окна
+      и в пакетной таблице.</p>
+      <h3>Выделение</h3>
+      <p>Клик — одна грань (в режиме «вершины» — вершина). Shift — добавить,
+      Ctrl/Cmd — добавить или убрать, клик по пустому — снять.
+      A — выделить всё, Alt+A — снять. Выделение сразу видно во всех окнах:
+      если разбиение другое, подсвечивается ближайшая грань.</p>
+      <h3>Окна, размер и камера</h3>
+      <p>Окон от 2 до 6: «+ окно» и «− окно», в каждом свой вариант.
+      Галочка «общая камера» повторяет вращение и зум во всех окнах. Кнопка «⤢» разворачивает одно окно на всю область, повторное нажатие или Esc возвращает сетку. Высоту области вьюпортов можно менять, потянув за правый нижний угол.</p>
+      <h3>Данные</h3>
+      <p>Демо-тела, несколько файлов OBJ/TXT или папка с подпапками.
+      TXT — три числа в строке: x y z.</p>
+      <h3>Шум и методы</h3>
+      <p>r8 — 0.008, r80 — 0.08, свои уровни через запятую — несколько сразу.
+      Фурье+МНК: M — число гармоник. «Соседи»: k — полуширина окна.
+      Полуплоскости — основной режим для реальных огранок, максимумы —
+      исходный метод для правильных многогранников.</p>
+      <h3>Минимальный многогранник</h3>
+      <p>Автоматически: допуск по площади 0.1%, слияние граней до 1°.</p>
+      <h3>Экспорт</h3>
+      <p>OBJ — выбранная модель, PNG — окно, CSV — все метрики.</p>
+    </div>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,443 @@
+"""Локальное приложение-конвейер: сервер + веб-интерфейс.
+
+Запуск:  python app.py [--port 8765] [--no-browser]
+Зависимости: numpy, scipy.
+"""
+import argparse
+import csv
+import io
+import json
+import os
+import platform
+import shutil
+import sys
+import threading
+import time
+import uuid
+import webbrowser
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse, parse_qs
+
+import numpy as np
+from concurrent.futures import ThreadPoolExecutor
+
+from core import pipeline
+
+
+class Api:
+    def toggle_fullscreen(self):
+        import webview
+        win = webview.windows[0]
+        win.toggle_fullscreen()
+        return True
+
+FROZEN = getattr(sys, "_MEIPASS", None)
+BASE = FROZEN or os.path.dirname(os.path.abspath(__file__))
+STATIC = os.path.join(BASE, "static")
+
+
+def _data_dir():
+    if FROZEN:
+        home = os.path.expanduser("~")
+        if platform.system() == "Darwin":
+            root = os.path.join(home, "Library", "Application Support", "ShapePipeline")
+        elif platform.system() == "Windows":
+            root = os.path.join(os.environ.get("APPDATA", home), "ShapePipeline")
+        else:
+            root = os.path.join(home, ".local", "share", "shape-pipeline")
+    else:
+        root = os.path.dirname(os.path.abspath(__file__))
+    return root
+
+
+DATA = _data_dir()
+UPLOADS = os.path.join(DATA, "uploads")
+RUNS = os.path.join(DATA, "runs")
+os.makedirs(UPLOADS, exist_ok=True)
+os.makedirs(RUNS, exist_ok=True)
+
+LOCK = threading.Lock()
+STATE = {"job": None, "models": None}
+
+
+def load_latest():
+    if not os.path.isdir(RUNS):
+        return None
+    cands = []
+    for d in os.listdir(RUNS):
+        p = os.path.join(RUNS, d, "results.json")
+        if os.path.isfile(p):
+            cands.append((os.path.getmtime(p), p))
+    if not cands:
+        return None
+    cands.sort()
+    try:
+        with open(cands[-1][1], encoding="utf-8") as f:
+            return json.load(f).get("models")
+    except Exception:
+        return None
+
+
+def demo_body(name):
+    phi = (1 + 5 ** 0.5) / 2
+    if name == "octa":
+        v = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]
+    elif name == "icosa":
+        v = [[0, 1, phi], [0, 1, -phi], [0, -1, phi], [0, -1, -phi],
+             [1, phi, 0], [1, -phi, 0], [-1, phi, 0], [-1, -phi, 0],
+             [phi, 0, 1], [phi, 0, -1], [-phi, 0, 1], [-phi, 0, -1]]
+    elif name == "dodeca":
+        v = []
+        for a in (1, -1):
+            for b in (1, -1):
+                for c in (1, -1):
+                    v.append([a, b, c])
+        for a in (1, -1):
+            for b in (1, -1):
+                v += [[0, a / phi, b * phi], [a / phi, b * phi, 0], [a * phi, 0, b / phi]]
+    elif name == "diamond":
+        v = []
+        for r, z in [(0.8, 3.0), (1.7, 2.05), (1.7, 1.95), (0.1, 0.0)]:
+            for k in range(10):
+                a = 2 * np.pi * k / 10
+                v.append([r * np.cos(a), r * np.sin(a), z])
+    else:
+        raise ValueError(f"неизвестное тело: {name}")
+    return np.asarray(v, float)
+
+
+GOOD_RMSE = 0.03
+MEDIUM_RMSE = 0.12
+
+
+def quality(m):
+    if not m or m.get("rmse") is None:
+        return None
+    r = float(m["rmse"])
+    return "good" if r < GOOD_RMSE else ("medium" if r < MEDIUM_RMSE else "bad")
+
+
+def _stage(text, progress, eta=None):
+    with LOCK:
+        if STATE["job"]:
+            STATE["job"].update(stage=text, progress=round(progress, 3), eta=eta, updated=time.time())
+
+
+def _eta(p, t0):
+    if p <= 0.01:
+        return None
+    return max(1, int((time.time() - t0) / p * (1 - p)))
+
+
+def _prepare(source):
+    if source["kind"] == "demo":
+        v = pipeline.normalize_mesh(demo_body(source["name"]), flip=False)
+        title = {"octa": "Октаэдр", "icosa": "Икосаэдр", "dodeca": "Додекаэдр",
+                 "diamond": "Бриллиант"}[source["name"]]
+        v, faces = pipeline.hull(v)
+        return v, faces, title
+    path = source["path"]
+    text = open(path, encoding="utf-8", errors="ignore").read()
+    if path.lower().endswith(".obj"):
+        v, faces = pipeline.parse_obj(text)
+    else:
+        v = pipeline.parse_points(text)
+        faces = []
+    if len(v) < 4:
+        raise ValueError("меньше четырёх точек")
+    v = pipeline.normalize_mesh(v, flip=True)
+    v, faces = pipeline.hull(v)
+    return v, faces, source.get("name") or os.path.basename(path)
+
+
+def _run(sources, params):
+    t0 = time.time()
+    models = []
+    n_models = max(1, len(sources))
+    try:
+        for mi, source in enumerate(sources):
+            _stage(f"Модель {mi + 1}/{n_models}: загрузка", 0.01 + 0.97 * mi / n_models)
+            v, faces, title = _prepare(source)
+
+            n_angles = int(params.get("angles", 720))
+            n_layers = int(params.get("layers", 60))
+            mode = params.get("mode", "envelope")
+            methods = params.get("methods", ["fft", "none"])
+            levels = [float(x) for x in params.get("noise", [0.008, 0.08])]
+            harmonics = int(params.get("harmonics", 32))
+            window = int(params.get("window", 5))
+            do_min = bool(params.get("minimal", True))
+            loss = float(params.get("loss", 0.1)) / 100.0
+            angle = float(params.get("angle", 1.0))
+
+            alphas, layers = pipeline.build_sections(v, pipeline.mesh_edges(faces), n_layers, n_angles)
+            true_by_z = {round(z, 6): r for z, r in layers}
+            ref_metrics = {"mse": 0.0, "rmse": 0.0, "dmax": 0.0}
+            results = [{
+                "id": f"m{mi}:ref", "label": "Эталон", "kind": "ref",
+                "mesh": {"v": v.tolist(), "f": [list(f) for f in faces]},
+                "metrics": ref_metrics, "quality": "ref",
+                "vertices": int(len(v)), "faces": int(len(faces)), "points": int(len(v)),
+            }]
+
+            t_ref = time.time()
+            try:
+                mpref = pipeline.minimal_polyhedron(v)
+                pr_v, pr_f = pipeline.polygons_to_mesh(mpref["polygons"])
+                results.append({
+                    "id": f"m{mi}:refmin", "label": "Эталон · мин. многогранник", "kind": "min",
+                    "mesh": {"v": pr_v.tolist(), "f": [list(f) for f in pr_f]},
+                    "metrics": ref_metrics, "quality": "ref",
+                    "vertices": int(mpref["vertices"]), "faces": int(mpref["faces"]),
+                    "points": int(len(v)), "time": round(time.time() - t_ref, 2),
+                })
+            except Exception:
+                pass
+
+            zs = np.array([z for z, _ in layers])
+            R_true = np.vstack([r for _, r in layers])
+            variants = [(rv, me) for rv in levels for me in methods]
+            total_variants = max(1, len(variants))
+            A = pinv = None
+            if "fft" in methods:
+                A, pinv = pipeline.fourier_design(alphas, harmonics)
+            done_counter = [0]
+            with LOCK:
+                STATE["models"] = [{"id": mi, "name": title, "results": list(results)}]
+
+            def run_variant(args):
+                vi, rv, method = args
+                names = {"none": "без сглаживания", "fft": "Фурье+МНК", "uni": "соседи"}
+                if rv == 0:
+                    label_noise = "точные"
+                elif abs(rv - 0.008) < 1e-9:
+                    label_noise = "r8"
+                elif abs(rv - 0.08) < 1e-9:
+                    label_noise = "r80"
+                else:
+                    label_noise = f"шум {rv:g}"
+                label = f"{label_noise} · {names.get(method, method)}"
+                t_var = time.time()
+                rng = np.random.default_rng(1000 + mi * 100 + vi)
+                R = R_true + rv * rng.uniform(-1.0, 1.0, size=R_true.shape) if rv > 0 else R_true.copy()
+                if method == "fft":
+                    Rs = pipeline.fourier_denoise_matrix(R, A, pinv)
+                elif method == "uni":
+                    Rs = np.vstack([pipeline.uniform_denoise_adaptive(R[i], R_true[i], 5, 30)
+                                    for i in range(len(zs))])
+                else:
+                    Rs = R
+                pts = []
+                for li, z in enumerate(zs):
+                    if mode == "maxima":
+                        pts += pipeline.maxima_points(alphas, Rs[li], float(z))
+                    else:
+                        pts += pipeline.envelope_points(alphas, Rs[li], float(z))
+                if len(pts) < 4:
+                    out = [{"id": f"m{mi}:v{vi}", "label": label, "kind": "fail", "mesh": None,
+                            "metrics": {"mse": None, "rmse": None, "dmax": None},
+                            "quality": None, "vertices": 0, "faces": 0, "points": len(pts),
+                            "time": round(time.time() - t_var, 2)}]
+                else:
+                    pts = np.asarray(pts)
+                    hv, hf = pipeline.hull_compact(pts)
+                    m = pipeline.metrics(true_by_z, alphas, pts)
+                    out = [{"id": f"m{mi}:v{vi}", "label": label, "kind": "hull",
+                            "mesh": {"v": hv.tolist(), "f": [list(f) for f in hf]},
+                            "metrics": m, "quality": quality(m),
+                            "vertices": int(len(hv)), "faces": int(len(hf)),
+                            "points": int(len(pts)), "time": round(time.time() - t_var, 2)}]
+                    if do_min:
+                        try:
+                            mp = pipeline.minimal_polyhedron(pts, angle_tol_deg=angle,
+                                                             loss_target=loss, hull=(hv, hf))
+                            mv, mf = pipeline.polygons_to_mesh(mp["polygons"])
+                            out.append({"id": f"m{mi}:v{vi}m", "label": label + " · мин. многогранник",
+                                        "kind": "min", "mesh": {"v": mv.tolist(), "f": [list(f) for f in mf]},
+                                        "metrics": m, "quality": quality(m),
+                                        "vertices": int(mp["vertices"]), "faces": int(mp["faces"]),
+                                        "points": int(len(pts)),
+                                        "time": round(time.time() - t_var, 2)})
+                        except Exception:
+                            pass
+                with LOCK:
+                    results.extend(out)
+                    done_counter[0] += 1
+                    STATE["models"][0]["results"] = list(results)
+                    if STATE["job"]:
+                        frac = 0.02 + 0.97 * (mi + done_counter[0] / total_variants) / n_models
+                        STATE["job"].update(done=done_counter[0], total=total_variants,
+                                            stage=f"{title}: {label}", progress=round(min(frac, 0.99), 3),
+                                            eta=_eta(frac, t0))
+                return out
+
+            with ThreadPoolExecutor(max_workers=min(4, len(variants)) or 1) as pool:
+                list(pool.map(run_variant, [(vi, rv, me) for vi, (rv, me) in enumerate(variants)]))
+
+            models.append({"id": mi, "name": title, "results": results})
+
+        with LOCK:
+            STATE["models"] = models
+            STATE["job"].update(state="done", progress=1.0, stage="Готово",
+                                elapsed=round(time.time() - t0, 1), eta=0)
+        _save(models)
+    except Exception as exc:
+        with LOCK:
+            if STATE["job"]:
+                STATE["job"].update(state="error", error=str(exc), stage="Ошибка")
+        raise
+
+
+def _save(models):
+    run_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:4]
+    path = os.path.join(RUNS, run_id)
+    os.makedirs(path, exist_ok=True)
+    with open(os.path.join(path, "results.json"), "w", encoding="utf-8") as f:
+        json.dump({"models": models}, f)
+    for model in models:
+        for r in model["results"]:
+            if r.get("mesh"):
+                _write_obj(os.path.join(path, r["id"].replace(":", "_") + ".obj"), r["mesh"])
+
+
+def _write_obj(path, mesh):
+    with open(path, "w") as fh:
+        fh.write(f"# vertices: {len(mesh['v'])}, faces: {len(mesh['f'])}\n")
+        for p in mesh["v"]:
+            fh.write(f"v {p[0]:.6f} {p[1]:.6f} {p[2]:.6f}\n")
+        for face in mesh["f"]:
+            fh.write("f " + " ".join(str(int(i) + 1) for i in face) + "\n")
+
+
+class Handler(SimpleHTTPRequestHandler):
+    def __init__(self, *a, **kw):
+        super().__init__(*a, directory=STATIC, **kw)
+
+    def log_message(self, fmt, *args):
+        pass
+
+    def _json(self, obj, code=200):
+        data = json.dumps(obj, ensure_ascii=False).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_GET(self):
+        u = urlparse(self.path)
+        if u.path == "/api/status":
+            with LOCK:
+                return self._json(STATE["job"] or {"state": "idle"})
+        if u.path == "/api/results":
+            with LOCK:
+                return self._json({"models": STATE["models"] or []})
+        if u.path == "/api/mesh":
+            rid = parse_qs(u.query).get("id", [""])[0]
+            with LOCK:
+                for model in STATE["models"] or []:
+                    for r in model["results"]:
+                        if r["id"] == rid:
+                            return self._json(r)
+            return self._json({"error": "нет результата"}, 404)
+        if u.path == "/api/export.csv":
+            return self._csv()
+        if u.path == "/api/demo":
+            return self._json(["octa", "icosa", "dodeca", "diamond"])
+        return super().do_GET()
+
+    def do_POST(self):
+        u = urlparse(self.path)
+        if u.path == "/api/clear-cache":
+            with LOCK:
+                STATE["models"] = None
+                STATE["job"] = {"state": "idle"}
+            for d in (UPLOADS, RUNS):
+                shutil.rmtree(d, ignore_errors=True)
+                os.makedirs(d, exist_ok=True)
+            return self._json({"ok": True})
+        if u.path == "/api/upload":
+            n = int(self.headers.get("Content-Length", 0))
+            if n > 120 * 1024 * 1024:
+                return self._json({"error": "файл больше 120 МБ"}, 413)
+            name = os.path.basename(self.headers.get("X-Filename", "upload.obj"))
+            uid = uuid.uuid4().hex[:10]
+            path = os.path.join(UPLOADS, uid + "_" + name)
+            with open(path, "wb") as f:
+                f.write(self.rfile.read(n))
+            return self._json({"path": path, "name": name})
+        if u.path == "/api/run":
+            n = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(n) or b"{}")
+            with LOCK:
+                if STATE["job"] and STATE["job"].get("state") == "running":
+                    return self._json({"error": "уже выполняется"}, 409)
+                STATE["job"] = {"state": "running", "stage": "Старт", "progress": 0.0,
+                                "eta": None, "started": time.time()}
+                STATE["models"] = None
+            sources = body.get("sources") or [body.get("source")]
+            threading.Thread(target=_run, args=(sources, body.get("params", {})), daemon=True).start()
+            return self._json({"ok": True})
+        return self._json({"error": "неизвестный запрос"}, 404)
+
+    def _csv(self):
+        with LOCK:
+            models = STATE["models"] or []
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["модель", "вариант", "качество", "MSE", "RMSE", "d_max", "вершин", "граней", "точек", "время, с"])
+        for model in models:
+            for r in model["results"]:
+                m = r.get("metrics") or {}
+                w.writerow([model["name"], r["label"], r.get("quality"), m.get("mse"),
+                            m.get("rmse"), m.get("dmax"), r.get("vertices"), r.get("faces"), r.get("points"), r.get("time")])
+        data = buf.getvalue().encode("utf-8-sig")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/csv; charset=utf-8")
+        self.send_header("Content-Disposition", "attachment; filename=metrics.csv")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--no-browser", action="store_true", help="не открывать браузер")
+    ap.add_argument("--no-window", action="store_true", help="без отдельного окна")
+    args = ap.parse_args()
+    with LOCK:
+        STATE["models"] = load_latest()
+        if STATE["models"]:
+            print("загружены сохранённые результаты:", len(STATE["models"]), "модел(ей)")
+    srv = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    url = f"http://127.0.0.1:{args.port}/"
+    print("Огранка запущена:", url)
+    print("Данные:", DATA)
+    if args.no_window:
+        if not args.no_browser:
+            threading.Timer(0.7, lambda: webbrowser.open(url)).start()
+        try:
+            srv.serve_forever()
+        except KeyboardInterrupt:
+            print("\nОстановлено")
+        return
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        import webview
+        webview.create_window("Огранка — восстановление формы", url, width=1440, height=940,
+                              min_size=(880, 560), maximized=True, js_api=Api())
+        webview.start()
+    except Exception as exc:
+        print("Окно недоступно, открываю браузер:", exc)
+        if not args.no_browser:
+            webbrowser.open(url)
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print("\nОстановлено")
+
+
+if __name__ == "__main__":
+    main()

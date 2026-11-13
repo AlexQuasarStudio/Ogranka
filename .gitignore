@@ -1,0 +1,23 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+*.log
+.venv/
+.office-verify/
+
+# Готовые сборки и промежуточные артефакты PyInstaller
+Огранка.app/
+Ogranka.exe
+app/build/
+app/dist/
+app/dist_new/
+app/runs/
+app/uploads/
+
+# Сырые данные и результаты, которые воспроизводятся скриптами
+reconstruct3D/real_data/
+reconstruct3D/out3D/
+reconstruct3D/out3D_real/
+
+# Дубликат каталога отчёта
+Отчет.zip

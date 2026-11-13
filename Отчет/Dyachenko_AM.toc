@@ -1,0 +1,36 @@
+\babel@toc {russian}{}\relax 
+\contentsline {section}{\numberline {1}Введение}{3}{section.1}%
+\contentsline {section}{\numberline {2}Постановка задачи}{4}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Основная идея метода}{4}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Определение максимума}{4}{subsection.2.2}%
+\contentsline {section}{\numberline {3}Генерация горизонтальных контуров и моделирование шума}{9}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Исходная модель}{9}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Формирование проекций}{9}{subsection.3.2}%
+\contentsline {subsection}{\numberline {3.3}Построение горизонтального контура}{9}{subsection.3.3}%
+\contentsline {subsection}{\numberline {3.4}Моделирование шума}{10}{subsection.3.4}%
+\contentsline {subsection}{\numberline {3.5}Результат генерации}{10}{subsection.3.5}%
+\contentsline {section}{\numberline {4}Подавление шума методом наименьших квадратов}{11}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Исходные данные}{11}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Аппроксимация рядом Фурье}{11}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Метод наименьших квадратов}{11}{subsection.4.3}%
+\contentsline {subsection}{\numberline {4.4}Метод «ближайших соседей»}{12}{subsection.4.4}%
+\contentsline {subsection}{\numberline {4.5}Результат и сравнение с точной формой}{12}{subsection.4.5}%
+\contentsline {section}{\numberline {5}Сравнение восстановленной и точной формы}{13}{section.5}%
+\contentsline {section}{\numberline {6}Трехмерные тела: генерация сечений, восстановление и подавление шума}{20}{section.6}%
+\contentsline {subsection}{\numberline {6.1}Исходные тела}{20}{subsection.6.1}%
+\contentsline {subsection}{\numberline {6.2}Генерация горизонтальных точечных сечений}{21}{subsection.6.2}%
+\contentsline {subsection}{\numberline {6.3}Восстановление эталонных тел}{21}{subsection.6.3}%
+\contentsline {subsection}{\numberline {6.4}Восстановление зашумленных моделей}{22}{subsection.6.4}%
+\contentsline {subsection}{\numberline {6.5}Подавление шума по слоям}{23}{subsection.6.5}%
+\contentsline {subsection}{\numberline {6.6}Сравнение с эталоном}{24}{subsection.6.6}%
+\contentsline {subsection}{\numberline {6.7}Минимальный многогранник: автоматический режим}{25}{subsection.6.7}%
+\contentsline {section}{\numberline {7}Реальные данные}{29}{section.7}%
+\contentsline {subsection}{\numberline {7.1}Данные и подготовка}{29}{subsection.7.1}%
+\contentsline {subsection}{\numberline {7.2}Два режима восстановления}{29}{subsection.7.2}%
+\contentsline {subsection}{\numberline {7.3}Зашумленные данные}{30}{subsection.7.3}%
+\contentsline {subsection}{\numberline {7.4}Сглаживание}{30}{subsection.7.4}%
+\contentsline {subsection}{\numberline {7.5}Вывод по реальным данным}{32}{subsection.7.5}%
+\contentsline {section}{\numberline {8}Программа «Огранка»}{33}{section.8}%
+\contentsline {section}{\numberline {9}Вывод}{35}{section.9}%
+\contentsline {section}{\numberline {10}Заключение}{36}{section.10}%
+\contentsline {section}{Список литературы}{37}{section*.2}%
