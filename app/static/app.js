@@ -7,7 +7,7 @@ const App = {
   solo: null,
   syncCam: true,
   camLock: false,
-  sel: { points: [], polys: [], mode: "face" },
+  sel: { points: [], polys: [], mode: "face", anchor: null },
   selTarget: "face",
   viewers: [],
   poll: null,
@@ -265,6 +265,34 @@ class Viewer {
       return r;
     });
 
+    this.faceAdj = Array.from({ length: faces.length }, () => []);
+    const edgeOwner = new Map();
+    faces.forEach((f, fi) => {
+      for (let i = 0; i < f.length; i++) {
+        const a = f[i], b = f[(i + 1) % f.length];
+        const key = a < b ? `${a}_${b}` : `${b}_${a}`;
+        if (edgeOwner.has(key)) {
+          const fj = edgeOwner.get(key);
+          if (fj !== fi) { this.faceAdj[fi].push(fj); this.faceAdj[fj].push(fi); }
+        } else {
+          edgeOwner.set(key, fi);
+        }
+      }
+    });
+    this.vertAdj = Array.from({ length: v.length }, () => []);
+    const vEdges = new Set();
+    faces.forEach((f) => {
+      for (let i = 0; i < f.length; i++) {
+        const a = f[i], b = f[(i + 1) % f.length];
+        const key = a < b ? `${a}_${b}` : `${b}_${a}`;
+        if (!vEdges.has(key)) {
+          vEdges.add(key);
+          this.vertAdj[a].push(b);
+          this.vertAdj[b].push(a);
+        }
+      }
+    });
+
     const pos = new Float32Array(tris.length * 9);
     const col = new Float32Array(tris.length * 9);
     const faceColor = faces.map((_, i) => new THREE.Color().setHSL((i * 0.61803398875) % 1, 0.55, 0.58));
@@ -356,20 +384,20 @@ class Viewer {
     const rect = this.canvas.getBoundingClientRect();
     const mouse = new THREE.Vector2(((x - rect.left) / rect.width) * 2 - 1, -((y - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(mouse, this.camera);
-    const action = ctrl ? "toggle" : (shift ? "add" : "replace");
+    const action = ctrl ? "toggle" : (shift ? "path" : "replace");
 
     if (this.selTarget === "vertex" || this.pointsObj) {
       const hits = this.raycaster.intersectObject(this.pointsObj);
       if (!this.pointsObj) return;
       if (!hits.length) { if (action === "replace") this.onPick(this, null, "vert", "clear"); return; }
-      this.onPick(this, this.verts[hits[0].index].slice(), "vert", action);
+      this.onPick(this, this.verts[hits[0].index].slice(), "vert", action, null, hits[0].index);
       return;
     }
     const hits = this.raycaster.intersectObject(this.solid);
     if (!hits.length) { if (action === "replace") this.onPick(this, null, "face", "clear"); return; }
     const fi = this.triFace[hits[0].faceIndex];
     const poly = this.facePolys[fi].map((p) => p.slice());
-      this.onPick(this, this.faceCentroids[fi].slice(), "face", action, poly);
+      this.onPick(this, this.faceCentroids[fi].slice(), "face", action, poly, fi);
   }
 
   applySelection(points, mode, polys = []) {
@@ -426,6 +454,30 @@ class Viewer {
     }
     this.rebuild(this.mode);
   }
+
+  bfsPath(adj, start, end) {
+    if (start === end) return [start];
+    const prev = new Int32Array(adj.length).fill(-1);
+    const seen = new Uint8Array(adj.length);
+    const queue = [start];
+    seen[start] = 1;
+    for (let qi = 0; qi < queue.length; qi++) {
+      const u = queue[qi];
+      if (u === end) break;
+      for (const v of adj[u] || []) {
+        if (!seen[v]) { seen[v] = 1; prev[v] = u; queue.push(v); }
+      }
+    }
+    if (!seen[end]) return [end];
+    const path = [];
+    let cur = end;
+    while (cur !== -1 && cur !== start) { path.push(cur); cur = prev[cur]; }
+    path.push(start);
+    return path.reverse();
+  }
+
+  pathFaces(start, end) { return this.bfsPath(this.faceAdj, start, end); }
+  pathVerts(start, end) { return this.bfsPath(this.vertAdj, start, end); }
 
   alignAxis(axis) {
     const c = this.controls.target.clone();
@@ -608,6 +660,7 @@ function populateViewer(v, idx) {
 }
 
 async function loadViewer(v) {
+  App.sel.anchor = null;
   const id = v.select.value;
   if (!id) return;
   const r = await meshOf(id);
@@ -623,22 +676,53 @@ async function loadAllViewers() {
   App.viewers.forEach((v) => v.applySelection(App.sel.points, App.sel.mode, App.sel.polys));
 }
 
-function handlePick(src, point, type, action, poly) {
+function handlePick(src, point, type, action, poly, index) {
   if (!App.sel.polys) App.sel.polys = [];
-  if (App.sel.mode !== type) App.sel = { points: [], polys: [], mode: type };
+  if (App.sel.mode !== type) App.sel = { points: [], polys: [], mode: type, anchor: null };
+  if (!("anchor" in App.sel)) App.sel.anchor = null;
+  const keyOf = (p) => p.map((x) => x.toFixed(6)).join(",");
+  const anchor = App.sel.anchor;
+
   if (action === "clear") {
     App.sel.points = [];
     App.sel.polys = [];
+    App.sel.anchor = null;
+  } else if (action === "path" && src && index != null) {
+    if (!anchor || anchor.viewer !== src || anchor.type !== type) {
+      App.sel.points = [point];
+      App.sel.polys = [poly || null];
+    } else {
+      const ids = type === "face" ? src.pathFaces(anchor.index, index) : src.pathVerts(anchor.index, index);
+      const keys = new Set(App.sel.points.map(keyOf));
+      ids.forEach((fi) => {
+        const p = type === "face" ? src.faceCentroids[fi].slice() : src.verts[fi].slice();
+        const k = keyOf(p);
+        if (keys.has(k)) return;
+        keys.add(k);
+        App.sel.points.push(p);
+        App.sel.polys.push(type === "face" ? src.facePolys[fi].map((q) => q.slice()) : null);
+      });
+    }
+    App.sel.anchor = { viewer: src, type, index };
   } else if (action === "replace") {
     App.sel.points = [point];
     App.sel.polys = [poly || null];
+    App.sel.anchor = { viewer: src, type, index };
   } else if (action === "add") {
     App.sel.points.push(point);
     App.sel.polys.push(poly || null);
+    App.sel.anchor = { viewer: src, type, index };
   } else if (action === "toggle") {
     const i = App.sel.points.findIndex((p) => near(p, point));
-    if (i >= 0) { App.sel.points.splice(i, 1); App.sel.polys.splice(i, 1); }
-    else { App.sel.points.push(point); App.sel.polys.push(poly || null); }
+    if (i >= 0) {
+      App.sel.points.splice(i, 1);
+      App.sel.polys.splice(i, 1);
+      if (App.sel.anchor && App.sel.anchor.index === index) App.sel.anchor = null;
+    } else {
+      App.sel.points.push(point);
+      App.sel.polys.push(poly || null);
+      App.sel.anchor = { viewer: src, type, index };
+    }
   }
   broadcastSelection();
 }
@@ -1046,6 +1130,7 @@ function init() {
     App.selTarget = $("selTarget").value;
     App.sel.points = [];
     App.sel.polys = [];
+    App.sel.anchor = null;
     App.viewers.forEach((v) => { v.selTarget = App.selTarget; v.rebuild(App.mode); });
     broadcastSelection();
   };
@@ -1066,9 +1151,10 @@ function init() {
     App.sel.mode = App.mode === "points" ? "vert" : "face";
     App.sel.points = App.sel.mode === "face" ? v.faceCentroids.map((c) => c.slice()) : v.verts.map((p) => p.slice());
     App.sel.polys = App.sel.mode === "face" ? v.facePolys.map((poly) => poly.map((p) => p.slice())) : [];
+    App.sel.anchor = null;
     broadcastSelection();
   };
-  $("selClear").onclick = () => { App.sel.points = []; App.sel.polys = []; broadcastSelection(); };
+  $("selClear").onclick = () => { App.sel.points = []; App.sel.polys = []; App.sel.anchor = null; broadcastSelection(); };
   $("resetBtn").onclick = () => {
     App.viewers.forEach((v) => v.mesh && v.frame(v.mesh));
     if (App.syncCam && App.viewers.length) { App.camLock = true; App.viewers.forEach((v) => v.copyCamera(App.viewers[0])); App.camLock = false; }

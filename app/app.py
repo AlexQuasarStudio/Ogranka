@@ -26,6 +26,13 @@ from core import pipeline
 pipeline.ENGINE = "fast"
 
 
+def _console_print(*args, **kwargs):
+    try:
+        print(*args, **kwargs)
+    except Exception:
+        pass
+
+
 class Api:
     def toggle_fullscreen(self):
         import webview
@@ -556,18 +563,18 @@ def main():
     with LOCK:
         STATE["models"] = load_latest()
         if STATE["models"]:
-            print("загружены сохранённые результаты:", len(STATE["models"]), "модел(ей)")
+            _console_print("загружены сохранённые результаты:", len(STATE["models"]), "модел(ей)")
     srv = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     url = f"http://127.0.0.1:{args.port}/"
-    print("Огранка запущена:", url)
-    print("Данные:", DATA)
+    _console_print("Огранка запущена:", url)
+    _console_print("Данные:", DATA)
     if args.no_window:
         if not args.no_browser:
             threading.Timer(0.7, lambda: webbrowser.open(url)).start()
         try:
             srv.serve_forever()
         except KeyboardInterrupt:
-            print("\nОстановлено")
+            _console_print("\nОстановлено")
         return
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
@@ -576,14 +583,14 @@ def main():
                               min_size=(880, 560), maximized=True, js_api=Api())
         webview.start()
     except Exception as exc:
-        print("Окно недоступно, открываю браузер:", exc)
+        _console_print("Окно недоступно, открываю браузер:", exc)
         if not args.no_browser:
             webbrowser.open(url)
         try:
             while True:
                 time.sleep(1)
         except KeyboardInterrupt:
-            print("\nОстановлено")
+            _console_print("\nОстановлено")
 
 
 if __name__ == "__main__":
