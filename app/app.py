@@ -31,6 +31,28 @@ class Api:
         win.toggle_fullscreen()
         return True
 
+    def save_csv(self):
+        text = _csv_text()
+        try:
+            import webview
+            win = webview.windows[0] if webview.windows else None
+            if win is None:
+                return {"error": "нет окна"}
+            path = win.create_file_dialog(webview.SAVE_DIALOG, save_filename="metrics.csv",
+                                          file_types=("CSV (*.csv)",))
+        except Exception as exc:
+            return {"error": str(exc)}
+        if not path:
+            return {"cancelled": True}
+        if isinstance(path, (list, tuple)):
+            path = path[0]
+        try:
+            with open(path, "w", encoding="utf-8-sig", newline="") as f:
+                f.write(text)
+            return {"path": path}
+        except Exception as exc:
+            return {"error": str(exc)}
+
 FROZEN = getattr(sys, "_MEIPASS", None)
 BASE = FROZEN or os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(BASE, "static")
@@ -445,23 +467,28 @@ class Handler(SimpleHTTPRequestHandler):
         return self._json({"error": "неизвестный запрос"}, 404)
 
     def _csv(self):
-        with LOCK:
-            models = STATE["models"] or []
-        buf = io.StringIO()
-        w = csv.writer(buf)
-        w.writerow(["модель", "вариант", "качество", "MSE", "RMSE", "d_max", "вершин", "граней", "точек", "время, с"])
-        for model in models:
-            for r in model["results"]:
-                m = r.get("metrics") or {}
-                w.writerow([model["name"], r["label"], r.get("quality"), m.get("mse"),
-                            m.get("rmse"), m.get("dmax"), r.get("vertices"), r.get("faces"), r.get("points"), r.get("time")])
-        data = buf.getvalue().encode("utf-8-sig")
+        data = _csv_text().encode("utf-8-sig")
         self.send_response(200)
         self.send_header("Content-Type", "text/csv; charset=utf-8")
         self.send_header("Content-Disposition", "attachment; filename=metrics.csv")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+
+def _csv_text():
+    with LOCK:
+        models = STATE["models"] or []
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["модель", "вариант", "качество", "MSE", "RMSE", "d_max", "вершин", "граней", "точек", "время, с"])
+    for model in models:
+        for r in model["results"]:
+            m = r.get("metrics") or {}
+            w.writerow([model["name"], r["label"], r.get("quality"), m.get("mse"),
+                        m.get("rmse"), m.get("dmax"), r.get("vertices"), r.get("faces"),
+                        r.get("points"), r.get("time")])
+    return buf.getvalue()
 
 
 def main():

@@ -982,6 +982,28 @@ function init() {
     a.click();
   };
 
+  $("csvLink").onclick = async (e) => {
+    e.preventDefault();
+    try {
+      if (window.pywebview && window.pywebview.api && window.pywebview.api.save_csv) {
+        const res = await window.pywebview.api.save_csv();
+        if (res && res.path) { $("statusText").textContent = "CSV сохранён"; return; }
+        if (res && res.cancelled) { $("statusText").textContent = "CSV не сохранён"; return; }
+      }
+      const r = await fetch("/api/export.csv");
+      if (!r.ok) throw new Error("CSV недоступен");
+      const blob = await r.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "metrics.csv";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      $("statusText").textContent = "CSV скачан";
+    } catch (err) {
+      alert("Не удалось сохранить CSV: " + err.message);
+    }
+  };
+
   $("helpBtn").onclick = () => $("helpModal").classList.remove("hidden");
   $("progressClose").onclick = () => hideProgress();
   $("helpClose").onclick = () => $("helpModal").classList.add("hidden");
