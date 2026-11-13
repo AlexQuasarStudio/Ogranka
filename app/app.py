@@ -467,7 +467,7 @@ def _run(sources, params):
                 list(pool.map(run_variant, [(vi, rv, me) for vi, (rv, me) in enumerate(variants)]))
 
             mreport("модель готова", 0.96)
-            models.append({"id": mi, "name": title, "results": results})
+            models.append({"id": mi, "name": title, "source": source, "results": results})
 
         _stage("Сохранение результатов", 0.985, detail=f"моделей: {len(models)}")
         _save(models)
@@ -625,6 +625,10 @@ class Handler(SimpleHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
         pass
+
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-store, max-age=0")
+        super().end_headers()
 
     def _json(self, obj, code=200):
         data = json.dumps(obj, ensure_ascii=False).encode()

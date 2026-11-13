@@ -1,5 +1,6 @@
 const App = {
   sources: [{ kind: "demo", name: "octa" }],
+  liveSource: null,
   models: [],
   modelIdx: 0,
   meshes: {},
@@ -807,6 +808,29 @@ function setViewMode(mode) {
 
 function currentModel() { return App.models[App.modelIdx]; }
 
+const DEMO_TITLES = {
+  "Куб": "cube",
+  "Восьмиугольная призма": "prism",
+  "Октаэдр": "octa",
+  "Икосаэдр": "icosa",
+  "Додекаэдр": "dodeca",
+  "Бриллиант": "diamond",
+};
+
+function sourceForModel(model) {
+  if (!model) return null;
+  if (model.source && model.source.kind) return model.source;
+  const demo = DEMO_TITLES[model.name];
+  return demo ? { kind: "demo", name: demo } : null;
+}
+
+function currentLiveSource() {
+  if (App.liveSource) return App.liveSource;
+  const model = currentModel();
+  if (model) return sourceForModel(model);
+  return App.sources && App.sources[0] ? App.sources[0] : null;
+}
+
 function cycleModel(delta) {
   if (App.models.length < 2) return;
   const n = App.models.length;
@@ -846,6 +870,7 @@ async function loadResults() {
 async function renderModel() {
   const model = currentModel();
   if (!model) return;
+  App.liveSource = sourceForModel(model);
   App.viewers.forEach((v, i) => populateViewer(v, i));
   renderTable(model.results);
   App.viewers.forEach((v) => { v.select.onchange = () => loadViewer(v); });
@@ -1031,6 +1056,7 @@ async function setFiles(fileList, folder) {
   if (!sources.length) { App.uploading = false; showProgressError("Не удалось загрузить файлы"); return; }
   App.uploading = false;
   App.sources = sources;
+  App.liveSource = sources[0];
   $("fileName").textContent = (folder ? "папка: " : "файлы: ") + sources.length;
   $("harm").value = 32;
   document.querySelectorAll(".demo").forEach((x) => x.classList.remove("active"));
@@ -1150,8 +1176,8 @@ function scheduleLive() {
 }
 
 async function runLive() {
-  const src = App.sources && App.sources[0];
-  if (!src) return;
+  const src = currentLiveSource();
+  if (!src) { $("liveHint").textContent = "Для этой модели источник не сохранён"; return; }
   if (App.poll) {
     $("liveHint").textContent = "Дождитесь завершения конвейера";
     return;
@@ -1181,7 +1207,7 @@ async function runLive() {
     const j = await r.json();
     if (seq !== App.liveSeq) return;
     if (!r.ok) throw new Error(j.error || "не удалось обновить");
-    if (JSON.stringify(App.sources[0]) !== srcKey) return;
+    if (JSON.stringify(currentLiveSource()) !== srcKey) return;
     applyLive(j.result);
   } catch (e) {
     if (seq === App.liveSeq) $("liveHint").textContent = "Ошибка: " + e.message;
@@ -1323,6 +1349,7 @@ function init() {
     document.querySelectorAll(".demo").forEach((x) => x.classList.remove("active"));
     b.classList.add("active");
     App.sources = [{ kind: "demo", name: b.dataset.demo }];
+    App.liveSource = App.sources[0];
     $("fileName").textContent = "демо: " + b.textContent.toLowerCase();
     $("harm").value = 12;
   });
@@ -1330,7 +1357,7 @@ function init() {
   $("fileInput").onchange = (e) => setFiles(e.target.files, false);
   $("dirInput").onchange = (e) => setFiles(e.target.files, true);
   $("levelsBtn").onclick = async () => {
-    const src = App.sources && App.sources[0];
+    const src = currentLiveSource();
     if (!src) { alert("Сначала выберите модель"); return; }
     showProgress("6 уровней упрощения", "построение минимальных многогранников");
     try {
@@ -1400,7 +1427,7 @@ function init() {
   $("clearCache").onclick = async () => {
     if (!confirm("Удалить сохранённые результаты и загруженные файлы?")) return;
     await fetch("/api/clear-cache", { method: "POST" });
-    App.models = []; App.meshes = {}; App.partialDone = 0;
+    App.models = []; App.meshes = {}; App.partialDone = 0; App.liveSource = null;
     $("modelSel").innerHTML = "";
     $("batchTable").querySelector("tbody").innerHTML = "";
     $("metricsTable").querySelector("tbody").innerHTML = "";
