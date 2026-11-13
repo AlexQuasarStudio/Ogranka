@@ -7,7 +7,7 @@ const App = {
   solo: null,
   syncCam: true,
   camLock: false,
-  sel: { points: [], polys: [], mode: "face", anchor: null },
+  sel: { points: [], polys: [], mode: "face", anchor: null, ids: [] },
   selTarget: "face",
   viewers: [],
   poll: null,
@@ -400,56 +400,75 @@ class Viewer {
       this.onPick(this, this.faceCentroids[fi].slice(), "face", action, poly, fi);
   }
 
-  applySelection(points, mode, polys = []) {
+  applySelection(points, mode, polys = [], ids = []) {
     this.hlFaces = new Set();
     this.hlVerts = new Set();
     if (points.length && this.mesh) {
+      const mappedPoints = [];
+      const mappedPolys = [];
+      const exactFaces = [];
+      const exactVerts = [];
+      for (let i = 0; i < points.length; i++) {
+        const id = ids && ids[i];
+        const total = mode === "face" ? this.faceCentroids.length : this.verts.length;
+        if (id && id.viewer === this && id.type === mode && id.index >= 0 && id.index < total) {
+          if (mode === "face") exactFaces.push(id.index);
+          else exactVerts.push(id.index);
+        } else {
+          mappedPoints.push(points[i]);
+          mappedPolys.push(polys[i] || null);
+        }
+      }
       if (mode === "face") {
-        const regions = polys || [];
-        const infos = regions.map((poly) => {
-          if (!poly || poly.length < 3) return null;
-          let x = 0, y = 0, z = 0;
-          poly.forEach((p) => { x += p[0]; y += p[1]; z += p[2]; });
-          const cc = [x / poly.length, y / poly.length, z / poly.length];
-          let rr = 0;
-          poly.forEach((p) => { rr = Math.max(rr, Math.hypot(p[0] - cc[0], p[1] - cc[1], p[2] - cc[2])); });
-          return { cc, rr };
-        });
-        for (let fi = 0; fi < this.faceCentroids.length; fi++) {
-          const c = this.faceCentroids[fi];
-          let hit = false;
-          for (let ri = 0; ri < regions.length; ri++) {
-            const poly = regions[ri], info = infos[ri];
-            if (!poly || !info) continue;
-            if (Math.hypot(c[0] - info.cc[0], c[1] - info.cc[1], c[2] - info.cc[2]) > info.rr + TOL) continue;
-            if (pointInPoly(c, poly, TOL)) { hit = true; break; }
-          }
-          if (!hit && this.facePolys) {
-            const r = this.faceRadii[fi] + TOL;
-            for (const p of points) {
-              if (Math.hypot(c[0] - p[0], c[1] - p[1], c[2] - p[2]) > r) continue;
-              if (pointInPoly(p, this.facePolys[fi], TOL)) { hit = true; break; }
+        exactFaces.forEach((fi) => this.hlFaces.add(fi));
+        if (mappedPoints.length) {
+          const regions = mappedPolys.filter(Boolean);
+          const infos = regions.map((poly) => {
+            let x = 0, y = 0, z = 0;
+            poly.forEach((p) => { x += p[0]; y += p[1]; z += p[2]; });
+            const cc = [x / poly.length, y / poly.length, z / poly.length];
+            let rr = 0;
+            poly.forEach((p) => { rr = Math.max(rr, Math.hypot(p[0] - cc[0], p[1] - cc[1], p[2] - cc[2])); });
+            return { cc, rr };
+          });
+          for (let fi = 0; fi < this.faceCentroids.length; fi++) {
+            const c = this.faceCentroids[fi];
+            let hit = false;
+            for (let ri = 0; ri < regions.length; ri++) {
+              const poly = regions[ri], info = infos[ri];
+              if (Math.hypot(c[0] - info.cc[0], c[1] - info.cc[1], c[2] - info.cc[2]) > info.rr + TOL) continue;
+              if (pointInPoly(c, poly, TOL)) { hit = true; break; }
             }
+            if (!hit && this.facePolys) {
+              const r = this.faceRadii[fi] + TOL;
+              for (const p of mappedPoints) {
+                if (Math.hypot(c[0] - p[0], c[1] - p[1], c[2] - p[2]) > r) continue;
+                if (pointInPoly(p, this.facePolys[fi], TOL)) { hit = true; break; }
+              }
+            }
+            if (!hit && !regions.length) {
+              for (const p of mappedPoints) if (near(c, p)) { hit = true; break; }
+            }
+            if (hit) this.hlFaces.add(fi);
           }
-          if (!hit && !regions.length) {
-            for (const p of points) if (near(c, p)) { hit = true; break; }
-          }
-          if (hit) this.hlFaces.add(fi);
         }
       } else {
-        const dist2 = (a, p) => (a[0] - p[0]) ** 2 + (a[1] - p[1]) ** 2 + (a[2] - p[2]) ** 2;
-        const small = points.length <= 200;
-        points.forEach((p) => {
-          let found = false;
-          this.verts.forEach((c, i) => {
-            if (near(c, p)) { this.hlVerts.add(i); found = true; }
+        exactVerts.forEach((i) => this.hlVerts.add(i));
+        if (mappedPoints.length) {
+          const dist2 = (a, p) => (a[0] - p[0]) ** 2 + (a[1] - p[1]) ** 2 + (a[2] - p[2]) ** 2;
+          const small = mappedPoints.length <= 200;
+          mappedPoints.forEach((p) => {
+            let found = false;
+            this.verts.forEach((c, i) => {
+              if (near(c, p)) { this.hlVerts.add(i); found = true; }
+            });
+            if (!found && small && this.verts.length) {
+              let best = -1, bd = Infinity;
+              this.verts.forEach((c, i) => { const d = dist2(c, p); if (d < bd) { bd = d; best = i; } });
+              if (best >= 0) this.hlVerts.add(best);
+            }
           });
-          if (!found && small && this.verts.length) {
-            let best = -1, bd = Infinity;
-            this.verts.forEach((c, i) => { const d = dist2(c, p); if (d < bd) { bd = d; best = i; } });
-            if (best >= 0) this.hlVerts.add(best);
-          }
-        });
+        }
       }
     }
     this.rebuild(this.mode);
@@ -629,7 +648,7 @@ function addViewer() {
   card.querySelector(".vmax").onclick = () => toggleSolo(v);
   App.viewers.push(v);
   populateViewer(v, App.viewers.length - 1);
-  if (App.models.length) loadViewer(v).then(() => v.applySelection(App.sel.points, App.sel.mode, App.sel.polys));
+  if (App.models.length) loadViewer(v).then(() => v.applySelection(App.sel.points, App.sel.mode, App.sel.polys, App.sel.ids));
   if (App.viewers.length > 1) v.copyCamera(App.viewers[0]);
   layoutViewers();
   v.select.onchange = () => loadViewer(v);
@@ -671,6 +690,7 @@ function populateViewer(v, idx) {
 
 async function loadViewer(v) {
   App.sel.anchor = null;
+  App.sel.ids = [];
   const id = v.select.value;
   if (!id) return;
   const r = await meshOf(id);
@@ -683,54 +703,62 @@ async function loadViewer(v) {
 
 async function loadAllViewers() {
   for (const v of App.viewers) await loadViewer(v);
-  App.viewers.forEach((v) => v.applySelection(App.sel.points, App.sel.mode, App.sel.polys));
+  App.viewers.forEach((v) => v.applySelection(App.sel.points, App.sel.mode, App.sel.polys, App.sel.ids));
 }
 
 function handlePick(src, point, type, action, poly, index) {
   if (!App.sel.polys) App.sel.polys = [];
-  if (App.sel.mode !== type) App.sel = { points: [], polys: [], mode: type, anchor: null };
+  if (App.sel.mode !== type) App.sel = { points: [], polys: [], mode: type, anchor: null, ids: [] };
   if (!("anchor" in App.sel)) App.sel.anchor = null;
+  if (!App.sel.ids) App.sel.ids = [];
   const keyOf = (p) => p.map((x) => x.toFixed(6)).join(",");
   const anchor = App.sel.anchor;
 
   if (action === "clear") {
     App.sel.points = [];
     App.sel.polys = [];
+    App.sel.ids = [];
     App.sel.anchor = null;
   } else if (action === "path" && src && index != null) {
     if (!anchor || anchor.viewer !== src || anchor.type !== type) {
       App.sel.points = [point];
       App.sel.polys = [poly || null];
+      App.sel.ids = [{ viewer: src, type, index }];
     } else {
-      const ids = type === "face" ? src.pathFaces(anchor.index, index) : src.pathVerts(anchor.index, index);
+      const path = type === "face" ? src.pathFaces(anchor.index, index) : src.pathVerts(anchor.index, index);
       const keys = new Set(App.sel.points.map(keyOf));
-      ids.forEach((fi) => {
+      path.forEach((fi) => {
         const p = type === "face" ? src.faceCentroids[fi].slice() : src.verts[fi].slice();
         const k = keyOf(p);
         if (keys.has(k)) return;
         keys.add(k);
         App.sel.points.push(p);
         App.sel.polys.push(type === "face" ? src.facePolys[fi].map((q) => q.slice()) : null);
+        App.sel.ids.push({ viewer: src, type, index: fi });
       });
     }
     App.sel.anchor = { viewer: src, type, index };
   } else if (action === "replace") {
     App.sel.points = [point];
     App.sel.polys = [poly || null];
+    App.sel.ids = [{ viewer: src, type, index }];
     App.sel.anchor = { viewer: src, type, index };
   } else if (action === "add") {
     App.sel.points.push(point);
     App.sel.polys.push(poly || null);
+    App.sel.ids.push({ viewer: src, type, index });
     App.sel.anchor = { viewer: src, type, index };
   } else if (action === "toggle") {
     const i = App.sel.points.findIndex((p) => near(p, point));
     if (i >= 0) {
       App.sel.points.splice(i, 1);
       App.sel.polys.splice(i, 1);
+      App.sel.ids.splice(i, 1);
       if (App.sel.anchor && App.sel.anchor.index === index) App.sel.anchor = null;
     } else {
       App.sel.points.push(point);
       App.sel.polys.push(poly || null);
+      App.sel.ids.push({ viewer: src, type, index });
       App.sel.anchor = { viewer: src, type, index };
     }
   }
@@ -738,7 +766,7 @@ function handlePick(src, point, type, action, poly, index) {
 }
 
 function broadcastSelection() {
-  App.viewers.forEach((v) => v.applySelection(App.sel.points, App.sel.mode, App.sel.polys));
+  App.viewers.forEach((v) => v.applySelection(App.sel.points, App.sel.mode, App.sel.polys, App.sel.ids));
   selectionText();
 }
 
@@ -1133,13 +1161,14 @@ function init() {
   $("runBtn").onclick = run;
   $("modelSel").onchange = async () => { App.modelIdx = +$("modelSel").value; await renderModel(); };
   $("colorMode").onchange = () => setViewMode($("colorMode").value);
-  $("addView").onclick = () => { addViewer(); App.viewers.forEach((v) => v.applySelection(App.sel.points, App.sel.mode, App.sel.polys)); };
+  $("addView").onclick = () => { addViewer(); App.viewers.forEach((v) => v.applySelection(App.sel.points, App.sel.mode, App.sel.polys, App.sel.ids)); };
   $("delView").onclick = () => removeViewer();
   $("syncCam").onchange = () => { App.syncCam = $("syncCam").checked; };
   $("selTarget").onchange = () => {
     App.selTarget = $("selTarget").value;
     App.sel.points = [];
     App.sel.polys = [];
+    App.sel.ids = [];
     App.sel.anchor = null;
     App.viewers.forEach((v) => { v.selTarget = App.selTarget; v.rebuild(App.mode); });
     broadcastSelection();
@@ -1154,10 +1183,11 @@ function init() {
     App.sel.mode = App.mode === "points" ? "vert" : "face";
     App.sel.points = App.sel.mode === "face" ? v.faceCentroids.map((c) => c.slice()) : v.verts.map((p) => p.slice());
     App.sel.polys = App.sel.mode === "face" ? v.facePolys.map((poly) => poly.map((p) => p.slice())) : [];
+    App.sel.ids = [];
     App.sel.anchor = null;
     broadcastSelection();
   };
-  $("selClear").onclick = () => { App.sel.points = []; App.sel.polys = []; App.sel.anchor = null; broadcastSelection(); };
+  $("selClear").onclick = () => { App.sel.points = []; App.sel.polys = []; App.sel.ids = []; App.sel.anchor = null; broadcastSelection(); };
   $("resetBtn").onclick = () => {
     App.viewers.forEach((v) => v.mesh && v.frame(v.mesh));
     if (App.syncCam && App.viewers.length) { App.camLock = true; App.viewers.forEach((v) => v.copyCamera(App.viewers[0])); App.camLock = false; }
