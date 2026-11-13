@@ -133,6 +133,31 @@ th, td { white-space: nowrap; }
   margin-top: 14px; padding-top: 10px; border-top: 1px solid #232a35;
   color: #6f8095; font-size: 11.5px; line-height: 1.5;
 }
+.tour { position: fixed; inset: 0; z-index: 70; pointer-events: auto; }
+.tour.hidden { display: none; }
+.tour.dim { background: rgba(0,0,0,.55); }
+.tour-hole {
+  position: fixed; border-radius: 10px; pointer-events: none;
+  box-shadow: 0 0 0 2px #4f8cff, 0 0 0 9999px rgba(0,0,0,.55);
+}
+.tour-hole[hidden] { display: none; }
+.tour-card {
+  position: fixed; z-index: 71; width: min(390px, calc(100vw - 24px));
+  max-height: 72vh; overflow-y: auto; padding: 16px 18px;
+  background: #141a24; border: 1px solid #2b405c; border-radius: 14px;
+  box-shadow: 0 20px 70px rgba(0,0,0,.5);
+}
+.tour-step {
+  color: #7fb3ff; font-size: 11px; text-transform: uppercase;
+  letter-spacing: .1em; margin-bottom: 6px;
+}
+.tour-card h2 { margin: 0 0 8px; font-size: 20px; }
+.tour-card p { margin: 0; color: #cfd9e6; font-size: 14px; line-height: 1.55; }
+.tour-actions { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
+.tour-spacer { flex: 1; }
+.tour-skip { background: none; border-color: transparent; color: #8fa2b8; }
+.tour-actions .primary { margin-top: 0; padding: 7px 12px; font-size: 13px; }
+.tour-start { margin-top: 12px; padding: 7px 12px; }
 
 @media (max-width: 980px) {
   main { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }

@@ -684,6 +684,67 @@ def _browser_executable():
     return None
 
 
+_MAC_ABOUT_HANDLER = None
+
+
+def _setup_macos_about():
+    global _MAC_ABOUT_HANDLER
+    if platform.system() != "Darwin":
+        return
+    try:
+        from AppKit import (
+            NSAboutPanelOptionApplicationName, NSAboutPanelOptionApplicationVersion,
+            NSAboutPanelOptionCredits, NSAboutPanelOptionVersion, NSApplication,
+            NSAttributedString, NSObject,
+        )
+        from PyObjCTools import AppHelper
+    except Exception as exc:
+        _console_print("Не удалось настроить окно «О программе»:", exc)
+        return
+
+    class AboutHandler(NSObject):
+        def showAbout_(self, sender):
+            credits = NSAttributedString.alloc().initWithString_(
+                f"Создатель: {APP_AUTHOR}\nНаучный руководитель: {APP_ADVISOR}")
+            NSApplication.sharedApplication().orderFrontStandardAboutPanelWithOptions_({
+                NSAboutPanelOptionApplicationName: "Огранка",
+                NSAboutPanelOptionApplicationVersion: APP_VERSION,
+                NSAboutPanelOptionVersion: APP_VERSION,
+                NSAboutPanelOptionCredits: credits,
+            })
+
+    _MAC_ABOUT_HANDLER = AboutHandler.alloc().init()
+
+    def install():
+        try:
+            menu = NSApplication.sharedApplication().mainMenu()
+            if not menu:
+                return False
+            app_menu = menu.itemAtIndex_(0).submenu()
+            if not app_menu:
+                return False
+            for item in app_menu.itemArray():
+                action = item.action()
+                if action and "orderFrontStandardAboutPanel" in str(action):
+                    item.setTarget_(_MAC_ABOUT_HANDLER)
+                    item.setAction_("showAbout:")
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def attempt(n=0):
+        if install() or n >= 30:
+            return
+        AppHelper.callLater(0.15, attempt, n + 1)
+
+    def start():
+        time.sleep(0.4)
+        AppHelper.callAfter(attempt)
+
+    threading.Thread(target=start, daemon=True).start()
+
+
 def _open_windows_window(url):
     exe = _browser_executable()
     if not exe:
@@ -752,6 +813,7 @@ def main():
         return
     try:
         import webview
+        _setup_macos_about()
         webview.create_window(APP_TITLE, url, width=1440, height=940,
                               min_size=(880, 560), maximized=True, js_api=Api())
         webview.start()

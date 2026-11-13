@@ -126,7 +126,7 @@
     <div class="table-wrap">
       <table id="metricsTable">
         <thead>
-          <tr><th>вариант</th><th>качество</th><th>MSE</th><th>RMSE</th><th>d<sub>max</sub></th><th>вершин</th><th>граней</th><th>точек</th></tr>
+          <tr><th>вариант</th><th>качество</th><th>MSE</th><th>RMSE</th><th>d<sub>max</sub></th><th>вершин</th><th>граней</th><th>точек</th><th>время</th></tr>
         </thead>
         <tbody></tbody>
       </table>
@@ -135,7 +135,7 @@
     <div class="table-wrap batch">
       <table id="batchTable">
         <thead>
-          <tr><th>модель</th><th>лучший вариант</th><th>MSE</th><th>RMSE</th><th>d<sub>max</sub></th><th>качество</th></tr>
+          <tr><th>модель</th><th>лучший вариант</th><th>MSE</th><th>RMSE</th><th>d<sub>max</sub></th><th>качество</th><th>время</th></tr>
         </thead>
         <tbody></tbody>
       </table>
@@ -226,6 +226,22 @@
       механико-математический факультет МГУ, кафедра вычислительной математики.</p>
       <p><b>Научный руководитель:</b> Валединский Владимир Дмитриевич.</p>
       <p class="about-copy">© 2026 Дьяченко Алексей</p>
+      <button id="tourBtn" class="tour-start">Пройти тур</button>
+    </div>
+  </div>
+</div>
+
+<div id="tour" class="tour hidden">
+  <div id="tourHole" class="tour-hole" hidden></div>
+  <div id="tourCard" class="tour-card">
+    <div id="tourStepLabel" class="tour-step"></div>
+    <h2 id="tourTitle"></h2>
+    <p id="tourText"></p>
+    <div class="tour-actions">
+      <button id="tourSkip" class="tour-skip">Пропустить</button>
+      <span class="tour-spacer"></span>
+      <button id="tourPrev">Назад</button>
+      <button id="tourNext" class="primary">Далее</button>
     </div>
   </div>
 </div>
