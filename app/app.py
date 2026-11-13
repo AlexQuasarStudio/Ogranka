@@ -117,27 +117,42 @@ def quality(m):
     return "good" if r < GOOD_RMSE else ("medium" if r < MEDIUM_RMSE else "bad")
 
 
-def _stage(text, progress, eta=None):
+def _stage(text, progress, detail="", eta=None, **extra):
     with LOCK:
-        if STATE["job"]:
-            STATE["job"].update(stage=text, progress=round(progress, 3), eta=eta, updated=time.time())
+        job = STATE["job"]
+        if not job:
+            return
+        started = job.get("started") or time.time()
+        elapsed = time.time() - started
+        p = max(0.0, min(1.0, float(progress)))
+        if eta is None and p > 0.02:
+            eta = max(1, int(elapsed / p * (1 - p)))
+        job.update(stage=text, detail=detail, progress=round(p, 4),
+                   eta=eta, elapsed=round(elapsed, 1), updated=time.time())
+        if extra:
+            job.update(extra)
 
 
-def _eta(p, t0):
-    if p <= 0.01:
-        return None
-    return max(1, int((time.time() - t0) / p * (1 - p)))
+def _prepare(source, report=None):
+    def say(text, frac):
+        if report:
+            report(text, frac)
 
-
-def _prepare(source):
     if source["kind"] == "demo":
+        say("демо-тело", 0.01)
         v = pipeline.normalize_mesh(demo_body(source["name"]), flip=False)
         title = {"octa": "Октаэдр", "icosa": "Икосаэдр", "dodeca": "Додекаэдр",
                  "diamond": "Бриллиант"}[source["name"]]
+        say("нормализация", 0.03)
         v, faces = pipeline.hull(v)
+        say("выпуклая оболочка", 0.05)
         return v, faces, title
+
     path = source["path"]
-    text = open(path, encoding="utf-8", errors="ignore").read()
+    say("чтение файла", 0.01)
+    with open(path, encoding="utf-8", errors="ignore") as fh:
+        text = fh.read()
+    say("разбор OBJ" if path.lower().endswith(".obj") else "разбор точек", 0.02)
     if path.lower().endswith(".obj"):
         v, faces = pipeline.parse_obj(text)
     else:
@@ -145,7 +160,9 @@ def _prepare(source):
         faces = []
     if len(v) < 4:
         raise ValueError("меньше четырёх точек")
+    say("нормализация", 0.04)
     v = pipeline.normalize_mesh(v, flip=True)
+    say("выпуклая оболочка", 0.06)
     v, faces = pipeline.hull(v)
     return v, faces, source.get("name") or os.path.basename(path)
 
@@ -155,22 +172,37 @@ def _run(sources, params):
     models = []
     n_models = max(1, len(sources))
     try:
+        n_angles = int(params.get("angles", 720))
+        n_layers = int(params.get("layers", 60))
+        mode = params.get("mode", "envelope")
+        methods = params.get("methods", ["fft", "none"])
+        levels = [float(x) for x in params.get("noise", [0.008, 0.08])]
+        harmonics = int(params.get("harmonics", 32))
+        window = int(params.get("window", 5))
+        do_min = bool(params.get("minimal", True))
+        loss = float(params.get("loss", 0.1)) / 100.0
+        angle = float(params.get("angle", 1.0))
+
         for mi, source in enumerate(sources):
-            _stage(f"Модель {mi + 1}/{n_models}: загрузка", 0.01 + 0.97 * mi / n_models)
-            v, faces, title = _prepare(source)
+            base = mi / n_models
+            span = 1.0 / n_models
+            name_hint = source.get("name") or "модель"
 
-            n_angles = int(params.get("angles", 720))
-            n_layers = int(params.get("layers", 60))
-            mode = params.get("mode", "envelope")
-            methods = params.get("methods", ["fft", "none"])
-            levels = [float(x) for x in params.get("noise", [0.008, 0.08])]
-            harmonics = int(params.get("harmonics", 32))
-            window = int(params.get("window", 5))
-            do_min = bool(params.get("minimal", True))
-            loss = float(params.get("loss", 0.1)) / 100.0
-            angle = float(params.get("angle", 1.0))
+            def mreport(text, frac, detail=None):
+                _stage(f"Модель {mi + 1}/{n_models}: {text}",
+                       base + span * max(0.0, min(1.0, frac)),
+                       detail=detail or name_hint, model=mi + 1, models=n_models)
 
-            alphas, layers = pipeline.build_sections(v, pipeline.mesh_edges(faces), n_layers, n_angles)
+            mreport("подготовка", 0.005)
+            v, faces, title = _prepare(source, lambda t, f: mreport(t, f))
+            mreport("сечения", 0.08)
+
+            def sec_progress(p, _report=mreport):
+                q = (float(p) - 0.05) / 0.40
+                _report("сечения", 0.08 + 0.12 * max(0.0, min(1.0, q)))
+
+            alphas, layers = pipeline.build_sections(
+                v, pipeline.mesh_edges(faces), n_layers, n_angles, progress=sec_progress)
             true_by_z = {round(z, 6): r for z, r in layers}
             ref_metrics = {"mse": 0.0, "rmse": 0.0, "dmax": 0.0}
             results = [{
@@ -180,6 +212,7 @@ def _run(sources, params):
                 "vertices": int(len(v)), "faces": int(len(faces)), "points": int(len(v)),
             }]
 
+            mreport("эталонный многогранник", 0.21)
             t_ref = time.time()
             try:
                 mpref = pipeline.minimal_polyhedron(v)
@@ -201,7 +234,17 @@ def _run(sources, params):
             A = pinv = None
             if "fft" in methods:
                 A, pinv = pipeline.fourier_design(alphas, harmonics)
-            done_counter = [0]
+            vprog = [0.0] * total_variants
+
+            def vstage(vi, frac, text, label):
+                with LOCK:
+                    vprog[vi] = max(vprog[vi], float(frac))
+                    agg = sum(vprog) / total_variants
+                    done = sum(1 for x in vprog if x >= 1.0)
+                _stage(f"{title}: {label}", base + span * (0.30 + 0.65 * agg),
+                       detail=text, model=mi + 1, models=n_models,
+                       done=done, total=total_variants)
+
             with LOCK:
                 STATE["models"] = [{"id": mi, "name": title, "results": list(results)}]
 
@@ -217,22 +260,39 @@ def _run(sources, params):
                 else:
                     label_noise = f"шум {rv:g}"
                 label = f"{label_noise} · {names.get(method, method)}"
+
+                vstage(vi, 0.03, "подготовка варианта", label)
                 t_var = time.time()
                 rng = np.random.default_rng(1000 + mi * 100 + vi)
                 R = R_true + rv * rng.uniform(-1.0, 1.0, size=R_true.shape) if rv > 0 else R_true.copy()
+                vstage(vi, 0.12, "шум", label)
                 if method == "fft":
+                    vstage(vi, 0.20, "ряд Фурье и МНК", label)
                     Rs = pipeline.fourier_denoise_matrix(R, A, pinv)
                 elif method == "uni":
-                    Rs = np.vstack([pipeline.uniform_denoise_adaptive(R[i], R_true[i], 5, 30)
-                                    for i in range(len(zs))])
+                    vstage(vi, 0.20, "адаптивные соседи", label)
+                    rows = []
+                    for ii in range(len(zs)):
+                        rows.append(pipeline.uniform_denoise_adaptive(R[ii], R_true[ii], 5, 30))
+                        if ii % 2 == 0:
+                            vstage(vi, 0.20 + 0.24 * (ii + 1) / len(zs),
+                                   f"соседи: слой {ii + 1}/{len(zs)}", label)
+                    Rs = np.vstack(rows)
                 else:
                     Rs = R
+                vstage(vi, 0.45, "сглаживание готово", label)
+
                 pts = []
                 for li, z in enumerate(zs):
                     if mode == "maxima":
                         pts += pipeline.maxima_points(alphas, Rs[li], float(z))
                     else:
                         pts += pipeline.envelope_points(alphas, Rs[li], float(z))
+                    if li % 5 == 0:
+                        vstage(vi, 0.45 + 0.13 * (li + 1) / len(zs),
+                               f"точки сечений: слой {li + 1}/{len(zs)}", label)
+                vstage(vi, 0.58, "точки сечений", label)
+
                 if len(pts) < 4:
                     out = [{"id": f"m{mi}:v{vi}", "label": label, "kind": "fail", "mesh": None,
                             "metrics": {"mse": None, "rmse": None, "dmax": None},
@@ -240,7 +300,9 @@ def _run(sources, params):
                             "time": round(time.time() - t_var, 2)}]
                 else:
                     pts = np.asarray(pts)
+                    vstage(vi, 0.68, "выпуклая оболочка", label)
                     hv, hf = pipeline.hull_compact(pts)
+                    vstage(vi, 0.78, "метрики", label)
                     m = pipeline.metrics(true_by_z, alphas, pts)
                     out = [{"id": f"m{mi}:v{vi}", "label": label, "kind": "hull",
                             "mesh": {"v": hv.tolist(), "f": [list(f) for f in hf]},
@@ -248,6 +310,7 @@ def _run(sources, params):
                             "vertices": int(len(hv)), "faces": int(len(hf)),
                             "points": int(len(pts)), "time": round(time.time() - t_var, 2)}]
                     if do_min:
+                        vstage(vi, 0.86, "минимальный многогранник", label)
                         try:
                             mp = pipeline.minimal_polyhedron(pts, angle_tol_deg=angle,
                                                              loss_target=loss, hull=(hv, hf))
@@ -260,31 +323,30 @@ def _run(sources, params):
                                         "time": round(time.time() - t_var, 2)})
                         except Exception:
                             pass
+                vstage(vi, 1.0, "готово", label)
                 with LOCK:
                     results.extend(out)
-                    done_counter[0] += 1
                     STATE["models"][0]["results"] = list(results)
-                    if STATE["job"]:
-                        frac = 0.02 + 0.97 * (mi + done_counter[0] / total_variants) / n_models
-                        STATE["job"].update(done=done_counter[0], total=total_variants,
-                                            stage=f"{title}: {label}", progress=round(min(frac, 0.99), 3),
-                                            eta=_eta(frac, t0))
                 return out
 
             with ThreadPoolExecutor(max_workers=min(4, len(variants)) or 1) as pool:
                 list(pool.map(run_variant, [(vi, rv, me) for vi, (rv, me) in enumerate(variants)]))
 
+            mreport("модель готова", 0.96)
             models.append({"id": mi, "name": title, "results": results})
 
+        _stage("Сохранение результатов", 0.985, detail=f"моделей: {len(models)}")
+        _save(models)
         with LOCK:
             STATE["models"] = models
-            STATE["job"].update(state="done", progress=1.0, stage="Готово",
-                                elapsed=round(time.time() - t0, 1), eta=0)
-        _save(models)
+            if STATE["job"]:
+                STATE["job"].update(state="done", progress=1.0, stage="Готово", detail="",
+                                    elapsed=round(time.time() - t0, 1), eta=0)
     except Exception as exc:
         with LOCK:
             if STATE["job"]:
-                STATE["job"].update(state="error", error=str(exc), stage="Ошибка")
+                STATE["job"].update(state="error", error=str(exc), stage="Ошибка",
+                                    detail=str(exc), elapsed=round(time.time() - t0, 1))
         raise
 
 
@@ -372,8 +434,10 @@ class Handler(SimpleHTTPRequestHandler):
             with LOCK:
                 if STATE["job"] and STATE["job"].get("state") == "running":
                     return self._json({"error": "уже выполняется"}, 409)
-                STATE["job"] = {"state": "running", "stage": "Старт", "progress": 0.0,
-                                "eta": None, "started": time.time()}
+                STATE["job"] = {"state": "running", "stage": "Запуск", "detail": "",
+                                "progress": 0.0, "eta": None, "started": time.time(),
+                                "elapsed": 0, "model": 1, "models": max(1, len(body.get("sources") or [body.get("source")])),
+                                "done": 0, "total": 0}
                 STATE["models"] = None
             sources = body.get("sources") or [body.get("source")]
             threading.Thread(target=_run, args=(sources, body.get("params", {})), daemon=True).start()

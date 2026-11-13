@@ -17,7 +17,7 @@
   <div class="brand">Огранка <span class="brand-sub">восстановление формы</span></div>
   <div class="header-right">
     <div id="statusText" class="status">Готов к запуску</div>
-    <button id="helpBtn" class="help-btn" title="Справка по программе">?</button>
+    <button id="helpBtn" class="help-btn" title="Справка (?)">?</button>
   </div>
 </header>
 
@@ -64,7 +64,7 @@
     <div class="row"><span>слоёв</span><input type="number" id="layers" title="Число горизонтальных сечений" value="60" min="10" max="120"></div>
     <div class="row"><span>направлений</span><input type="number" id="angles" title="Число направлений на слой" value="720" min="90" max="1440"></div>
 
-    <button id="runBtn" title="Запустить весь конвейер" class="primary">Запустить конвейер</button>
+    <button id="runBtn" title="Запустить весь конвейер (R)" class="primary">Запустить конвейер</button>
   </aside>
 
   <section class="workspace">
@@ -79,7 +79,7 @@
     <div id="workspaceBottom" class="workspace-bottom">
     <div class="toolbar">
       <label>раскраска
-        <select id="colorMode" title="Режим раскраски модели">
+        <select id="colorMode" title="Режим раскраски (1–7)">
           <option value="solid_edges">заливка + рёбра</option>
           <option value="solid">однотонная</option>
           <option value="face">грани разными цветами</option>
@@ -90,20 +90,20 @@
         </select>
       </label>
       <label>выделять
-        <select id="selTarget" title="Что выделять кликом">
+        <select id="selTarget" title="Что выделять (V)">
           <option value="face">грани</option>
           <option value="vertex">вершины</option>
         </select>
       </label>
-      <button id="fsBtn" title="Во весь экран">⛶</button>
-      <button id="addView" title="Добавить окно сравнения (до 6)">+ окно</button>
-      <button id="delView" title="Убрать последнее окно">− окно</button>
-      <label class="check"><input type="checkbox" id="syncCam" title="Вращение и зум повторяются во всех окнах" checked> общая камера</label>
+      <button id="fsBtn" title="Развернуть окно (F)">⛶</button>
+      <button id="addView" title="Добавить окно (+, до 6)">+ окно</button>
+      <button id="delView" title="Убрать окно (−)">− окно</button>
+      <label class="check"><input type="checkbox" id="syncCam" title="Общая камера (C)" checked> общая камера</label>
       <button id="selAll" title="Выделить всё (A)">Выделить всё</button>
       <button id="selClear" title="Снять выделение (Alt+A)">Снять выделение</button>
-      <button id="resetBtn">Сбросить вид</button>
-      <button id="objBtn">Скачать OBJ</button>
-      <button id="pngBtn">Скриншот</button>
+      <button id="resetBtn" title="Сбросить вид (G)">Сбросить вид</button>
+      <button id="objBtn" title="Скачать OBJ (O)">Скачать OBJ</button>
+      <button id="pngBtn" title="Скриншот (S)">Скриншот</button>
       <button id="clearCache" title="Удалить сохранённые результаты и загруженные файлы">Очистить кеш</button>
       <a id="csvLink" href="/api/export.csv">CSV метрик</a>
     </div>
@@ -131,9 +131,14 @@
   </section>
 </main>
 
-<div id="progress" class="progress hidden">
-  <div class="bar"><div id="barFill"></div></div>
-  <span id="progressText">—</span>
+<div id="progress" class="progress hidden" role="status" aria-live="polite">
+  <div class="pspin" aria-hidden="true"></div>
+  <div class="pbody">
+    <div class="prow"><span id="progressText">Запуск…</span><span id="progressPct">0%</span></div>
+    <div class="bar"><div id="barFill"></div></div>
+    <div class="prow psmall"><span id="progressDetail">—</span><span id="progressTime"></span></div>
+  </div>
+  <button id="progressClose" class="pclose hidden" title="Скрыть">×</button>
 </div>
 
 
@@ -145,14 +150,15 @@
     </div>
     <div class="modal-body">
       <h3>Оценка качества</h3>
-      <p>Считается по RMSE: <b>хорошо</b> — меньше 0.006, <b>средне</b> — меньше 0.03,
-      <b>плохо</b> — больше. Бейдж стоит в таблице вариантов, у каждого окна
+      <p>Считается по RMSE: <b>хорошо</b> — RMSE меньше 0.03, <b>средне</b> — меньше 0.12,
+      <b>плохо</b> — больше 0.12. Бейдж стоит в таблице вариантов, у каждого окна
       и в пакетной таблице.</p>
       <h3>Выделение</h3>
       <p>Клик — одна грань (в режиме «вершины» — вершина). Shift — добавить,
       Ctrl/Cmd — добавить или убрать, клик по пустому — снять.
       A — выделить всё, Alt+A — снять. Выделение сразу видно во всех окнах:
-      если разбиение другое, подсвечивается ближайшая грань.</p>
+      если разбиение другое, подсвечиваются все грани, покрывающие выбранную
+      область, а при выделении группы — родительская грань.</p>
       <h3>Окна, размер и камера</h3>
       <p>Окон от 2 до 6: «+ окно» и «− окно», в каждом свой вариант.
       Галочка «общая камера» повторяет вращение и зум во всех окнах. Кнопка «⤢» разворачивает одно окно на всю область, повторное нажатие или Esc возвращает сетку. Высоту области вьюпортов можно менять, потянув за правый нижний угол.</p>
@@ -166,6 +172,12 @@
       исходный метод для правильных многогранников.</p>
       <h3>Минимальный многогранник</h3>
       <p>Автоматически: допуск по площади 0.1%, слияние граней до 1°.</p>
+      <h3>Горячие клавиши</h3>
+      <p><b>R</b> — запуск, <b>1–7</b> — режим отображения, <b>F</b> — развернуть
+      окно, <b>Esc</b> — выйти из полноэкранного режима, <b>+/−</b> — добавить
+      или убрать окно, <b>V</b> — грани/вершины, <b>C</b> — общая камера,
+      <b>A</b> — выделить всё, <b>Alt+A</b> — снять, <b>G</b> — сбросить вид,
+      <b>O</b> — скачать OBJ, <b>S</b> — скриншот, <b>?</b> — справка.</p>
       <h3>Экспорт</h3>
       <p>OBJ — выбранная модель, PNG — окно, CSV — все метрики.</p>
     </div>

@@ -592,7 +592,11 @@ function handleCam(src) {
 // ---------------------------------------------------------------- модель и результаты
 
 async function meshOf(id) {
-  if (!App.meshes[id]) App.meshes[id] = await (await fetch("/api/mesh?id=" + encodeURIComponent(id))).json();
+  if (!App.meshes[id]) {
+    const r = await fetch("/api/mesh?id=" + encodeURIComponent(id));
+    if (!r.ok) throw new Error("не удалось загрузить меш");
+    App.meshes[id] = await r.json();
+  }
   return App.meshes[id];
 }
 
@@ -622,12 +626,14 @@ function updateDiff() {
 }
 
 async function loadResults() {
+  const prevName = App.models[App.modelIdx] ? App.models[App.modelIdx].name : null;
   const data = await (await fetch("/api/results")).json();
   App.models = data.models || [];
   App.meshes = {};
   $("modelSel").innerHTML = App.models.map((m, i) => `<option value="${i}">${m.name}</option>`).join("");
-  App.modelIdx = 0;
-  $("modelSel").value = "0";
+  const idx = prevName ? App.models.findIndex((m) => m.name === prevName) : -1;
+  App.modelIdx = idx >= 0 ? idx : 0;
+  $("modelSel").value = String(App.modelIdx);
   renderBatch();
   await renderModel();
 }
@@ -707,34 +713,121 @@ function params() {
   };
 }
 
-async function uploadFile(file) {
-  const r = await fetch("/api/upload", { method: "POST", body: file, headers: { "X-Filename": file.name } });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.error || "ошибка загрузки");
-  return { kind: "file", path: j.path, name: j.name };
+function fmtDur(sec) {
+  sec = Math.max(0, Math.round(sec || 0));
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function updateProgress(st) {
+  if (!st) return;
+  const p = Math.max(0, Math.min(100, Math.round((st.progress || 0) * 100)));
+  $("barFill").style.width = p + "%";
+  $("progressPct").textContent = p + "%";
+  $("progressText").textContent = st.stage || "…";
+  const bits = [];
+  if (st.detail) bits.push(st.detail);
+  if (st.models > 1) bits.push(`модель ${st.model || 1}/${st.models}`);
+  if (st.total) bits.push(`вариант ${Math.min(st.done || 0, st.total)}/${st.total}`);
+  $("progressDetail").textContent = bits.join(" · ") || "—";
+  let elapsed = st.elapsed || 0;
+  if (st.state === "running" && st.started) elapsed = Math.max(elapsed, Date.now() / 1000 - st.started);
+  let eta = st.eta;
+  if (st.state === "running" && eta == null && p > 2 && p < 100) eta = elapsed * (100 - p) / p;
+  const parts = [];
+  if (elapsed >= 1) parts.push(`прошло ${fmtDur(elapsed)}`);
+  if (st.state === "running" && eta) parts.push(`осталось ~${fmtDur(eta)}`);
+  $("progressTime").textContent = parts.join(" · ");
+}
+
+function showProgress(stage, detail) {
+  clearTimeout(App.hideTimer);
+  $("progress").classList.remove("hidden", "error");
+  $("progressClose").classList.add("hidden");
+  document.body.classList.add("progress-on");
+  updateProgress({ state: "running", stage: stage || "Запуск", detail: detail || "",
+                   progress: 0, eta: null, started: Date.now() / 1000 });
+}
+
+function hideProgress() {
+  clearTimeout(App.hideTimer);
+  $("progress").classList.add("hidden");
+  document.body.classList.remove("progress-on");
+}
+
+function showProgressError(msg) {
+  clearTimeout(App.hideTimer);
+  if (App.poll) clearInterval(App.poll);
+  if (App.tick) clearInterval(App.tick);
+  $("progress").classList.remove("hidden");
+  $("progress").classList.add("error");
+  $("progressClose").classList.remove("hidden");
+  document.body.classList.add("progress-on");
+  $("progressText").textContent = "Ошибка";
+  $("progressPct").textContent = "";
+  $("progressDetail").textContent = msg || "неизвестная ошибка";
+  $("progressTime").textContent = "";
+  $("statusText").textContent = "Ошибка";
+  $("runBtn").disabled = false;
+}
+
+function uploadFile(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/upload");
+    xhr.setRequestHeader("X-Filename", file.name);
+    xhr.upload.onprogress = (ev) => {
+      if (ev.lengthComputable && onProgress) onProgress(ev.loaded / ev.total);
+    };
+    xhr.onload = () => {
+      let j = {};
+      try { j = JSON.parse(xhr.responseText || "{}"); } catch (e) {}
+      if (xhr.status >= 200 && xhr.status < 300) resolve({ kind: "file", path: j.path, name: j.name });
+      else reject(new Error(j.error || "ошибка загрузки"));
+    };
+    xhr.onerror = () => reject(new Error("сеть недоступна"));
+    xhr.send(file);
+  });
 }
 
 async function setFiles(fileList, folder) {
   const files = [...fileList].filter((f) => /\.(obj|txt)$/i.test(f.name));
   if (!files.length) { alert("Нужны файлы .obj или .txt"); return; }
   const sources = [];
-  for (const f of files) {
-    try { sources.push(await uploadFile(f)); } catch (e) { console.warn(e); }
+  const started = Date.now() / 1000;
+  showProgress(`Загрузка файлов 0/${files.length}`, folder ? "папка" : "файлы");
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    try {
+      const src = await uploadFile(f, (frac) => {
+        updateProgress({ state: "running", stage: `Загрузка ${i + 1}/${files.length}`,
+                         detail: f.name, progress: (i + frac) / files.length,
+                         started, eta: null });
+      });
+      sources.push(src);
+      updateProgress({ state: "running", stage: `Загрузка ${i + 1}/${files.length}`,
+                       detail: f.name, progress: (i + 1) / files.length,
+                       started, eta: null });
+    } catch (e) { console.warn(e); }
   }
-  if (!sources.length) { alert("Не удалось загрузить"); return; }
+  if (!sources.length) { showProgressError("Не удалось загрузить файлы"); return; }
   App.sources = sources;
   $("fileName").textContent = (folder ? "папка: " : "файлы: ") + sources.length;
   $("harm").value = 32;
   document.querySelectorAll(".demo").forEach((x) => x.classList.remove("active"));
+  $("progressText").textContent = "Файлы загружены";
+  $("progressPct").textContent = "100%";
+  $("barFill").style.width = "100%";
+  $("progressDetail").textContent = `${sources.length} файл(ов)`;
+  App.hideTimer = setTimeout(hideProgress, 1200);
 }
 
 async function run() {
   $("runBtn").disabled = true;
-  $("progress").classList.remove("hidden");
-  document.body.classList.add("progress-on");
-  $("barFill").style.width = "0%";
-  $("progressText").textContent = "Запуск…";
+  App.meshes = {};
   App.partialDone = 0;
+  App.lastProgress = null;
+  showProgress("Отправка задания", "подготовка параметров");
   try {
     const r = await fetch("/api/run", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -744,42 +837,54 @@ async function run() {
     if (!r.ok) throw new Error(j.error || "не удалось запустить");
     poll();
   } catch (e) {
-    $("runBtn").disabled = false;
-    $("progressText").textContent = "Ошибка: " + e.message;
+    showProgressError(e.message);
   }
 }
 
 function poll() {
   clearInterval(App.poll);
+  if (App.tick) clearInterval(App.tick);
+  App.pollBusy = false;
+  App.lastProgress = null;
+  App.tick = setInterval(() => {
+    if (App.lastProgress && App.lastProgress.state === "running") updateProgress(App.lastProgress);
+  }, 250);
   App.poll = setInterval(async () => {
-    const st = await (await fetch("/api/status")).json();
-    const p = Math.round((st.progress || 0) * 100);
-    $("barFill").style.width = p + "%";
-    $("progressText").textContent = `${st.stage || "…"} · ${p}%${st.eta ? ` · осталось ~${st.eta} с` : ""}`;
-    $("statusText").textContent = st.state === "running" ? "Выполняется" : st.state === "done" ? "Готово" : st.state;
-    if (st.state === "running" && st.done && st.done !== App.partialDone) {
-      App.partialDone = st.done;
-      const data = await (await fetch("/api/results")).json();
-      if (data.models && data.models.length) {
-        App.models = data.models;
-        renderBatch();
-        if (currentModel()) renderTable(currentModel().results);
+    if (App.pollBusy) return;
+    App.pollBusy = true;
+    try {
+      const st = await (await fetch("/api/status")).json();
+      App.lastProgress = st;
+      updateProgress(st);
+      $("statusText").textContent = st.state === "running" ? "Выполняется" : st.state === "done" ? "Готово" : st.state || "";
+      if (st.state === "running" && st.done && st.done !== App.partialDone) {
+        App.partialDone = st.done;
+        const data = await (await fetch("/api/results")).json();
+        if (data.models && data.models.length) {
+          App.models = data.models;
+          renderBatch();
+          if (currentModel()) renderTable(currentModel().results);
+        }
       }
+      if (st.state === "done") {
+        clearInterval(App.poll);
+        if (App.tick) clearInterval(App.tick);
+        updateProgress({ ...st, state: "done", progress: 1 });
+        $("progressText").textContent = "Готово";
+        $("progressDetail").textContent = st.elapsed ? `обработано за ${fmtDur(st.elapsed)}` : "";
+        $("progressTime").textContent = "";
+        $("runBtn").disabled = false;
+        App.hideTimer = setTimeout(hideProgress, 2500);
+        await loadResults();
+      } else if (st.state === "error") {
+        showProgressError(st.error || "неизвестная ошибка");
+      }
+    } catch (e) {
+      // временная ошибка сети: оставляем последний прогресс
+    } finally {
+      App.pollBusy = false;
     }
-    if (st.state === "done") {
-      clearInterval(App.poll);
-      $("progress").classList.add("hidden");
-      document.body.classList.remove("progress-on");
-      $("runBtn").disabled = false;
-      await loadResults();
-    } else if (st.state === "error") {
-      clearInterval(App.poll);
-      $("progress").classList.add("hidden");
-      document.body.classList.remove("progress-on");
-      $("runBtn").disabled = false;
-      alert("Ошибка конвейера: " + (st.error || ""));
-    }
-  }, 400);
+  }, 500);
 }
 
 function download(name, text, type = "text/plain") {
@@ -878,14 +983,34 @@ function init() {
   };
 
   $("helpBtn").onclick = () => $("helpModal").classList.remove("hidden");
+  $("progressClose").onclick = () => hideProgress();
   $("helpClose").onclick = () => $("helpModal").classList.add("hidden");
   $("helpModal").onclick = (e) => { if (e.target.id === "helpModal") $("helpModal").classList.add("hidden"); };
 
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { $("helpModal").classList.add("hidden"); if (App.solo) toggleSolo(App.solo); }
-    if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
-    if (e.key.toLowerCase() === "a" && !e.altKey) $("selAll").click();
-    if (e.key.toLowerCase() === "a" && e.altKey) $("selClear").click();
+    const tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "select" || tag === "textarea" || e.target.isContentEditable) return;
+    if (e.key === "Escape") {
+      $("helpModal").classList.add("hidden");
+      if (App.solo) toggleSolo(App.solo);
+      return;
+    }
+    if (e.altKey && e.code === "KeyA") { e.preventDefault(); $("selClear").click(); return; }
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = e.key.toLowerCase();
+    const modes = ["solid_edges", "solid", "face", "area", "wire", "edges", "points"];
+    if (/^[1-7]$/.test(e.key)) { setViewMode(modes[+e.key - 1]); e.preventDefault(); return; }
+    if (k === "r") { if (!$("runBtn").disabled) run(); }
+    else if (k === "f") { if (App.solo) toggleSolo(App.solo); else if (App.viewers[0]) toggleSolo(App.viewers[0]); }
+    else if (k === "v") { const s = $("selTarget"); s.value = s.value === "face" ? "vertex" : "face"; s.dispatchEvent(new Event("change")); }
+    else if (k === "c") { const c = $("syncCam"); c.checked = !c.checked; c.dispatchEvent(new Event("change")); }
+    else if (k === "a") { $("selAll").click(); }
+    else if (k === "g") { $("resetBtn").click(); }
+    else if (k === "o") { $("objBtn").click(); }
+    else if (k === "s") { $("pngBtn").click(); }
+    else if (e.key === "?" || k === "h") { $("helpModal").classList.toggle("hidden"); }
+    else if (e.key === "+" || e.key === "=") { $("addView").click(); }
+    else if (e.key === "-" || e.key === "_") { $("delView").click(); }
   });
 
   $("hsplit").addEventListener("pointerdown", (e) => {
