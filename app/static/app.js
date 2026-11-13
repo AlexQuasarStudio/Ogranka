@@ -7,7 +7,7 @@ const App = {
   solo: null,
   syncCam: true,
   camLock: false,
-  sel: { points: [], mode: "face" },
+  sel: { points: [], polys: [], mode: "face" },
   selTarget: "face",
   viewers: [],
   poll: null,
@@ -29,6 +29,44 @@ const badge = (q) => {
   const t = { good: "хорошо", medium: "средне", bad: "плохо", ref: "эталон" }[q] || q;
   return `<span class="badge ${q}">${t}</span>`;
 };
+function pointInPoly(p, poly, tol) {
+  if (!poly || poly.length < 3) return false;
+  let nx = 0, ny = 0, nz = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length];
+    nx += (a[1] - b[1]) * (a[2] + b[2]);
+    ny += (a[2] - b[2]) * (a[0] + b[0]);
+    nz += (a[0] - b[0]) * (a[1] + b[1]);
+  }
+  const ln = Math.hypot(nx, ny, nz);
+  if (ln < 1e-12) return false;
+  nx /= ln; ny /= ln; nz /= ln;
+  const a0 = poly[0];
+  if (Math.abs(nx * (p[0] - a0[0]) + ny * (p[1] - a0[1]) + nz * (p[2] - a0[2])) > tol) return false;
+  let ax = poly[1][0] - a0[0], ay = poly[1][1] - a0[1], az = poly[1][2] - a0[2];
+  const ad = ax * nx + ay * ny + az * nz;
+  ax -= ad * nx; ay -= ad * ny; az -= ad * nz;
+  const al = Math.hypot(ax, ay, az);
+  if (al < 1e-12) return false;
+  ax /= al; ay /= al; az /= al;
+  const bx = ny * az - nz * ay, by = nz * ax - nx * az, bz = nx * ay - ny * ax;
+  const uv = poly.map((q) => {
+    const dx = q[0] - a0[0], dy = q[1] - a0[1], dz = q[2] - a0[2];
+    return [dx * ax + dy * ay + dz * az, dx * bx + dy * by + dz * bz];
+  });
+  const dx = p[0] - a0[0], dy = p[1] - a0[1], dz = p[2] - a0[2];
+  const u = dx * ax + dy * ay + dz * az, v = dx * bx + dy * by + dz * bz;
+  let inside = false;
+  for (let i = 0, j = uv.length - 1; i < uv.length; j = i++) {
+    const [ui, vi] = uv[i], [uj, vj] = uv[j];
+    if ((vi > v) !== (vj > v)) {
+      const t = (v - vi) / (vj - vi);
+      if (u < ui + t * (uj - ui)) inside = !inside;
+    }
+  }
+  return inside;
+}
+
 const near = (a, p) => (a[0] - p[0]) ** 2 + (a[1] - p[1]) ** 2 + (a[2] - p[2]) ** 2 < TOL * TOL;
 
 class Viewer {
@@ -145,6 +183,13 @@ class Viewer {
       f.forEach((i) => { x += v[i][0]; y += v[i][1]; z += v[i][2]; });
       return [x / f.length, y / f.length, z / f.length];
     });
+    this.facePolys = faces.map((f) => f.map((i) => v[i]));
+    this.faceRadii = this.facePolys.map((poly, fi) => {
+      const c = this.faceCentroids[fi];
+      let r = 0;
+      poly.forEach((p) => { r = Math.max(r, Math.hypot(p[0] - c[0], p[1] - c[1], p[2] - c[2])); });
+      return r;
+    });
 
     const pos = new Float32Array(tris.length * 9);
     const col = new Float32Array(tris.length * 9);
@@ -249,28 +294,61 @@ class Viewer {
     const hits = this.raycaster.intersectObject(this.solid);
     if (!hits.length) { if (action === "replace") this.onPick(this, null, "face", "clear"); return; }
     const fi = this.triFace[hits[0].faceIndex];
-    this.onPick(this, this.faceCentroids[fi].slice(), "face", action);
+    const poly = this.facePolys[fi].map((p) => p.slice());
+      this.onPick(this, this.faceCentroids[fi].slice(), "face", action, poly);
   }
 
-  applySelection(points, mode) {
+  applySelection(points, mode, polys = []) {
     this.hlFaces = new Set();
     this.hlVerts = new Set();
     if (points.length && this.mesh) {
-      const dist2 = (a, p) => (a[0] - p[0]) ** 2 + (a[1] - p[1]) ** 2 + (a[2] - p[2]) ** 2;
-      const small = points.length <= 200;
-      const pool = mode === "face" ? this.faceCentroids : this.verts;
-      const target = mode === "face" ? this.hlFaces : this.hlVerts;
-      points.forEach((p) => {
-        let found = false;
-        pool.forEach((c, i) => {
-          if (near(c, p)) { target.add(i); found = true; }
+      if (mode === "face") {
+        const regions = polys || [];
+        const infos = regions.map((poly) => {
+          if (!poly || poly.length < 3) return null;
+          let x = 0, y = 0, z = 0;
+          poly.forEach((p) => { x += p[0]; y += p[1]; z += p[2]; });
+          const cc = [x / poly.length, y / poly.length, z / poly.length];
+          let rr = 0;
+          poly.forEach((p) => { rr = Math.max(rr, Math.hypot(p[0] - cc[0], p[1] - cc[1], p[2] - cc[2])); });
+          return { cc, rr };
         });
-        if (!found && small && pool.length) {
-          let best = -1, bd = Infinity;
-          pool.forEach((c, i) => { const d = dist2(c, p); if (d < bd) { bd = d; best = i; } });
-          if (best >= 0) target.add(best);
+        for (let fi = 0; fi < this.faceCentroids.length; fi++) {
+          const c = this.faceCentroids[fi];
+          let hit = false;
+          for (let ri = 0; ri < regions.length; ri++) {
+            const poly = regions[ri], info = infos[ri];
+            if (!poly || !info) continue;
+            if (Math.hypot(c[0] - info.cc[0], c[1] - info.cc[1], c[2] - info.cc[2]) > info.rr + TOL) continue;
+            if (pointInPoly(c, poly, TOL)) { hit = true; break; }
+          }
+          if (!hit && this.facePolys) {
+            const r = this.faceRadii[fi] + TOL;
+            for (const p of points) {
+              if (Math.hypot(c[0] - p[0], c[1] - p[1], c[2] - p[2]) > r) continue;
+              if (pointInPoly(p, this.facePolys[fi], TOL)) { hit = true; break; }
+            }
+          }
+          if (!hit && !regions.length) {
+            for (const p of points) if (near(c, p)) { hit = true; break; }
+          }
+          if (hit) this.hlFaces.add(fi);
         }
-      });
+      } else {
+        const dist2 = (a, p) => (a[0] - p[0]) ** 2 + (a[1] - p[1]) ** 2 + (a[2] - p[2]) ** 2;
+        const small = points.length <= 200;
+        points.forEach((p) => {
+          let found = false;
+          this.verts.forEach((c, i) => {
+            if (near(c, p)) { this.hlVerts.add(i); found = true; }
+          });
+          if (!found && small && this.verts.length) {
+            let best = -1, bd = Infinity;
+            this.verts.forEach((c, i) => { const d = dist2(c, p); if (d < bd) { bd = d; best = i; } });
+            if (best >= 0) this.hlVerts.add(best);
+          }
+        });
+      }
     }
     this.rebuild(this.mode);
   }
@@ -415,7 +493,7 @@ function addViewer() {
   card.querySelector(".vmax").onclick = () => toggleSolo(v);
   App.viewers.push(v);
   populateViewer(v, App.viewers.length - 1);
-  if (App.models.length) loadViewer(v).then(() => v.applySelection(App.sel.points, App.sel.mode));
+  if (App.models.length) loadViewer(v).then(() => v.applySelection(App.sel.points, App.sel.mode, App.sel.polys));
   if (App.viewers.length > 1) v.copyCamera(App.viewers[0]);
   layoutViewers();
   v.select.onchange = () => loadViewer(v);
@@ -462,27 +540,31 @@ async function loadViewer(v) {
 
 async function loadAllViewers() {
   for (const v of App.viewers) await loadViewer(v);
-  App.viewers.forEach((v) => v.applySelection(App.sel.points, App.sel.mode));
+  App.viewers.forEach((v) => v.applySelection(App.sel.points, App.sel.mode, App.sel.polys));
 }
 
-function handlePick(src, point, type, action) {
-  if (App.sel.mode !== type) App.sel = { points: [], mode: type };
+function handlePick(src, point, type, action, poly) {
+  if (!App.sel.polys) App.sel.polys = [];
+  if (App.sel.mode !== type) App.sel = { points: [], polys: [], mode: type };
   if (action === "clear") {
     App.sel.points = [];
+    App.sel.polys = [];
   } else if (action === "replace") {
     App.sel.points = [point];
+    App.sel.polys = [poly || null];
   } else if (action === "add") {
     App.sel.points.push(point);
+    App.sel.polys.push(poly || null);
   } else if (action === "toggle") {
     const i = App.sel.points.findIndex((p) => near(p, point));
-    if (i >= 0) App.sel.points.splice(i, 1);
-    else App.sel.points.push(point);
+    if (i >= 0) { App.sel.points.splice(i, 1); App.sel.polys.splice(i, 1); }
+    else { App.sel.points.push(point); App.sel.polys.push(poly || null); }
   }
   broadcastSelection();
 }
 
 function broadcastSelection() {
-  App.viewers.forEach((v) => v.applySelection(App.sel.points, App.sel.mode));
+  App.viewers.forEach((v) => v.applySelection(App.sel.points, App.sel.mode, App.sel.polys));
   selectionText();
 }
 
@@ -734,12 +816,13 @@ function init() {
   $("runBtn").onclick = run;
   $("modelSel").onchange = async () => { App.modelIdx = +$("modelSel").value; await renderModel(); };
   $("colorMode").onchange = () => setViewMode($("colorMode").value);
-  $("addView").onclick = () => { addViewer(); App.viewers.forEach((v) => v.applySelection(App.sel.points, App.sel.mode)); };
+  $("addView").onclick = () => { addViewer(); App.viewers.forEach((v) => v.applySelection(App.sel.points, App.sel.mode, App.sel.polys)); };
   $("delView").onclick = () => removeViewer();
   $("syncCam").onchange = () => { App.syncCam = $("syncCam").checked; };
   $("selTarget").onchange = () => {
     App.selTarget = $("selTarget").value;
     App.sel.points = [];
+    App.sel.polys = [];
     App.viewers.forEach((v) => { v.selTarget = App.selTarget; v.rebuild(App.mode); });
     broadcastSelection();
   };
@@ -759,9 +842,10 @@ function init() {
     if (!v || !v.mesh) return;
     App.sel.mode = App.mode === "points" ? "vert" : "face";
     App.sel.points = App.sel.mode === "face" ? v.faceCentroids.map((c) => c.slice()) : v.verts.map((p) => p.slice());
+    App.sel.polys = App.sel.mode === "face" ? v.facePolys.map((poly) => poly.map((p) => p.slice())) : [];
     broadcastSelection();
   };
-  $("selClear").onclick = () => { App.sel.points = []; broadcastSelection(); };
+  $("selClear").onclick = () => { App.sel.points = []; App.sel.polys = []; broadcastSelection(); };
   $("resetBtn").onclick = () => {
     App.viewers.forEach((v) => v.mesh && v.frame(v.mesh));
     if (App.syncCam && App.viewers.length) { App.camLock = true; App.viewers.forEach((v) => v.copyCamera(App.viewers[0])); App.camLock = false; }
