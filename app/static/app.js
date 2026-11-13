@@ -67,7 +67,12 @@ class Viewer {
     this.mode = "solid_edges";
     this.selTarget = "face";
 
-    this.hudCur = card.querySelector(".cur");
+    const vmode = card.querySelector(".vmode");
+  vmode.innerHTML = $("colorMode").innerHTML;
+  vmode.value = App.mode;
+  vmode.onchange = () => setViewMode(vmode.value);
+
+  this.hudCur = card.querySelector(".cur");
     card.querySelectorAll(".ax").forEach((b) => b.onclick = () => this.alignAxis(b.dataset.a));
     this.canvas.addEventListener("pointermove", (e) => this.cursorInfo(e));
 
@@ -338,7 +343,7 @@ function areaColor(t) {
 function makeCard() {
   const card = document.createElement("div");
   card.className = "viewer-card";
-  card.innerHTML = `<div class="viewer-head"><select class="vsel"></select><span class="vmeta meta"></span><button class="vmax" title="Развернуть это окно">⤢</button></div>
+  card.innerHTML = `<div class="viewer-head"><select class="vsel"></select><select class="vmode" title="Режим отображения"></select><span class="vmeta meta"></span><button class="vmax" title="Развернуть это окно">⤢</button></div>
                     <div class="canvas-wrap"><canvas></canvas>
                       <div class="hud">
                         <div class="axes"><button class="ax x" data-a="x" title="Вид вдоль X">X</button><button class="ax y" data-a="y" title="Вид вдоль Y">Y</button><button class="ax z" data-a="z" title="Вид вдоль Z">Z</button></div>
@@ -507,6 +512,16 @@ function handleCam(src) {
 async function meshOf(id) {
   if (!App.meshes[id]) App.meshes[id] = await (await fetch("/api/mesh?id=" + encodeURIComponent(id))).json();
   return App.meshes[id];
+}
+
+function setViewMode(mode) {
+  App.mode = mode;
+  $("colorMode").value = mode;
+  App.viewers.forEach((v) => {
+    v.rebuild(mode);
+    const s = v.card.querySelector(".vmode");
+    if (s) s.value = mode;
+  });
 }
 
 function currentModel() { return App.models[App.modelIdx]; }
@@ -718,10 +733,7 @@ function init() {
   $("dirInput").onchange = (e) => setFiles(e.target.files, true);
   $("runBtn").onclick = run;
   $("modelSel").onchange = async () => { App.modelIdx = +$("modelSel").value; await renderModel(); };
-  $("colorMode").onchange = () => {
-    App.mode = $("colorMode").value;
-    App.viewers.forEach((v) => v.rebuild(App.mode));
-  };
+  $("colorMode").onchange = () => setViewMode($("colorMode").value);
   $("addView").onclick = () => { addViewer(); App.viewers.forEach((v) => v.applySelection(App.sel.points, App.sel.mode)); };
   $("delView").onclick = () => removeViewer();
   $("syncCam").onchange = () => { App.syncCam = $("syncCam").checked; };
