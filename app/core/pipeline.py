@@ -223,49 +223,150 @@ def envelope_points(alphas, rs, z):
 
 def merge_coplanar(points, faces, angle_tol_deg=1.0):
     points = np.asarray(points, float)
-    normals = np.cross(points[faces][:, 1] - points[faces][:, 0],
-                       points[faces][:, 2] - points[faces][:, 0])
-    norm = np.linalg.norm(normals, axis=1)
-    norm[norm == 0] = 1.0
-    normals = normals / norm[:, None]
-    tol = np.cos(np.deg2rad(angle_tol_deg))
+    faces = [list(map(int, f)) for f in faces]
+    if not faces:
+        return []
 
-    edges = defaultdict(list)
-    for i, f in enumerate(faces):
-        for e in ((f[0], f[1]), (f[1], f[2]), (f[2], f[0])):
-            edges[tuple(sorted(e))].append(i)
+    center = points.mean(axis=0)
+    for f in faces:
+        if len(f) < 3:
+            continue
+        a, b, c = points[f[0]], points[f[1]], points[f[2]]
+        if np.dot(np.cross(b - a, c - a), a - center) < 0:
+            f[1], f[2] = f[2], f[1]
+
+    def key(i):
+        return tuple(np.round(points[i], 6))
+
+    key_point = {}
+    for p in points:
+        key_point[tuple(np.round(p, 6))] = p
+
+    normals, offsets = [], []
+    for f in faces:
+        if len(f) < 3:
+            normals.append(np.zeros(3)); offsets.append(0.0); continue
+        a, b, c = points[f[0]], points[f[1]], points[f[2]]
+        n = np.cross(b - a, c - a)
+        ln = np.linalg.norm(n)
+        if ln < 1e-12:
+            normals.append(np.zeros(3)); offsets.append(0.0)
+        else:
+            n = n / ln
+            normals.append(n); offsets.append(float(np.dot(n, a)))
+
+    tol = np.cos(np.deg2rad(angle_tol_deg))
+    diag = float(np.linalg.norm(points.max(axis=0) - points.min(axis=0))) or 1.0
+    plane_tol = max(1e-6, 0.002 * diag)
+
+    edges = {}
+    for fi, f in enumerate(faces):
+        for a, b in ((f[0], f[1]), (f[1], f[2]), (f[2], f[0])):
+            ka, kb = key(a), key(b)
+            edges.setdefault((min(ka, kb), max(ka, kb)), []).append((fi, ka, kb))
 
     adj = [[] for _ in faces]
-    for nbrs in edges.values():
-        if len(nbrs) == 2:
-            a, b = nbrs
-            if abs(normals[a].dot(normals[b])) >= tol:
-                adj[a].append(b)
-                adj[b].append(a)
+    for lst in edges.values():
+        if len(lst) != 2:
+            continue
+        (fi, _, _), (fj, _, _) = lst
+        if normals[fi].dot(normals[fj]) >= tol:
+            adj[fi].append(fj)
+            adj[fj].append(fi)
+
+    def newell(pts):
+        n = np.zeros(3)
+        for i in range(len(pts)):
+            a, b = pts[i], pts[(i + 1) % len(pts)]
+            n += np.cross(a, b)
+        ln = np.linalg.norm(n)
+        return n / ln if ln > 1e-12 else np.zeros(3)
+
+    def angle_poly(comp):
+        verts = []
+        seen = set()
+        for g in comp:
+            for i in faces[g]:
+                k = key(i)
+                if k not in seen:
+                    seen.add(k); verts.append(key_point[k])
+        verts = np.asarray(verts, float)
+        ctr = verts.mean(axis=0)
+        nrm = sum((normals[g] for g in comp), np.zeros(3))
+        nrm = nrm / (np.linalg.norm(nrm) or 1.0)
+        ref = np.array([1.0, 0.0, 0.0]) if abs(nrm[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+        u = np.cross(nrm, ref); u /= np.linalg.norm(u)
+        v = np.cross(nrm, u)
+        ang = np.arctan2((verts - ctr) @ v, (verts - ctr) @ u)
+        return verts[np.argsort(ang)]
 
     seen = [False] * len(faces)
     polys = []
     for i in range(len(faces)):
-        if seen[i]:
+        if seen[i] or np.linalg.norm(normals[i]) == 0:
             continue
-        q, group = deque([i]), []
+        q, comp = [i], []
         seen[i] = True
         while q:
-            u = q.popleft()
-            group.append(u)
+            u = q.pop()
+            comp.append(u)
             for w in adj[u]:
                 if not seen[w]:
                     seen[w] = True
                     q.append(w)
-        verts = np.unique(points[np.concatenate([faces[g] for g in group])], axis=0)
-        ctr = verts.mean(axis=0)
-        nrm = normals[group[0]]
-        ref = np.array([1.0, 0.0, 0.0]) if abs(nrm[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
-        u = np.cross(nrm, ref)
-        u /= np.linalg.norm(u)
-        v = np.cross(nrm, u)
-        ang = np.arctan2((verts - ctr) @ v, (verts - ctr) @ u)
-        polys.append(verts[np.argsort(ang)])
+
+        cnt = {}
+        for g in comp:
+            f = faces[g]
+            for a, b in ((f[0], f[1]), (f[1], f[2]), (f[2], f[0])):
+                ka, kb = key(a), key(b)
+                cnt[(ka, kb)] = cnt.get((ka, kb), 0) + 1
+
+        boundary = [e for e in cnt if cnt.get((e[1], e[0]), 0) == 0]
+        if not boundary:
+            polys.append(angle_poly(comp))
+            continue
+
+        remaining = set(boundary)
+        loops = []
+        while remaining:
+            ka, kb = next(iter(remaining))
+            loop = [ka]
+            cur = kb
+            remaining.discard((ka, kb))
+            ok = True
+            while cur != loop[0]:
+                loop.append(cur)
+                nxt = [e for e in remaining if e[0] == cur]
+                if not nxt:
+                    ok = False
+                    break
+                e = nxt[0]
+                remaining.discard(e)
+                cur = e[1]
+                if len(loop) > len(boundary) + 1:
+                    ok = False
+                    break
+            if ok and len(loop) >= 3:
+                loops.append(loop)
+
+        if not loops:
+            polys.append(angle_poly(comp))
+            continue
+
+        def loop_area(loop):
+            p = np.asarray([key_point[k] for k in loop], float)
+            n = newell(p)
+            return abs(float(np.dot(n, p.mean(axis=0))))
+
+        loops.sort(key=loop_area, reverse=True)
+        verts = np.asarray([key_point[k] for k in loops[0]], float)
+        nrm = newell(verts)
+        ncomp = sum((normals[g] for g in comp), np.zeros(3))
+        if np.dot(nrm, ncomp) < 0:
+            verts = verts[::-1]
+        polys.append(verts)
+
     return polys
 
 
@@ -457,27 +558,26 @@ _MIN_CACHE = {}
 _MIN_ORDER = []
 
 
-def minimal_polyhedron(points, angle_tol_deg=1.0, loss_target=0.001, hull=None):
+def minimal_polyhedron(points, angle_tol_deg=1.0, loss_target=0.001, hull=None, pct=None, snap=True):
     points = np.asarray(points, float)
     key = None
     try:
         import hashlib
         key = (hashlib.blake2b(np.ascontiguousarray(points, dtype=np.float64).tobytes(),
                                digest_size=16).hexdigest(),
-               round(float(loss_target), 6), round(float(angle_tol_deg), 3))
+               round(float(loss_target), 6), round(float(angle_tol_deg), 3), pct, bool(snap))
         if key in _MIN_CACHE:
             return dict(_MIN_CACHE[key])
     except Exception:
         key = None
     hv, hf = hull if hull is not None else hull_compact(points)
     area0 = mesh_area(hv, hf)
-    pct = None
     engine = "qem"
     best_v, best_f = hv, hf
 
     try:
         import open3d  # noqa: F401
-        pct = _o3d_auto_pct(hv, hf, loss_target)
+        pct = float(pct) if pct is not None else _o3d_auto_pct(hv, hf, loss_target)
         v2, f2 = _o3d_simplify(hv, hf, pct)
         v2, f2 = hull_compact(v2)
         best_v, best_f = v2, f2
@@ -513,14 +613,15 @@ def minimal_polyhedron(points, angle_tol_deg=1.0, loss_target=0.001, hull=None):
                 else:
                     hi = mid
 
-    diag = float(np.linalg.norm(hv.max(axis=0) - hv.min(axis=0))) or 1.0
-    try:
-        snapped = snap_to_planes(best_v, hv, hf, 0.02 * diag)
-        sv, sf = hull_compact(snapped)
-        if len(sf) >= 4:
-            best_v, best_f = sv, sf
-    except Exception:
-        pass
+    if snap:
+        diag = float(np.linalg.norm(hv.max(axis=0) - hv.min(axis=0))) or 1.0
+        try:
+            snapped = snap_to_planes(best_v, hv, hf, 0.02 * diag)
+            sv, sf = hull_compact(snapped)
+            if len(sf) >= 4:
+                best_v, best_f = sv, sf
+        except Exception:
+            pass
 
     polys = merge_coplanar(best_v, best_f, angle_tol_deg)
     res = {
@@ -539,6 +640,76 @@ def minimal_polyhedron(points, angle_tol_deg=1.0, loss_target=0.001, hull=None):
         while len(_MIN_ORDER) > 12:
             _MIN_CACHE.pop(_MIN_ORDER.pop(0), None)
     return res
+
+
+SIMPLIFY_LEVELS = [100, 70, 50, 35, 25, 15]
+
+
+def _pt_in_tri(p, a, b, c):
+    s1 = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
+    s2 = (c[0] - b[0]) * (p[1] - b[1]) - (c[1] - b[1]) * (p[0] - b[0])
+    s3 = (a[0] - c[0]) * (p[1] - c[1]) - (a[1] - c[1]) * (p[0] - c[0])
+    return (s1 >= -1e-12 and s2 >= -1e-12 and s3 >= -1e-12) or (s1 <= 1e-12 and s2 <= 1e-12 and s3 <= 1e-12)
+
+
+def triangulate_polygon(poly):
+    p = np.asarray(poly, float)
+    n = len(p)
+    if n < 3:
+        return []
+    if n == 3:
+        return [p]
+    nrm = np.zeros(3)
+    for i in range(n):
+        a, b = p[i], p[(i + 1) % n]
+        nrm += np.cross(a, b)
+    ln = np.linalg.norm(nrm)
+    if ln < 1e-12:
+        return [[p[0], p[i], p[i + 1]] for i in range(1, n - 1)]
+    nrm /= ln
+    a = p[1] - p[0]
+    a -= nrm * np.dot(a, nrm)
+    la = np.linalg.norm(a)
+    if la < 1e-12:
+        return [[p[0], p[i], p[i + 1]] for i in range(1, n - 1)]
+    a /= la
+    b = np.cross(nrm, a)
+    uv = np.column_stack(((p - p[0]) @ a, (p - p[0]) @ b))
+    area = 0.5 * float(np.sum(uv[:, 0] * np.roll(uv[:, 1], -1) - np.roll(uv[:, 0], -1) * uv[:, 1]))
+    idx = list(range(n))
+    if area < 0:
+        idx.reverse()
+    tris = []
+    guard = 0
+    while len(idx) > 3 and guard < n * n:
+        guard += 1
+        found = False
+        for k in range(len(idx)):
+            i0 = idx[(k - 1) % len(idx)]
+            i1 = idx[k]
+            i2 = idx[(k + 1) % len(idx)]
+            a0, b0, c0 = uv[i0], uv[i1], uv[i2]
+            cr = (b0[0] - a0[0]) * (c0[1] - b0[1]) - (b0[1] - a0[1]) * (c0[0] - b0[0])
+            if cr <= 1e-12:
+                continue
+            inside = False
+            for j in idx:
+                if j in (i0, i1, i2):
+                    continue
+                if _pt_in_tri(uv[j], a0, b0, c0):
+                    inside = True
+                    break
+            if inside:
+                continue
+            tris.append(np.array([p[i0], p[i1], p[i2]]))
+            idx.pop(k)
+            found = True
+            break
+        if not found:
+            break
+    for k in range(1, len(idx) - 1):
+        tris.append(np.array([p[idx[0]], p[idx[k]], p[idx[k + 1]]]))
+    return tris
 
 
 def polygons_to_mesh(polys):

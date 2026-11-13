@@ -458,6 +458,38 @@ class Handler(SimpleHTTPRequestHandler):
             with open(path, "wb") as f:
                 f.write(self.rfile.read(n))
             return self._json({"path": path, "name": name})
+        if u.path == "/api/levels":
+            n = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(n) or b"{}")
+            source = body.get("source")
+            if not source:
+                return self._json({"error": "не выбрана модель"}, 400)
+            with LOCK:
+                if STATE["job"] and STATE["job"].get("state") == "running":
+                    return self._json({"error": "уже выполняется"}, 409)
+            try:
+                v, faces, title = _prepare(source)
+                results = []
+                for i, pct in enumerate(pipeline.SIMPLIFY_LEVELS):
+                    t0 = time.time()
+                    mp = pipeline.minimal_polyhedron(v, pct=pct, snap=False)
+                    mv, mf = pipeline.polygons_to_mesh(mp["polygons"])
+                    results.append({
+                        "id": f"lv{i}", "label": f"{pct:g}% · {mp['vertices']}/{mp['faces']}",
+                        "kind": "level", "mesh": {"v": mv.tolist(), "f": [list(f) for f in mf]},
+                        "metrics": {}, "quality": None,
+                        "vertices": int(mp["vertices"]), "faces": int(mp["faces"]),
+                        "pct": pct, "time": round(time.time() - t0, 2),
+                    })
+                model = {"id": "levels", "name": f"{title} · 6 уровней",
+                         "levels": True, "results": results}
+                with LOCK:
+                    models = [m for m in (STATE["models"] or []) if m.get("id") != "levels"]
+                    models.append(model)
+                    STATE["models"] = models
+                return self._json({"ok": True, "name": model["name"]})
+            except Exception as exc:
+                return self._json({"error": str(exc)}, 500)
         if u.path == "/api/run":
             n = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(n) or b"{}")

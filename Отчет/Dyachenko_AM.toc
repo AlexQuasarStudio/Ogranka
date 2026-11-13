@@ -24,13 +24,13 @@
 \contentsline {subsection}{\numberline {6.5}Подавление шума по слоям}{23}{subsection.6.5}%
 \contentsline {subsection}{\numberline {6.6}Сравнение с эталоном}{24}{subsection.6.6}%
 \contentsline {subsection}{\numberline {6.7}Минимальный многогранник: автоматический режим}{25}{subsection.6.7}%
-\contentsline {section}{\numberline {7}Реальные данные}{29}{section.7}%
-\contentsline {subsection}{\numberline {7.1}Данные и подготовка}{29}{subsection.7.1}%
-\contentsline {subsection}{\numberline {7.2}Два режима восстановления}{29}{subsection.7.2}%
-\contentsline {subsection}{\numberline {7.3}Зашумленные данные}{30}{subsection.7.3}%
-\contentsline {subsection}{\numberline {7.4}Сглаживание}{30}{subsection.7.4}%
-\contentsline {subsection}{\numberline {7.5}Вывод по реальным данным}{32}{subsection.7.5}%
-\contentsline {section}{\numberline {8}Программа «Огранка»}{33}{section.8}%
-\contentsline {section}{\numberline {9}Вывод}{35}{section.9}%
-\contentsline {section}{\numberline {10}Заключение}{36}{section.10}%
-\contentsline {section}{Список литературы}{37}{section*.2}%
+\contentsline {section}{\numberline {7}Реальные данные}{31}{section.7}%
+\contentsline {subsection}{\numberline {7.1}Данные и подготовка}{31}{subsection.7.1}%
+\contentsline {subsection}{\numberline {7.2}Два режима восстановления}{31}{subsection.7.2}%
+\contentsline {subsection}{\numberline {7.3}Зашумленные данные}{32}{subsection.7.3}%
+\contentsline {subsection}{\numberline {7.4}Сглаживание}{32}{subsection.7.4}%
+\contentsline {subsection}{\numberline {7.5}Вывод по реальным данным}{34}{subsection.7.5}%
+\contentsline {section}{\numberline {8}Программа «Огранка»}{35}{section.8}%
+\contentsline {section}{\numberline {9}Вывод}{37}{section.9}%
+\contentsline {section}{\numberline {10}Заключение}{38}{section.10}%
+\contentsline {section}{Список литературы}{39}{section*.2}%

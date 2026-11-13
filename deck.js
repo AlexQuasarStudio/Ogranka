@@ -516,7 +516,27 @@ async function main() {
   K.addFooter(s19, 19);
   finish(s19);
 
-  // 20 — Реальные данные
+  // 20 — 6 уровней упрощения
+  const sLevels = pptx.addSlide();
+  sLevels.background = { color: P.bg };
+  K.addHeader(sLevels, "6 уровней упрощения", "Доля оставленных треугольников: 100 → 15 %");
+  sLevels.addImage(H.imageSizingCrop(path.join(IMG, ["deck_levels", "png"].join(".")), 0.55, 1.45, 5.6, 5.6));
+  K.card(sLevels, 6.9, 1.55, 5.8, 4.9, CARD);
+  sLevels.addText("Как меняется форма", { x: 7.25, y: 1.8, w: 5.1, h: 0.4, fontFace: FONT, fontSize: 15, bold: true, color: P.accent, valign: "top" });
+  bullets(sLevels, [
+    "Октаэдр: 6 → 4 вершины",
+    "Икосаэдр: 12 → 4",
+    "Додекаэдр: 20 → 4",
+    "Бриллиант: 40 → 7",
+    "Куб: 8 → 4 · призма: 16 → 4",
+  ], { x: 7.25, y: 2.3, w: 5.1, h: 3.0, marginLeft: 0.3, fontSize: 13 });
+  sLevels.addText("Число граней может меняться немонотонно: почти компланарные треугольники сливаются по-разному.", {
+    x: 7.0, y: 5.55, w: 5.6, h: 0.8, fontFace: FONT, fontSize: 11.5, color: P.muted, valign: "top",
+  });
+  K.addFooter(sLevels, 20);
+  finish(sLevels);
+
+  // 21 — Реальные данные
   const s20 = pptx.addSlide();
   s20.background = { color: P.bg };
   K.addHeader(s20, "Реальные данные", "Три модели сканера");
@@ -539,7 +559,7 @@ async function main() {
   s20.addText("Сечения содержат 8–217 вершин (микро-грани сканера). Поэтому режим максимумов даёт 3–4 точки на слой (MSE 0.12 и 0.077), а восстановление выполняется как пересечение полуплоскостей: MSE 1e-13 на точных данных.\nНа рисунках — минимальные многогранники (auto-режим); все варианты выгружены в OBJ (out3D_real/obj).", {
     x: 1.0, y: 5.15, w: 11.3, h: 1.3, fontFace: FONT, fontSize: 12, color: P.ink, align: "center", valign: "top",
   });
-  K.addFooter(s20, 20);
+  K.addFooter(s20, 21);
   finish(s20);
 
   // 21 — Реальные данные: результаты
@@ -557,7 +577,7 @@ async function main() {
   s21.addText("Фурье: MSE 8e-6 – 5.5e-4. Соседи: 6e-5 при r8 и 3e-2 при r80. Без сглаживания: 0.32–5.4 (система полуплоскостей вырождается).", {
     x: 0.8, y: 6.4, w: 11.8, h: 0.45, fontFace: FONT, fontSize: 11, color: P.muted, align: "center", valign: "top",
   });
-  K.addFooter(s21, 21);
+  K.addFooter(s21, 22);
   finish(s21);
 
   // 22 — Программа-конвейер
@@ -574,7 +594,7 @@ async function main() {
   ], { x: 0.6, y: 1.55, w: 5.6, h: 4.7, marginLeft: 0.3, fontSize: 12.5 });
   K.card(sApp, 6.45, 1.45, 6.25, 5.1, CARD);
   sApp.addImage({ path: `${IMG}/deck_app_ui.jpg`, x: 7.22, y: 1.6, w: 4.68, h: 4.8 });
-  K.addFooter(sApp, 22);
+  K.addFooter(sApp, 23);
   finish(sApp);
 
   // 22 — Выводы
@@ -603,7 +623,7 @@ async function main() {
     x: 0.6, y: 6.05, w: 12.1, h: 0.55, fontFace: "Georgia", fontSize: 20, italic: true, bold: true,
     color: P.accent, align: "center", valign: "top",
   });
-  K.addFooter(s22, 23);
+  K.addFooter(s22, 24);
   finish(s22);
 
   // 21 — Финал

@@ -70,6 +70,78 @@ function pointInPoly(p, poly, tol) {
 
 const near = (a, p) => (a[0] - p[0]) ** 2 + (a[1] - p[1]) ** 2 + (a[2] - p[2]) ** 2 < TOL * TOL;
 
+function triPointInTri(p, a, b, c) {
+  const s1 = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+  const s2 = (c[0] - b[0]) * (p[1] - b[1]) - (c[1] - b[1]) * (p[0] - b[0]);
+  const s3 = (a[0] - c[0]) * (p[1] - c[1]) - (a[1] - c[1]) * (p[0] - c[0]);
+  return (s1 >= -1e-12 && s2 >= -1e-12 && s3 >= -1e-12) ||
+         (s1 <= 1e-12 && s2 <= 1e-12 && s3 <= 1e-12);
+}
+
+function triangulateFace(f, v) {
+  const n = f.length;
+  if (n < 3) return [];
+  if (n === 3) return [[f[0], f[1], f[2]]];
+  const fan = () => {
+    const out = [];
+    for (let k = 1; k < n - 1; k++) out.push([f[0], f[k], f[k + 1]]);
+    return out;
+  };
+  const p0 = v[f[0]];
+  let nx = 0, ny = 0, nz = 0;
+  for (let i = 0; i < n; i++) {
+    const a = v[f[i]], b = v[f[(i + 1) % n]];
+    nx += (a[1] - b[1]) * (a[2] + b[2]);
+    ny += (a[2] - b[2]) * (a[0] + b[0]);
+    nz += (a[0] - b[0]) * (a[1] + b[1]);
+  }
+  const ln = Math.hypot(nx, ny, nz);
+  if (ln < 1e-12) return fan();
+  nx /= ln; ny /= ln; nz /= ln;
+  let ax = v[f[1]][0] - p0[0], ay = v[f[1]][1] - p0[1], az = v[f[1]][2] - p0[2];
+  const ad = ax * nx + ay * ny + az * nz;
+  ax -= ad * nx; ay -= ad * ny; az -= ad * nz;
+  const al = Math.hypot(ax, ay, az);
+  if (al < 1e-12) return fan();
+  ax /= al; ay /= al; az /= al;
+  const bx = ny * az - nz * ay, by = nz * ax - nx * az, bz = nx * ay - ny * ax;
+  const uv = f.map((i) => {
+    const dx = v[i][0] - p0[0], dy = v[i][1] - p0[1], dz = v[i][2] - p0[2];
+    return [dx * ax + dy * ay + dz * az, dx * bx + dy * by + dz * bz];
+  });
+  let area = 0;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    area += uv[i][0] * uv[j][1] - uv[j][0] * uv[i][1];
+  }
+  const idx = f.map((_, i) => i);
+  if (area < 0) idx.reverse();
+  const tris = [];
+  let guard = 0;
+  while (idx.length > 3 && guard++ < n * n) {
+    let found = false;
+    for (let k = 0; k < idx.length; k++) {
+      const i0 = idx[(k - 1 + idx.length) % idx.length], i1 = idx[k], i2 = idx[(k + 1) % idx.length];
+      const a = uv[i0], b = uv[i1], c = uv[i2];
+      const cr = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+      if (cr <= 1e-12) continue;
+      let inside = false;
+      for (const j of idx) {
+        if (j === i0 || j === i1 || j === i2) continue;
+        if (triPointInTri(uv[j], a, b, c)) { inside = true; break; }
+      }
+      if (inside) continue;
+      tris.push([f[i0], f[i1], f[i2]]);
+      idx.splice(k, 1);
+      found = true;
+      break;
+    }
+    if (!found) break;
+  }
+  for (let k = 1; k < idx.length - 1; k++) tris.push([f[idx[0]], f[idx[k]], f[idx[k + 1]]]);
+  return tris;
+}
+
 class Viewer {
   constructor(card, onPick, onCam) {
     this.card = card;
@@ -176,7 +248,8 @@ class Viewer {
     this.faces = faces;
     const tris = [], triFace = [];
     faces.forEach((f, fi) => {
-      for (let k = 1; k < f.length - 1; k++) { tris.push([f[0], f[k], f[k + 1]]); triFace.push(fi); }
+      const ft = triangulateFace(f, v);
+      for (const t of ft) { tris.push(t); triFace.push(fi); }
     });
     this.triFace = triFace;
     this.faceCentroids = faces.map((f) => {
@@ -514,6 +587,12 @@ function populateViewer(v, idx) {
   if (!model) return;
   const results = model.results;
   v.select.innerHTML = results.map((r) => `<option value="${r.id}">${r.label}</option>`).join("");
+  if (model.levels) {
+    const cand = results.filter((r) => r.mesh);
+    const pick = cand[Math.min(idx, cand.length - 1)] || cand[0];
+    v.select.value = (pick || results[0]).id;
+    return;
+  }
   let pick = null;
   if (idx === 0) {
     pick = results.find((r) => r.id.endsWith(":ref"));
@@ -936,6 +1015,27 @@ function init() {
 
   $("fileInput").onchange = (e) => setFiles(e.target.files, false);
   $("dirInput").onchange = (e) => setFiles(e.target.files, true);
+  $("levelsBtn").onclick = async () => {
+    const src = App.sources && App.sources[0];
+    if (!src) { alert("Сначала выберите модель"); return; }
+    showProgress("6 уровней упрощения", "построение минимальных многогранников");
+    try {
+      const r = await fetch("/api/levels", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: src }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "не удалось построить уровни");
+      await loadResults();
+      const idx = App.models.findIndex((m) => m.name === j.name);
+      if (idx >= 0) { App.modelIdx = idx; $("modelSel").value = String(idx); await renderModel(); }
+      $("statusText").textContent = "6 уровней готовы";
+      hideProgress();
+    } catch (e) {
+      showProgressError(e.message);
+    }
+  };
+
   $("runBtn").onclick = run;
   $("modelSel").onchange = async () => { App.modelIdx = +$("modelSel").value; await renderModel(); };
   $("colorMode").onchange = () => setViewMode($("colorMode").value);

@@ -5,24 +5,34 @@
 """
 import argparse
 import os
+import sys
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection, Line3DCollection
 import imageio
 
 from minimal3D import minimal_polyhedron, VARIANTS, BODIES
 from visualize3D_bodies import STYLES, setup_axes, limits_for, LABELS
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "app")))
+from core.pipeline import triangulate_polygon
 
 TITLES = {"octa": "Октаэдр", "icosa": "Икосаэдр", "dodeca": "Додекаэдр", "diamond": "Бриллиант"}
 
 
 def draw_polys(ax, polys, style):
     st = STYLES[style]
-    coll = Poly3DCollection(polys, facecolor=st["face"], edgecolor=st["edge"],
-                            linewidths=st["lw"], alpha=1.0)
-    ax.add_collection3d(coll)
+    tris, edges = [], []
+    for poly in polys:
+        tris.extend(triangulate_polygon(poly))
+        for i in range(len(poly)):
+            edges.append([poly[i], poly[(i + 1) % len(poly)]])
+    if tris:
+        ax.add_collection3d(Poly3DCollection(tris, facecolor=st["face"], edgecolor="none", alpha=1.0))
+    if edges:
+        ax.add_collection3d(Line3DCollection(edges, colors=st["edge"], linewidths=st["lw"]))
 
 
 def render_png(polys, limits, out, style="report", azim=35, elev=20, size=4.2, dpi=110):

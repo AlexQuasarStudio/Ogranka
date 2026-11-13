@@ -112,6 +112,7 @@ python3 export3D_obj.py          # выгрузка OBJ
 | `reconstruct3D/visualization.py` | Сглаживание опорных функций на сечениях |
 | `reconstruct3D/minimal3D.py` | Автоматический минимальный многогранник |
 | `reconstruct3D/visualize_minimal3D.py` | Рисунки и GIF минимальных многогранников |
+| `reconstruct3D/levels_collage.py` | Коллаж 6 тел × 6 уровней упрощения |
 | `reconstruct3D/real_data3D.py` | Конвейер для реальных моделей |
 | `reconstruct3D/export3D_obj.py` | Экспорт оболочек и многогранников в OBJ |
 | `reconstruct3D/view3D.py` | Просмотр OBJ в окне с вращением |
