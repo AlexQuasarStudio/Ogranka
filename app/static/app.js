@@ -691,7 +691,7 @@ async function loadViewer(v) {
   const id = v.select.value;
   if (!id) return;
   const r = await meshOf(id);
-  v.setMesh(r.mesh, App.mode);
+  v.setMesh(r.mesh, App.mode, !!v.mesh);
   const m = r.metrics || {};
   v.meta.innerHTML = `${badge(r.quality)} MSE ${fmt(m.mse)} · RMSE ${fmt(m.rmse)} · dmax ${fmt(m.dmax)} · ${r.time != null ? r.time + " с" : "—"}`;
   updateDiff();

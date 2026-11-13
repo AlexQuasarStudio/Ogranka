@@ -49,6 +49,13 @@ class PipelineSmokeTest(unittest.TestCase):
             area += 0.5 * float(np.linalg.norm(np.cross(b - a, c - a)))
         self.assertAlmostEqual(area, 3.0, places=9)
 
+    def test_merge_coplanar_does_not_merge_bent_quad(self):
+        points = np.array(
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.01]]
+        )
+        polys = pipeline.merge_coplanar(points, [[0, 1, 2], [0, 2, 3]], angle_tol_deg=10.0)
+        self.assertEqual(len(polys), 2)
+
     def test_minimal_polyhedron_contains_cube(self):
         verts, faces = pipeline.hull(CUBE)
         hull_verts, hull_faces = pipeline.hull_compact(verts)

@@ -221,6 +221,23 @@ def merge_coplanar(points, faces, angle_tol_deg=1.0):
 
     seen = [False] * len(faces)
     polys = []
+    diag = float(np.linalg.norm(points.max(axis=0) - points.min(axis=0))) or 1.0
+    plane_tol = max(1e-9, 1e-6 * diag)
+
+    def planar(poly):
+        p = np.asarray(poly, float)
+        if len(p) < 3:
+            return False
+        n = newell(p)
+        if np.linalg.norm(n) < 1e-12:
+            return False
+        c = p.mean(axis=0)
+        return float(np.max(np.abs((p - c) @ n))) <= plane_tol
+
+    def fallback(comp):
+        for g in comp:
+            polys.append(np.asarray([points[i] for i in faces[g]], float))
+
     for i in range(len(faces)):
         if seen[i] or np.linalg.norm(normals[i]) == 0:
             continue
@@ -243,7 +260,11 @@ def merge_coplanar(points, faces, angle_tol_deg=1.0):
 
         boundary = [e for e in cnt if cnt.get((e[1], e[0]), 0) == 0]
         if not boundary:
-            polys.append(angle_poly(comp))
+            poly = angle_poly(comp)
+            if planar(poly):
+                polys.append(poly)
+            else:
+                fallback(comp)
             continue
 
         remaining = set(boundary)
@@ -270,7 +291,11 @@ def merge_coplanar(points, faces, angle_tol_deg=1.0):
                 loops.append(loop)
 
         if not loops:
-            polys.append(angle_poly(comp))
+            poly = angle_poly(comp)
+            if planar(poly):
+                polys.append(poly)
+            else:
+                fallback(comp)
             continue
 
         def loop_area(loop):
@@ -284,7 +309,10 @@ def merge_coplanar(points, faces, angle_tol_deg=1.0):
         ncomp = sum((normals[g] for g in comp), np.zeros(3))
         if np.dot(nrm, ncomp) < 0:
             verts = verts[::-1]
-        polys.append(verts)
+        if planar(verts):
+            polys.append(verts)
+        else:
+            fallback(comp)
 
     return polys
 
