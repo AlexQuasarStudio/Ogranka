@@ -9,6 +9,11 @@ import time
 from collections import defaultdict, deque
 
 import numpy as np
+
+try:
+    import fast_simplification as _fast
+except Exception:
+    _fast = None
 from scipy.spatial import ConvexHull, QhullError
 
 
@@ -429,8 +434,23 @@ def qem_decimate(points, faces, target_tri):
         cost = np.einsum("ei,eij,ej->e", m4, qs, m4)
         k = int(np.argmin(cost))
         a, b = int(i[k]), int(j[k])
-        pts[a] = 0.5 * (pts[a] + pts[b])
-        quad[a] = quad[a] + quad[b]
+        Q = quad[a] + quad[b]
+        mid = 0.5 * (pts[a] + pts[b])
+        cand = [mid, pts[a], pts[b]]
+        try:
+            opt = np.linalg.solve(Q[:3, :3] + 1e-9 * np.eye(3), -Q[:3, 3])
+            if np.all(np.isfinite(opt)):
+                cand.append(opt)
+        except Exception:
+            pass
+        best, bestc = mid, float("inf")
+        for p in cand:
+            m4 = np.array([p[0], p[1], p[2], 1.0])
+            c = float(m4 @ Q @ m4)
+            if c < bestc:
+                best, bestc = np.asarray(p, float), c
+        pts[a] = best
+        quad[a] = Q
         alive[b] = False
         nf = []
         for f in faces:
@@ -450,6 +470,42 @@ def qem_decimate(points, faces, target_tri):
         return verts[h.vertices], [list(s) for s in h.simplices]
     except QhullError:
         return pts, faces
+
+
+def _fast_simplify(points, faces, pct):
+    if _fast is None:
+        raise RuntimeError("fast_simplification недоступен")
+    target = max(4, int(len(faces) * pct / 100.0))
+    reduction = max(0.0, 1.0 - target / max(1, len(faces)))
+    v2, f2 = _fast.simplify(np.asarray(points, float), np.asarray(faces, int),
+                            target_reduction=reduction)
+    return np.asarray(v2, float), [list(map(int, f)) for f in f2]
+
+
+def _fast_auto_pct(points, faces, rel_tol):
+    orig = mesh_area(points, faces)
+    low, high, best = 0.0, 100.0, 100.0
+    iters = int(np.log2(max(4, len(faces)))) + 2
+    for _ in range(iters):
+        mid = 0.5 * (low + high)
+        try:
+            v2, f2 = _fast_simplify(points, faces, mid)
+        except Exception:
+            low = mid
+            continue
+        if len(f2) < 4:
+            low = mid
+            continue
+        try:
+            v2, f2 = hull_compact(v2)
+        except Exception:
+            pass
+        if mesh_area(v2, f2) / orig >= 1.0 - rel_tol:
+            best = mid
+            high = mid
+        else:
+            low = mid
+    return best
 
 
 def _o3d_mesh(points, faces):
@@ -565,7 +621,7 @@ def minimal_polyhedron(points, angle_tol_deg=1.0, loss_target=0.001, hull=None, 
         import hashlib
         key = (hashlib.blake2b(np.ascontiguousarray(points, dtype=np.float64).tobytes(),
                                digest_size=16).hexdigest(),
-               round(float(loss_target), 6), round(float(angle_tol_deg), 3), pct, bool(snap))
+               round(float(loss_target), 6), round(float(angle_tol_deg), 3), pct, bool(snap), ENGINE, bool(USE_OPEN3D))
         if key in _MIN_CACHE:
             return dict(_MIN_CACHE[key])
     except Exception:
@@ -575,14 +631,29 @@ def minimal_polyhedron(points, angle_tol_deg=1.0, loss_target=0.001, hull=None, 
     engine = "qem"
     best_v, best_f = hv, hf
 
-    try:
-        import open3d  # noqa: F401
-        pct = float(pct) if pct is not None else _o3d_auto_pct(hv, hf, loss_target)
-        v2, f2 = _o3d_simplify(hv, hf, pct)
-        v2, f2 = hull_compact(v2)
-        best_v, best_f = v2, f2
-        engine = "open3d"
-    except Exception:
+    done = False
+    if ENGINE == "fast" and _fast is not None:
+        try:
+            pct = float(pct) if pct is not None else _fast_auto_pct(hv, hf, loss_target)
+            v2, f2 = _fast_simplify(hv, hf, pct)
+            v2, f2 = hull_compact(v2)
+            best_v, best_f = v2, f2
+            engine = "fast"
+            done = True
+        except Exception:
+            done = False
+    if not done and ENGINE in ("open3d", "auto") and USE_OPEN3D:
+        try:
+            import open3d  # noqa: F401
+            pct = float(pct) if pct is not None else _o3d_auto_pct(hv, hf, loss_target)
+            v2, f2 = _o3d_simplify(hv, hf, pct)
+            v2, f2 = hull_compact(v2)
+            best_v, best_f = v2, f2
+            engine = "open3d"
+            done = True
+        except Exception:
+            done = False
+    if not done:
         try:
             lo, hi = 0.05, 1.0
             for _ in range(7):
@@ -641,6 +712,9 @@ def minimal_polyhedron(points, angle_tol_deg=1.0, loss_target=0.001, hull=None, 
             _MIN_CACHE.pop(_MIN_ORDER.pop(0), None)
     return res
 
+
+USE_OPEN3D = True
+ENGINE = "open3d"
 
 SIMPLIFY_LEVELS = [100, 70, 50, 35, 25, 15]
 

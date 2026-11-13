@@ -23,6 +23,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 from core import pipeline
 
+pipeline.ENGINE = "fast"
+
 
 class Api:
     def toggle_fullscreen(self):
@@ -470,16 +472,30 @@ class Handler(SimpleHTTPRequestHandler):
             try:
                 v, faces, title = _prepare(source)
                 results = []
+                prev = None
                 for i, pct in enumerate(pipeline.SIMPLIFY_LEVELS):
                     t0 = time.time()
-                    mp = pipeline.minimal_polyhedron(v, pct=pct, snap=False)
-                    mv, mf = pipeline.polygons_to_mesh(mp["polygons"])
+                    try:
+                        mp = pipeline.minimal_polyhedron(v, pct=pct, snap=False)
+                    except Exception:
+                        mp = None
+                    if (mp is not None and mp["vertices"] >= 4 and mp["faces"] >= 4
+                            and (prev is None or mp["faces"] <= prev["faces"])):
+                        mv, mf = pipeline.polygons_to_mesh(mp["polygons"])
+                        prev = {"mesh": {"v": mv.tolist(), "f": [list(f) for f in mf]},
+                                "vertices": int(mp["vertices"]), "faces": int(mp["faces"])}
+                        sec = time.time() - t0
+                    elif prev is not None:
+                        mp = prev
+                        sec = 0.0
+                    else:
+                        raise ValueError("не удалось построить уровень упрощения")
                     results.append({
-                        "id": f"lv{i}", "label": f"{pct:g}% · {mp['vertices']}/{mp['faces']}",
-                        "kind": "level", "mesh": {"v": mv.tolist(), "f": [list(f) for f in mf]},
+                        "id": f"lv{i}", "label": f"{pct:g}% · {prev['vertices']}/{prev['faces']}",
+                        "kind": "level", "mesh": prev["mesh"],
                         "metrics": {}, "quality": None,
-                        "vertices": int(mp["vertices"]), "faces": int(mp["faces"]),
-                        "pct": pct, "time": round(time.time() - t0, 2),
+                        "vertices": prev["vertices"], "faces": prev["faces"],
+                        "pct": pct, "time": round(sec, 2),
                     })
                 model = {"id": "levels", "name": f"{title} · 6 уровней",
                          "levels": True, "results": results}

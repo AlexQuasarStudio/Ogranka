@@ -17,8 +17,8 @@
 и WebView2 — в Windows 10/11 он обычно уже стоит). Получится
 `dist\Ogranka.exe` — один файл, запуск двойным кликом.
 
-**Из исходников.** Нужны Python 3.9+ и пакеты numpy и scipy; Open3D не обязателен (без него
-работает собственная QEM-декцимация):
+**Из исходников.** Нужны Python 3.9+, numpy, scipy и fast-simplification; Open3D не нужен.
+Без fast-simplification работает собственная QEM-декцимация:
 
 ```bash
 python3 -m pip install -r requirements.txt
