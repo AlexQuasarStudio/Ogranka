@@ -1208,16 +1208,20 @@ function init() {
     }
   };
 
-  $("helpBtn").onclick = () => $("helpModal").classList.remove("hidden");
+  $("helpBtn").onclick = () => { $("aboutModal").classList.add("hidden"); $("helpModal").classList.remove("hidden"); };
+  $("aboutBtn").onclick = () => { $("helpModal").classList.add("hidden"); $("aboutModal").classList.remove("hidden"); };
   $("progressClose").onclick = () => hideProgress();
   $("helpClose").onclick = () => $("helpModal").classList.add("hidden");
+  $("aboutClose").onclick = () => $("aboutModal").classList.add("hidden");
   $("helpModal").onclick = (e) => { if (e.target.id === "helpModal") $("helpModal").classList.add("hidden"); };
+  $("aboutModal").onclick = (e) => { if (e.target.id === "aboutModal") $("aboutModal").classList.add("hidden"); };
 
   document.addEventListener("keydown", (e) => {
     const tag = (e.target.tagName || "").toLowerCase();
     if (tag === "input" || tag === "select" || tag === "textarea" || e.target.isContentEditable) return;
     if (e.key === "Escape") {
       $("helpModal").classList.add("hidden");
+      $("aboutModal").classList.add("hidden");
       if (App.solo) toggleSolo(App.solo);
       return;
     }
@@ -1234,7 +1238,8 @@ function init() {
     else if (k === "g") { $("resetBtn").click(); }
     else if (k === "o") { $("objBtn").click(); }
     else if (k === "s") { $("pngBtn").click(); }
-    else if (e.key === "?" || k === "h") { $("helpModal").classList.toggle("hidden"); }
+    else if (e.key === "?" || k === "h") { $("aboutModal").classList.add("hidden"); $("helpModal").classList.toggle("hidden"); }
+    else if (k === "i") { $("helpModal").classList.add("hidden"); $("aboutModal").classList.toggle("hidden"); }
     else if (e.key === "+" || e.key === "=") { $("addView").click(); }
     else if (e.key === "-" || e.key === "_") { $("delView").click(); }
   });

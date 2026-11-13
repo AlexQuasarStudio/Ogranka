@@ -10,6 +10,7 @@ import json
 import os
 import platform
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -24,6 +25,11 @@ from concurrent.futures import ThreadPoolExecutor
 from core import pipeline
 
 pipeline.ENGINE = "fast"
+
+APP_VERSION = "1.0.0"
+APP_AUTHOR = "Дьяченко Алексей"
+APP_ADVISOR = "Валединский Владимир Дмитриевич"
+APP_TITLE = f"Огранка {APP_VERSION} — восстановление формы"
 
 
 def _console_print(*args, **kwargs):
@@ -554,6 +560,53 @@ def _csv_text():
     return buf.getvalue()
 
 
+def _browser_executable():
+    if platform.system() != "Windows":
+        return None
+    roots = [
+        os.environ.get("ProgramFiles(x86)"),
+        os.environ.get("ProgramFiles"),
+        os.environ.get("LOCALAPPDATA"),
+    ]
+    relative = (
+        ("Microsoft", "Edge", "Application", "msedge.exe"),
+        ("Google", "Chrome", "Application", "chrome.exe"),
+    )
+    seen = set()
+    for root in roots:
+        if not root:
+            continue
+        for rel in relative:
+            path = os.path.join(root, *rel)
+            if path in seen:
+                continue
+            seen.add(path)
+            if os.path.isfile(path):
+                return path
+    return None
+
+
+def _open_windows_window(url):
+    exe = _browser_executable()
+    if not exe:
+        return None
+    profile = os.path.join(DATA, "browser-profile")
+    try:
+        os.makedirs(profile, exist_ok=True)
+        return subprocess.Popen([
+            exe,
+            f"--app={url}",
+            "--window-size=1440,940",
+            f"--user-data-dir={profile}",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-features=Translate",
+        ])
+    except Exception as exc:
+        _console_print("Не удалось открыть окно:", exc)
+        return None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8765)
@@ -577,9 +630,31 @@ def main():
             _console_print("\nОстановлено")
         return
     threading.Thread(target=srv.serve_forever, daemon=True).start()
+    if platform.system() == "Windows":
+        proc = _open_windows_window(url)
+        if proc is not None:
+            try:
+                proc.wait()
+            except KeyboardInterrupt:
+                _console_print("\nОстановлено")
+            finally:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+                srv.shutdown()
+            return
+        if not args.no_browser:
+            webbrowser.open(url)
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            _console_print("\nОстановлено")
+        return
     try:
         import webview
-        webview.create_window("Огранка — восстановление формы", url, width=1440, height=940,
+        webview.create_window(APP_TITLE, url, width=1440, height=940,
                               min_size=(880, 560), maximized=True, js_api=Api())
         webview.start()
     except Exception as exc:

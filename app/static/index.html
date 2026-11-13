@@ -3,7 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Огранка</title>
+<title>Огранка 1.0.0 — восстановление формы</title>
+<meta name="version" content="1.0.0">
+<meta name="author" content="Дьяченко Алексей">
+<meta name="description" content="Огранка 1.0.0 — восстановление формы по зашумлённым горизонтальным сечениям">
 <link rel="icon" href="/favicon.png">
 <link rel="stylesheet" href="/style.css">
 <script src="/vendor/three.min.js"></script>
@@ -14,9 +17,10 @@
 </head>
 <body>
 <header>
-  <div class="brand">Огранка <span class="brand-sub">восстановление формы</span></div>
+  <div class="brand">Огранка <span class="version">1.0.0</span> <span class="brand-sub">восстановление формы</span></div>
   <div class="header-right">
     <div id="statusText" class="status">Готов к запуску</div>
+    <button id="aboutBtn" class="help-btn about-btn" title="О программе (I)">i</button>
     <button id="helpBtn" class="help-btn" title="Справка (?)">?</button>
   </div>
 </header>
@@ -68,6 +72,7 @@
 
     <button id="levelsBtn" class="levels-btn" title="Построить 6 минимальных многогранников с разной степенью упрощения">6 уровней упрощения</button>
     <button id="runBtn" title="Запустить весь конвейер (R)" class="primary">Запустить конвейер</button>
+    <div class="app-foot">Огранка 1.0.0<br>Дьяченко Алексей · науч. рук. Валединский В.Д.</div>
   </aside>
 
   <section class="workspace">
@@ -186,9 +191,30 @@
       окно, <b>Esc</b> — выйти из полноэкранного режима, <b>+/−</b> — добавить
       или убрать окно, <b>V</b> — грани/вершины, <b>C</b> — общая камера,
       <b>A</b> — выделить всё, <b>Alt+A</b> — снять, <b>G</b> — сбросить вид,
-      <b>O</b> — скачать OBJ, <b>S</b> — скриншот, <b>?</b> — справка.</p>
+      <b>O</b> — скачать OBJ, <b>S</b> — скриншот, <b>?</b> — справка,
+      <b>I</b> — о программе.</p>
       <h3>Экспорт</h3>
       <p>OBJ — выбранная модель, PNG — окно, CSV — все метрики.</p>
+      <h3>О программе</h3>
+      <p><b>Огранка 1.0.0</b>. Создатель — Дьяченко Алексей,
+      научный руководитель — Валединский Владимир Дмитриевич.</p>
+    </div>
+  </div>
+</div>
+
+<div id="aboutModal" class="modal hidden">
+  <div class="modal-card about-card">
+    <div class="modal-head">
+      <h2>О программе</h2>
+      <button id="aboutClose" class="help-close" title="Закрыть">×</button>
+    </div>
+    <div class="modal-body">
+      <p><b>Огранка 1.0.0</b> — восстановление формы по зашумлённым
+      горизонтальным сечениям и построение минимального многогранника.</p>
+      <p><b>Создатель:</b> Дьяченко Алексей, 5 курс,
+      механико-математический факультет МГУ, кафедра вычислительной математики.</p>
+      <p><b>Научный руководитель:</b> Валединский Владимир Дмитриевич.</p>
+      <p class="about-copy">© 2026 Дьяченко Алексей</p>
     </div>
   </div>
 </div>

@@ -47,5 +47,13 @@ app = BUNDLE(
     coll,
     name='Ogranka.app',
     icon='icon.icns',
-    bundle_identifier=None,
+    bundle_identifier='ru.msu.reconstruct-z.ogranka',
+    version='1.0.0',
+    info_plist={
+        'CFBundleDisplayName': 'Огранка',
+        'CFBundleName': 'Огранка',
+        'CFBundleGetInfoString': 'Огранка 1.0.0 — восстановление формы',
+        'CFBundleVersion': '1.0.0',
+        'NSHumanReadableCopyright': '© 2026 Дьяченко Алексей',
+    },
 )
