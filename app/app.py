@@ -123,6 +123,14 @@ def demo_body(name):
             for k in range(10):
                 a = 2 * np.pi * k / 10
                 v.append([r * np.cos(a), r * np.sin(a), z])
+    elif name == "cube":
+        v = [[x, y, z] for z in (0.0, 3.0) for x in (-1.0, 1.0) for y in (-1.0, 1.0)]
+    elif name == "prism":
+        v = []
+        for z in (0.0, 3.0):
+            for k in range(8):
+                a = 2 * np.pi * k / 8 + np.pi / 8
+                v.append([1.2 * np.cos(a), 1.2 * np.sin(a), z])
     else:
         raise ValueError(f"неизвестное тело: {name}")
     return np.asarray(v, float)
@@ -164,7 +172,7 @@ def _prepare(source, report=None):
         say("демо-тело", 0.01)
         v = pipeline.normalize_mesh(demo_body(source["name"]), flip=False)
         title = {"octa": "Октаэдр", "icosa": "Икосаэдр", "dodeca": "Додекаэдр",
-                 "diamond": "Бриллиант"}[source["name"]]
+                 "diamond": "Бриллиант", "cube": "Куб", "prism": "Восьмиугольная призма"}[source["name"]]
         say("нормализация", 0.03)
         v, faces = pipeline.hull(v)
         say("выпуклая оболочка", 0.05)
@@ -427,7 +435,7 @@ class Handler(SimpleHTTPRequestHandler):
         if u.path == "/api/export.csv":
             return self._csv()
         if u.path == "/api/demo":
-            return self._json(["octa", "icosa", "dodeca", "diamond"])
+            return self._json(["octa", "icosa", "dodeca", "diamond", "cube", "prism"])
         return super().do_GET()
 
     def do_POST(self):
