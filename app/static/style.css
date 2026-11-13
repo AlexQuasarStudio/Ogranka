@@ -40,6 +40,14 @@ button.active { border-color: #4f8cff; background: #1d2a44; }
 .check input { accent-color: #4f8cff; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #cfd9e6; }
 .row input, .row select { width: 120px; }
+.row input[type="range"] {
+  width: 100%; flex: 1 1 auto; min-width: 70px; padding: 0;
+  background: transparent; border: 0; accent-color: #4f8cff;
+}
+.row output {
+  min-width: 46px; text-align: right; color: #9fc5ff; font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
 .wide { width: 100%; }
 .primary {
   margin-top: 12px; background: #2458c5; border-color: #2f68e0; font-weight: 600;

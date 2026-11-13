@@ -15,6 +15,8 @@ const App = {
   uploading: false,
   colPct: 50,
   soloPrevH: null,
+  liveTimer: null,
+  liveSeq: 0,
 };
 
 const TOL = 0.03;
@@ -226,12 +228,12 @@ class Viewer {
     this.pointsObj = null;
   }
 
-  setMesh(mesh, mode) {
+  setMesh(mesh, mode, keepView = false) {
     this.mesh = mesh;
     this.mode = mode;
     this.clear();
     if (!mesh || !mesh.v || !mesh.f) return;
-    this.frame(mesh);
+    if (!keepView) this.frame(mesh);
     this.rebuild(mode);
   }
 
@@ -1039,6 +1041,9 @@ async function setFiles(fileList, folder) {
 
 async function run() {
   $("runBtn").disabled = true;
+  App.liveSeq++;
+  clearTimeout(App.liveTimer);
+  $("liveHint").textContent = "Конвейер выполняется…";
   App.uploading = false;
   App.meshes = {};
   App.partialDone = 0;
@@ -1122,6 +1127,76 @@ function toObj(mesh) {
   return out;
 }
 
+function liveMethod() {
+  if ($("mFft").checked) return "fft";
+  if ($("mUni").checked) return "uni";
+  return "none";
+}
+
+function updateLiveLabels() {
+  $("liveNoiseVal").textContent = (+$("liveNoise").value).toFixed(3);
+  $("liveSimplifyVal").textContent = Math.round(+$("liveSimplify").value) + "%";
+}
+
+function scheduleLive() {
+  updateLiveLabels();
+  clearTimeout(App.liveTimer);
+  App.liveTimer = setTimeout(runLive, 280);
+}
+
+async function runLive() {
+  const src = App.sources && App.sources[0];
+  if (!src) return;
+  if (App.poll) {
+    $("liveHint").textContent = "Дождитесь завершения конвейера";
+    return;
+  }
+  const seq = ++App.liveSeq;
+  const noise = +$("liveNoise").value;
+  const simplify = +$("liveSimplify").value;
+  const params = {
+    noise,
+    pct: Math.max(5, 100 - simplify),
+    method: liveMethod(),
+    harmonics: +$("harm").value,
+    window: +$("win").value,
+    layers: +$("layers").value,
+    angles: +$("angles").value,
+    mode: $("mode").value,
+    angle: +$("angleDeg").value,
+    loss: +$("lossPct").value / 100,
+  };
+  const srcKey = JSON.stringify(src);
+  $("liveHint").textContent = "обновляю…";
+  try {
+    const r = await fetch("/api/live", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source: src, params }),
+    });
+    const j = await r.json();
+    if (seq !== App.liveSeq) return;
+    if (!r.ok) throw new Error(j.error || "не удалось обновить");
+    if (JSON.stringify(App.sources[0]) !== srcKey) return;
+    applyLive(j.result);
+  } catch (e) {
+    if (seq === App.liveSeq) $("liveHint").textContent = "Ошибка: " + e.message;
+  }
+}
+
+function applyLive(result) {
+  const v = App.solo || App.viewers[1] || App.viewers[0];
+  if (!v || !result || !result.mesh) return;
+  App.sel.points = [];
+  App.sel.polys = [];
+  App.sel.ids = [];
+  App.sel.anchor = null;
+  v.setMesh(result.mesh, App.mode, true);
+  const m = result.metrics || {};
+  v.meta.innerHTML = `живой · MSE ${fmt(m.mse)} · RMSE ${fmt(m.rmse)} · dmax ${fmt(m.dmax)} · ${result.time != null ? result.time + " с" : "—"}`;
+  broadcastSelection();
+  $("liveHint").textContent = `шум ${result.noise} · упрощение ${Math.round(100 - result.pct)}% · ${result.faces} граней`;
+}
+
 function init() {
   addViewer();
   addViewer();
@@ -1159,6 +1234,13 @@ function init() {
   };
 
   $("runBtn").onclick = run;
+  $("liveNoise").oninput = scheduleLive;
+  $("liveSimplify").oninput = scheduleLive;
+  ["mFft", "mUni", "mNone", "mode", "harm", "win", "layers", "angles", "angleDeg", "lossPct"].forEach((id) => {
+    const el = $(id);
+    if (el) el.addEventListener("change", scheduleLive);
+  });
+  updateLiveLabels();
   $("modelSel").onchange = async () => { App.modelIdx = +$("modelSel").value; await renderModel(); };
   $("colorMode").onchange = () => setViewMode($("colorMode").value);
   $("addView").onclick = () => { addViewer(); App.viewers.forEach((v) => v.applySelection(App.sel.points, App.sel.mode, App.sel.polys, App.sel.ids)); };
