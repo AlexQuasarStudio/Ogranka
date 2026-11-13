@@ -26,6 +26,7 @@ from core import pipeline
 
 APP_VERSION = "1.0.0"
 APP_AUTHOR = "Дьяченко Алексей"
+APP_AFFILIATION = "5 курс, мехмат МГУ, кафедра вычислительной математики"
 APP_ADVISOR = "Валединский Владимир Дмитриевич"
 APP_TITLE = f"Огранка {APP_VERSION} — восстановление формы"
 
@@ -863,7 +864,7 @@ def _setup_macos_about():
     class AboutHandler(NSObject):
         def showAbout_(self, sender):
             credits = NSAttributedString.alloc().initWithString_(
-                f"Создатель: {APP_AUTHOR}\nНаучный руководитель: {APP_ADVISOR}"
+                f"Создатель: {APP_AUTHOR}\n{APP_AFFILIATION}\nНаучный руководитель: {APP_ADVISOR}"
             )
             NSApplication.sharedApplication().orderFrontStandardAboutPanelWithOptions_(
                 {
