@@ -171,8 +171,6 @@ body.progress-on .workspace { padding-bottom: 104px; }
 .split-v:hover { background: #2a3a57; }
 .workspace-bottom { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
 .workspace.solo-mode { overflow: hidden; }
-.workspace.solo-mode #viewers { flex: 1 1 auto; min-height: 0; }
-.workspace.solo-mode .workspace-bottom { flex: 0 0 auto; max-height: 38vh; overflow-y: auto; }
 .vmode { display: none; max-width: 170px; flex: 0 0 auto; }
 #viewers.solo .viewer-card.is-solo .vmode { display: block; }
 

@@ -14,7 +14,7 @@ const App = {
   partialDone: 0,
   uploading: false,
   colPct: 50,
-  solo: null,
+  soloPrevH: null,
 };
 
 const TOL = 0.03;
@@ -547,7 +547,7 @@ function areaColor(t) {
 function makeCard() {
   const card = document.createElement("div");
   card.className = "viewer-card";
-  card.innerHTML = `<div class="viewer-head"><select class="vsel"></select><select class="vmode" title="Режим отображения"></select><span class="vmeta meta"></span><button class="vmax" title="Развернуть это окно">⤢</button></div>
+  card.innerHTML = `<div class="viewer-head"><select class="vsel"></select><select class="vmode" title="Режим отображения"></select><span class="vmeta meta"></span><button class="vmax" title="Развернуть этот вьюпорт">⤢</button></div>
                     <div class="canvas-wrap"><canvas></canvas>
                       <div class="hud">
                         <div class="axes"><button class="ax x" data-a="x" title="Вид вдоль X">X</button><button class="ax y" data-a="y" title="Вид вдоль Y">Y</button><button class="ax z" data-a="z" title="Вид вдоль Z">Z</button></div>
@@ -604,7 +604,17 @@ function layoutViewers() {
 }
 
 function toggleSolo(v) {
-  App.solo = App.solo === v ? null : v;
+  const wasSolo = !!App.solo;
+  const next = App.solo === v ? null : v;
+  if (!wasSolo && next) {
+    App.soloPrevH = document.documentElement.style.getPropertyValue("--viewer-h");
+    document.documentElement.style.setProperty("--viewer-h", "72%");
+  } else if (wasSolo && !next) {
+    if (App.soloPrevH) document.documentElement.style.setProperty("--viewer-h", App.soloPrevH);
+    else document.documentElement.style.removeProperty("--viewer-h");
+    App.soloPrevH = null;
+  }
+  App.solo = next;
   App.viewers.forEach((x) => x.card.classList.toggle("is-solo", x === App.solo));
   $("viewers").classList.toggle("solo", !!App.solo);
   document.querySelector(".workspace").classList.toggle("solo-mode", !!App.solo);
@@ -1135,15 +1145,8 @@ function init() {
     broadcastSelection();
   };
   $("fsBtn").onclick = () => {
-    try {
-      if (window.pywebview && window.pywebview.api && window.pywebview.api.toggle_fullscreen) {
-        window.pywebview.api.toggle_fullscreen();
-      } else if (!document.fullscreenElement) {
-        document.documentElement.requestFullscreen();
-      } else {
-        document.exitFullscreen();
-      }
-    } catch (e) { console.warn(e); }
+    const v = App.solo || App.viewers[0];
+    if (v) toggleSolo(v);
   };
   $("selAll").onclick = () => {
     const v = App.viewers[0];
