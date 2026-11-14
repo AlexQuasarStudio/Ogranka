@@ -61,6 +61,7 @@ button.active { border-color: #4f8cff; background: #1d2a44; }
   background: #141a24; border: 1px solid #232a35; border-radius: 12px;
   display: flex; flex-direction: column; overflow: hidden; min-height: 260px;
 }
+.viewer-card.active-viewer { border-color: #4f8cff; }
 .viewer-head { display: flex; gap: 10px; align-items: center; padding: 8px 10px; background: #161d28; }
 .viewer-head select { flex: 1; min-width: 0; }
 .meta { color: #8fa2ba; font-size: 12px; white-space: nowrap; }

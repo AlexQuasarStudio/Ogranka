@@ -11,6 +11,7 @@ const App = {
   sel: { points: [], polys: [], mode: "face", anchor: null, ids: [] },
   selTarget: "face",
   viewers: [],
+  activeViewer: null,
   poll: null,
   partialDone: 0,
   uploading: false,
@@ -645,12 +646,13 @@ function addViewer() {
   const card = makeCard();
   const v = new Viewer(card, handlePick, handleCam);
   card.querySelector(".vmax").onclick = () => toggleSolo(v);
+  card.addEventListener("pointerdown", () => setActiveViewer(v));
   App.viewers.push(v);
   populateViewer(v, App.viewers.length - 1);
   if (App.models.length) loadViewer(v).then(() => v.applySelection(App.sel.points, App.sel.mode, App.sel.polys, App.sel.ids));
   if (App.viewers.length > 1) v.copyCamera(App.viewers[0]);
   layoutViewers();
-  v.select.onchange = () => loadViewer(v);
+  v.select.onchange = () => { setActiveViewer(v); loadViewer(v); };
   return v;
 }
 
@@ -832,14 +834,24 @@ function currentLiveSource() {
   return App.sources && App.sources[0] ? App.sources[0] : null;
 }
 
-function cycleModel(delta) {
-  if (App.models.length < 2) return;
-  const n = App.models.length;
-  App.modelIdx = (App.modelIdx + delta + n) % n;
-  App.liveSeq++;
-  clearTimeout(App.liveTimer);
-  $("modelSel").value = String(App.modelIdx);
-  renderModel();
+function activeViewer() {
+  if (App.solo && App.viewers.includes(App.solo)) return App.solo;
+  if (App.activeViewer && App.viewers.includes(App.activeViewer)) return App.activeViewer;
+  return App.viewers[0] || null;
+}
+
+function setActiveViewer(v) {
+  App.activeViewer = v;
+  App.viewers.forEach((x) => x.card.classList.toggle("active-viewer", x === v));
+}
+
+async function cycleViewerResult(delta) {
+  const v = activeViewer();
+  if (!v || !v.select || v.select.options.length < 2) return;
+  const n = v.select.options.length;
+  v.select.selectedIndex = (v.select.selectedIndex + delta + n) % n;
+  setActiveViewer(v);
+  await loadViewer(v);
 }
 
 function updateDiff() {
@@ -874,7 +886,7 @@ async function renderModel() {
   App.liveSource = sourceForModel(model);
   App.viewers.forEach((v, i) => populateViewer(v, i));
   renderTable(model.results);
-  App.viewers.forEach((v) => { v.select.onchange = () => loadViewer(v); });
+  App.viewers.forEach((v) => { v.select.onchange = () => { setActiveViewer(v); loadViewer(v); }; });
   await loadAllViewers();
   $("batchInfo").textContent = `модель ${App.modelIdx + 1} из ${App.models.length}`;
 }
@@ -893,6 +905,7 @@ function renderTable(results) {
     tr.onclick = async (e) => {
       const target = e.shiftKey ? App.viewers[0] : App.viewers[1];
       if (!target) return;
+      setActiveViewer(target);
       target.select.value = r.id;
       await loadViewer(target);
     };
@@ -1508,7 +1521,7 @@ function init() {
     if (/^[1-7]$/.test(e.key)) { setViewMode(modes[+e.key - 1]); e.preventDefault(); return; }
     if (e.code === "BracketLeft" || e.code === "BracketRight") {
       e.preventDefault();
-      cycleModel(e.code === "BracketRight" ? 1 : -1);
+      cycleViewerResult(e.code === "BracketRight" ? 1 : -1);
       return;
     }
     if (k === "r") { if (!$("runBtn").disabled) run(); }
