@@ -68,6 +68,9 @@ STATIC = os.path.join(BASE, "static")
 
 
 def _data_dir():
+    override = os.environ.get("OGRANKA_DATA")
+    if override:
+        return override
     if FROZEN:
         home = os.path.expanduser("~")
         if platform.system() == "Darwin":
