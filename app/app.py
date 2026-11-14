@@ -10,7 +10,6 @@ import json
 import os
 import platform
 import shutil
-import subprocess
 import sys
 import threading
 import time
@@ -23,19 +22,11 @@ from urllib.parse import parse_qs, urlparse
 import numpy as np
 
 from core import pipeline
-
-APP_VERSION = "1.0.0"
-APP_AUTHOR = "Дьяченко Алексей"
-APP_AFFILIATION = "5 курс, мехмат МГУ, кафедра вычислительной математики"
-APP_ADVISOR = "Валединский Владимир Дмитриевич"
-APP_TITLE = f"Огранка {APP_VERSION} — восстановление формы"
-
-
-def _console_print(*args, **kwargs):
-    try:
-        print(*args, **kwargs)
-    except Exception:
-        pass
+from config import APP_TITLE
+from live import clear_live, live_variant
+from platform_ui import console_print as _console_print
+from platform_ui import open_windows_window, setup_macos_about
+from sources import prepare_source, quality
 
 
 class Api:
@@ -98,8 +89,6 @@ os.makedirs(RUNS, exist_ok=True)
 
 LOCK = threading.Lock()
 STATE = {"job": None, "models": None}
-LIVE = {"key": None, "base": None}
-LIVE_LOCK = threading.Lock()
 
 
 def load_latest():
@@ -118,64 +107,6 @@ def load_latest():
             return json.load(f).get("models")
     except Exception:
         return None
-
-
-def demo_body(name):
-    phi = (1 + 5**0.5) / 2
-    if name == "octa":
-        v = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]
-    elif name == "icosa":
-        v = [
-            [0, 1, phi],
-            [0, 1, -phi],
-            [0, -1, phi],
-            [0, -1, -phi],
-            [1, phi, 0],
-            [1, -phi, 0],
-            [-1, phi, 0],
-            [-1, -phi, 0],
-            [phi, 0, 1],
-            [phi, 0, -1],
-            [-phi, 0, 1],
-            [-phi, 0, -1],
-        ]
-    elif name == "dodeca":
-        v = []
-        for a in (1, -1):
-            for b in (1, -1):
-                for c in (1, -1):
-                    v.append([a, b, c])
-        for a in (1, -1):
-            for b in (1, -1):
-                v += [[0, a / phi, b * phi], [a / phi, b * phi, 0], [a * phi, 0, b / phi]]
-    elif name == "diamond":
-        v = []
-        for r, z in [(0.8, 3.0), (1.7, 2.05), (1.7, 1.95), (0.1, 0.0)]:
-            for k in range(10):
-                a = 2 * np.pi * k / 10
-                v.append([r * np.cos(a), r * np.sin(a), z])
-    elif name == "cube":
-        v = [[x, y, z] for z in (0.0, 3.0) for x in (-1.0, 1.0) for y in (-1.0, 1.0)]
-    elif name == "prism":
-        v = []
-        for z in (0.0, 3.0):
-            for k in range(8):
-                a = 2 * np.pi * k / 8 + np.pi / 8
-                v.append([1.2 * np.cos(a), 1.2 * np.sin(a), z])
-    else:
-        raise ValueError(f"неизвестное тело: {name}")
-    return np.asarray(v, float)
-
-
-GOOD_RMSE = 0.03
-MEDIUM_RMSE = 0.12
-
-
-def quality(m):
-    if not m or m.get("rmse") is None:
-        return None
-    r = float(m["rmse"])
-    return "good" if r < GOOD_RMSE else ("medium" if r < MEDIUM_RMSE else "bad")
 
 
 def _stage(text, progress, detail="", eta=None, **extra):
@@ -198,46 +129,6 @@ def _stage(text, progress, detail="", eta=None, **extra):
         )
         if extra:
             job.update(extra)
-
-
-def _prepare(source, report=None):
-    def say(text, frac):
-        if report:
-            report(text, frac)
-
-    if source["kind"] == "demo":
-        say("демо-тело", 0.01)
-        v = pipeline.normalize_mesh(demo_body(source["name"]), flip=False)
-        title = {
-            "octa": "Октаэдр",
-            "icosa": "Икосаэдр",
-            "dodeca": "Додекаэдр",
-            "diamond": "Бриллиант",
-            "cube": "Куб",
-            "prism": "Восьмиугольная призма",
-        }[source["name"]]
-        say("нормализация", 0.03)
-        v, faces = pipeline.hull(v)
-        say("выпуклая оболочка", 0.05)
-        return v, faces, title
-
-    path = source["path"]
-    say("чтение файла", 0.01)
-    with open(path, encoding="utf-8", errors="ignore") as fh:
-        text = fh.read()
-    say("разбор OBJ" if path.lower().endswith(".obj") else "разбор точек", 0.02)
-    if path.lower().endswith(".obj"):
-        v, faces = pipeline.parse_obj(text)
-    else:
-        v = pipeline.parse_points(text)
-        faces = []
-    if len(v) < 4:
-        raise ValueError("меньше четырёх точек")
-    say("нормализация", 0.04)
-    v = pipeline.normalize_mesh(v, flip=True)
-    say("выпуклая оболочка", 0.06)
-    v, faces = pipeline.hull(v)
-    return v, faces, source.get("name") or os.path.basename(path)
 
 
 def _run(sources, params):
@@ -271,7 +162,7 @@ def _run(sources, params):
                 )
 
             mreport("подготовка", 0.005)
-            v, faces, title = _prepare(source, lambda t, f: mreport(t, f))
+            v, faces, title = prepare_source(source, lambda t, f: mreport(t, f))
             mreport("сечения", 0.08)
 
             def sec_progress(p, _report=mreport):
@@ -516,109 +407,6 @@ def _write_obj(path, mesh):
             fh.write("f " + " ".join(str(int(i) + 1) for i in face) + "\n")
 
 
-def _live_variant(source, params):
-    t0 = time.time()
-    n_angles = int(params.get("angles", 720))
-    n_layers = int(params.get("layers", 60))
-    mode = params.get("mode", "envelope")
-    method = params.get("method", "fft")
-    noise = max(0.0, min(0.2, float(params.get("noise", 0.008))))
-    pct = max(5.0, min(100.0, float(params.get("pct", 100))))
-    harmonics = int(params.get("harmonics", 32))
-    window = int(params.get("window", 5))
-    angle = float(params.get("angle", 1.0))
-    loss = float(params.get("loss", 0.001))
-    key = json.dumps(
-        {
-            "source": source,
-            "angles": n_angles,
-            "layers": n_layers,
-            "mode": mode,
-            "method": method,
-            "harmonics": harmonics,
-            "window": window,
-            "angle": angle,
-        },
-        sort_keys=True,
-        ensure_ascii=False,
-    )
-
-    with LIVE_LOCK:
-        base = LIVE.get("base")
-        if LIVE.get("key") != key:
-            v, faces, title = _prepare(source)
-            alphas, layers = pipeline.build_sections(v, pipeline.mesh_edges(faces), n_layers, n_angles)
-            zs = np.array([z for z, _ in layers])
-            r_true = np.vstack([r for _, r in layers])
-            true_by_z = {round(z, 6): r for z, r in layers}
-            unit = np.random.default_rng(12345).uniform(-1.0, 1.0, size=r_true.shape)
-            base = {
-                "title": title,
-                "alphas": alphas,
-                "zs": zs,
-                "r_true": r_true,
-                "true_by_z": true_by_z,
-                "noise_unit": unit,
-                "noise": None,
-                "pts": None,
-                "hull": None,
-                "metrics": None,
-            }
-            LIVE["key"] = key
-            LIVE["base"] = base
-
-        if base["noise"] != noise:
-            r = base["r_true"] + noise * base["noise_unit"] if noise > 0 else base["r_true"].copy()
-            if method == "fft":
-                a, pinv = pipeline.fourier_design(base["alphas"], harmonics)
-                rs = pipeline.fourier_denoise_matrix(r, a, pinv)
-            elif method == "uni":
-                rows = []
-                for i in range(len(base["zs"])):
-                    rows.append(pipeline.uniform_denoise_adaptive(r[i], base["r_true"][i], window, 30))
-                rs = np.vstack(rows)
-            else:
-                rs = r
-            pts = []
-            for li, z in enumerate(base["zs"]):
-                if mode == "maxima":
-                    pts += pipeline.maxima_points(base["alphas"], rs[li], float(z))
-                else:
-                    pts += pipeline.envelope_points(base["alphas"], rs[li], float(z))
-            pts = np.asarray(pts)
-            if len(pts) < 4:
-                raise ValueError("слишком мало точек")
-            hv, hf = pipeline.hull_compact(pts)
-            base["pts"] = pts
-            base["hull"] = (hv, hf)
-            base["metrics"] = pipeline.metrics(base["true_by_z"], base["alphas"], pts)
-            base["noise"] = noise
-
-        pts = base["pts"]
-        hv, hf = base["hull"]
-        mp = pipeline.minimal_polyhedron(
-            pts, angle_tol_deg=angle, loss_target=loss, hull=(hv, hf), pct=pct, snap=False
-        )
-        mv, mf = pipeline.polygons_to_mesh(mp["polygons"])
-        metrics = base["metrics"]
-        label = f"живой · шум {noise:g} · упрощение {round(100 - pct):g}%"
-        return {
-            "id": "live",
-            "label": label,
-            "kind": "live",
-            "mesh": {"v": mv.tolist(), "f": [list(f) for f in mf]},
-            "metrics": metrics,
-            "quality": quality(metrics),
-            "vertices": int(mp["vertices"]),
-            "faces": int(mp["faces"]),
-            "points": int(len(pts)),
-            "time": round(time.time() - t0, 2),
-            "noise": noise,
-            "pct": pct,
-            "method": method,
-        }
-
-
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=STATIC, **kw)
@@ -666,6 +454,7 @@ class Handler(SimpleHTTPRequestHandler):
             with LOCK:
                 STATE["models"] = None
                 STATE["job"] = {"state": "idle"}
+            clear_live()
             for d in (UPLOADS, RUNS):
                 shutil.rmtree(d, ignore_errors=True)
                 os.makedirs(d, exist_ok=True)
@@ -690,7 +479,7 @@ class Handler(SimpleHTTPRequestHandler):
                 if STATE["job"] and STATE["job"].get("state") == "running":
                     return self._json({"error": "уже выполняется"}, 409)
             try:
-                v, faces, title = _prepare(source)
+                v, faces, title = prepare_source(source)
                 results = []
                 prev = None
                 for i, pct in enumerate(pipeline.SIMPLIFY_LEVELS):
@@ -751,7 +540,7 @@ class Handler(SimpleHTTPRequestHandler):
                 if STATE["job"] and STATE["job"].get("state") == "running":
                     return self._json({"error": "конвейер уже выполняется"}, 409)
             try:
-                return self._json({"result": _live_variant(source, body.get("params", {}))})
+                return self._json({"result": live_variant(source, body.get("params", {}))})
             except Exception as exc:
                 return self._json({"error": str(exc)}, 500)
         if u.path == "/api/run":
@@ -817,123 +606,6 @@ def _csv_text():
     return buf.getvalue()
 
 
-def _browser_executable():
-    if platform.system() != "Windows":
-        return None
-    roots = [
-        os.environ.get("ProgramFiles(x86)"),
-        os.environ.get("ProgramFiles"),
-        os.environ.get("LOCALAPPDATA"),
-    ]
-    relative = (
-        ("Microsoft", "Edge", "Application", "msedge.exe"),
-        ("Google", "Chrome", "Application", "chrome.exe"),
-    )
-    seen = set()
-    for root in roots:
-        if not root:
-            continue
-        for rel in relative:
-            path = os.path.join(root, *rel)
-            if path in seen:
-                continue
-            seen.add(path)
-            if os.path.isfile(path):
-                return path
-    return None
-
-
-_MAC_ABOUT_HANDLER = None
-
-
-def _setup_macos_about():
-    global _MAC_ABOUT_HANDLER
-    if platform.system() != "Darwin":
-        return
-    try:
-        from AppKit import (
-            NSAboutPanelOptionApplicationName,
-            NSAboutPanelOptionApplicationVersion,
-            NSAboutPanelOptionCredits,
-            NSAboutPanelOptionVersion,
-            NSApplication,
-            NSAttributedString,
-            NSObject,
-        )
-        from PyObjCTools import AppHelper
-    except Exception as exc:
-        _console_print("Не удалось настроить окно «О программе»:", exc)
-        return
-
-    class AboutHandler(NSObject):
-        def showAbout_(self, sender):
-            credits = NSAttributedString.alloc().initWithString_(
-                f"Создатель: {APP_AUTHOR}\n{APP_AFFILIATION}\nНаучный руководитель: {APP_ADVISOR}"
-            )
-            NSApplication.sharedApplication().orderFrontStandardAboutPanelWithOptions_(
-                {
-                    NSAboutPanelOptionApplicationName: "Огранка",
-                    NSAboutPanelOptionApplicationVersion: APP_VERSION,
-                    NSAboutPanelOptionVersion: APP_VERSION,
-                    NSAboutPanelOptionCredits: credits,
-                }
-            )
-
-    _MAC_ABOUT_HANDLER = AboutHandler.alloc().init()
-
-    def install():
-        try:
-            menu = NSApplication.sharedApplication().mainMenu()
-            if not menu:
-                return False
-            app_menu = menu.itemAtIndex_(0).submenu()
-            if not app_menu:
-                return False
-            for item in app_menu.itemArray():
-                action = item.action()
-                if action and "orderFrontStandardAboutPanel" in str(action):
-                    item.setTarget_(_MAC_ABOUT_HANDLER)
-                    item.setAction_("showAbout:")
-                    return True
-        except Exception:
-            pass
-        return False
-
-    def attempt(n=0):
-        if install() or n >= 30:
-            return
-        AppHelper.callLater(0.15, attempt, n + 1)
-
-    def start():
-        time.sleep(0.4)
-        AppHelper.callAfter(attempt)
-
-    threading.Thread(target=start, daemon=True).start()
-
-
-def _open_windows_window(url):
-    exe = _browser_executable()
-    if not exe:
-        return None
-    profile = os.path.join(DATA, "browser-profile")
-    try:
-        os.makedirs(profile, exist_ok=True)
-        return subprocess.Popen(
-            [
-                exe,
-                f"--app={url}",
-                "--window-size=1440,940",
-                f"--user-data-dir={profile}",
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--disable-features=Translate",
-            ]
-        )
-    except Exception as exc:
-        _console_print("Не удалось открыть окно:", exc)
-        return None
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8765)
@@ -958,7 +630,7 @@ def main():
         return
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     if platform.system() == "Windows":
-        proc = _open_windows_window(url)
+        proc = open_windows_window(url, os.path.join(DATA, "browser-profile"))
         if proc is not None:
             try:
                 proc.wait()
@@ -982,7 +654,7 @@ def main():
     try:
         import webview
 
-        _setup_macos_about()
+        setup_macos_about()
         webview.create_window(
             APP_TITLE, url, width=1440, height=940, min_size=(880, 560), maximized=True, js_api=Api()
         )
