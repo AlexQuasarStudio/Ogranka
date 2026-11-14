@@ -7,6 +7,8 @@ __pycache__/
 
 # Готовые сборки и промежуточные артефакты PyInstaller
 Огранка.app/
+Ogranka.app/
+Огранка Lite.app/
 Ogranka.exe
 app/build/
 app/dist/
@@ -19,7 +21,9 @@ reconstruct3D/real_data/
 reconstruct3D/out3D/
 reconstruct3D/out3D_real/
 
-# Дубликат каталога отчёта
-Отчет.zip
-Ogranka.app/
-Огранка Lite.app/
+# Архивы не хранятся в репозитории
+*.zip
+*.tar.gz
+*.tgz
+*.7z
+*.rar
