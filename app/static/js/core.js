@@ -20,6 +20,7 @@ const App = {
   soloPrevH: null,
   liveTimer: null,
   liveSeq: 0,
+  lastElapsed: 0,
 };
 
 const TOL = 0.03;
@@ -183,6 +184,17 @@ function setViewMode(mode) {
 }
 
 function currentModel() { return App.models[App.modelIdx]; }
+
+function orderedResults(results) {
+  const rank = (r) => {
+    if (!r || !r.id) return 1000;
+    if (r.id.endsWith(":ref")) return 0;
+    if (r.id.endsWith(":refmin")) return 1;
+    const m = r.id.match(/:v(\d+)(m)?$/);
+    return m ? 2 + Number(m[1]) * 2 + (m[2] ? 1 : 0) : 1000;
+  };
+  return [...results].sort((a, b) => rank(a) - rank(b));
+}
 
 const DEMO_TITLES = {
   "Куб": "cube",

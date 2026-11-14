@@ -514,7 +514,7 @@ function removeViewer() {
 function populateViewer(v, idx) {
   const model = App.models[App.modelIdx];
   if (!model) return;
-  const results = model.results;
+  const results = orderedResults(model.results);
   v.select.innerHTML = results.map((r) => `<option value="${r.id}">${r.label}</option>`).join("");
   if (model.levels) {
     const cand = results.filter((r) => r.mesh);

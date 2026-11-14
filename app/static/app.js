@@ -33,13 +33,14 @@ async function renderModel() {
   renderTable(model.results);
   App.viewers.forEach((v) => { v.select.onchange = () => { setActiveViewer(v); loadViewer(v); }; });
   await loadAllViewers();
-  $("batchInfo").textContent = `модель ${App.modelIdx + 1} из ${App.models.length}`;
+  const total = App.lastElapsed ? ` · всего ${fmtDur(App.lastElapsed)}` : "";
+  $("batchInfo").textContent = `модель ${App.modelIdx + 1} из ${App.models.length}${total}`;
 }
 
 function renderTable(results) {
   const tb = $("metricsTable").querySelector("tbody");
   tb.innerHTML = "";
-  results.forEach((r) => {
+  orderedResults(results).forEach((r) => {
     const tr = document.createElement("tr");
     const m = r.metrics || {};
     tr.className = r.mesh ? "" : "fail";
@@ -224,6 +225,7 @@ async function setFiles(fileList, folder) {
 async function run() {
   $("runBtn").disabled = true;
   App.liveSeq++;
+  App.lastElapsed = 0;
   clearTimeout(App.liveTimer);
   $("liveHint").textContent = "Конвейер выполняется…";
   App.uploading = false;
@@ -265,6 +267,7 @@ function poll() {
         : st.state === "done" ? (st.elapsed ? `Готово · ${fmtDur(st.elapsed)}` : "Готово")
         : st.state || "";
       $("statusText").classList.toggle("running", st.state === "running");
+      if (st.state === "done") App.lastElapsed = st.elapsed || 0;
       if (st.state === "running" && st.done && st.done !== App.partialDone) {
         App.partialDone = st.done;
         const data = await (await fetch("/api/results")).json();

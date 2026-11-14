@@ -349,19 +349,22 @@ def _run(sources, params):
                         except Exception:
                             pass
                 vstage(vi, 1.0, "готово", label)
-                with LOCK:
-                    results.extend(out)
-                    STATE["models"][0]["results"] = list(results)
                 return out
 
             with ThreadPoolExecutor(max_workers=min(4, len(variants)) or 1) as pool:
-                list(pool.map(run_variant, [(vi, rv, me) for vi, (rv, me) in enumerate(variants)]))
+                for out in pool.map(
+                    run_variant, [(vi, rv, me) for vi, (rv, me) in enumerate(variants)]
+                ):
+                    with LOCK:
+                        results.extend(out)
+                        STATE["models"][0]["results"] = list(results)
 
             mreport("модель готова", 0.96)
             models.append({"id": mi, "name": title, "source": source, "results": results})
 
         _stage("Сохранение результатов", 0.985, detail=f"моделей: {len(models)}")
         _save(models)
+        elapsed = round(time.time() - t0, 1)
         with LOCK:
             STATE["models"] = models
             if STATE["job"]:
@@ -370,10 +373,12 @@ def _run(sources, params):
                     progress=1.0,
                     stage="Готово",
                     detail="",
-                    elapsed=round(time.time() - t0, 1),
+                    elapsed=elapsed,
                     eta=0,
                 )
+        _console_print(f"Готово: {len(models)} модел(ей) за {elapsed:.1f} с")
     except Exception as exc:
+        elapsed = round(time.time() - t0, 1)
         with LOCK:
             if STATE["job"]:
                 STATE["job"].update(
@@ -381,8 +386,9 @@ def _run(sources, params):
                     error=str(exc),
                     stage="Ошибка",
                     detail=str(exc),
-                    elapsed=round(time.time() - t0, 1),
+                    elapsed=elapsed,
                 )
+        _console_print(f"Ошибка через {elapsed:.1f} с: {exc}")
         raise
 
 

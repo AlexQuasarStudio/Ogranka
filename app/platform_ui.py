@@ -10,7 +10,7 @@ from config import APP_ADVISOR, APP_AFFILIATION, APP_AUTHOR, APP_VERSION
 
 def console_print(*args, **kwargs):
     try:
-        print(*args, **kwargs)
+        print(*args, **kwargs, flush=True)
     except Exception:
         pass
 
