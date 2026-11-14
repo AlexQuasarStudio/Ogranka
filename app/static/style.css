@@ -195,6 +195,11 @@ body.progress-on .workspace { padding-bottom: 104px; }
 .viewer-grid { resize: vertical; overflow: hidden; }
 #viewers.solo .viewer-card { display: none; }
 #viewers.solo .viewer-card.is-solo { display: flex; }
+.viewer-card.is-solo {
+  position: fixed; inset: 0; z-index: 35; width: 100vw; height: 100vh;
+  border-radius: 0; margin: 0; min-height: 0;
+}
+body.viewer-full { overflow: hidden; }
 .vmax { padding: 4px 9px; font-size: 13px; flex: 0 0 auto; }
 
 #viewers { flex: 0 0 var(--viewer-h, 54%); resize: none; }

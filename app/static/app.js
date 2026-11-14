@@ -564,7 +564,7 @@ function areaColor(t) {
 function makeCard() {
   const card = document.createElement("div");
   card.className = "viewer-card";
-  card.innerHTML = `<div class="viewer-head"><select class="vsel"></select><span class="vmeta meta"></span><button class="vmax" title="Развернуть этот вьюпорт">⤢</button></div>
+  card.innerHTML = `<div class="viewer-head"><select class="vsel"></select><span class="vmeta meta"></span><button class="vmax" title="Развернуть этот вьюпорт на всё окно">⤢</button></div>
                     <div class="canvas-wrap"><canvas></canvas>
                       <div class="hud">
                         <div class="axes"><button class="ax x" data-a="x" title="Вид вдоль X">X</button><button class="ax y" data-a="y" title="Вид вдоль Y">Y</button><button class="ax z" data-a="z" title="Вид вдоль Z">Z</button></div>
@@ -635,6 +635,7 @@ function toggleSolo(v) {
   App.viewers.forEach((x) => x.card.classList.toggle("is-solo", x === App.solo));
   $("viewers").classList.toggle("solo", !!App.solo);
   document.querySelector(".workspace").classList.toggle("solo-mode", !!App.solo);
+  document.body.classList.toggle("viewer-full", !!App.solo);
   layoutViewers();
   if (App.solo) App.solo.resize();
 }
@@ -1398,10 +1399,6 @@ function init() {
     App.sel.anchor = null;
     App.viewers.forEach((v) => { v.selTarget = App.selTarget; v.rebuild(App.mode); });
     broadcastSelection();
-  };
-  $("fsBtn").onclick = () => {
-    const v = App.solo || App.viewers[0];
-    if (v) toggleSolo(v);
   };
   $("selAll").onclick = () => {
     const v = App.viewers[0];
