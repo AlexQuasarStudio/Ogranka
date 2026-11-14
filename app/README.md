@@ -22,7 +22,7 @@
 `build_windows.bat` (Python 3.9+), результат — `dist\Ogranka.exe`.
 
 **Из исходников.** Нужны Python 3.9+, numpy, scipy и fast-simplification; Open3D не нужен.
-Без fast-simplification работает собственная QEM-декцимация:
+Без fast-simplification минимальный многогранник не строится:
 
 ```bash
 python3 -m pip install -r requirements.txt

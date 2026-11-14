@@ -3,7 +3,7 @@
 Реализация разделена по модулям:
     geometry  — разбор, сечения, оболочки, полигоны;
     denoise   — шум и сглаживание;
-    simplify  — fast-simplification и QEM;
+    simplify  — fast-simplification;
     minimal   — минимальный многогранник;
     metrics   — метрики.
 """
@@ -36,7 +36,7 @@ from .geometry import (
 )
 from .metrics import metrics
 from .minimal import SIMPLIFY_LEVELS, minimal_polyhedron
-from .simplify import HAS_FAST, cluster_hull, qem_decimate
+from .simplify import HAS_FAST
 
 __all__ = [
     "parse_obj",
@@ -62,8 +62,6 @@ __all__ = [
     "maxima_points",
     "envelope",
     "envelope_points",
-    "cluster_hull",
-    "qem_decimate",
     "minimal_polyhedron",
     "metrics",
     "SIMPLIFY_LEVELS",
