@@ -10,7 +10,12 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['pkg_resources', 'open3d', 'torch', 'transformers'],
+    excludes=[
+        'pkg_resources', 'open3d', 'torch', 'transformers',
+        'matplotlib', 'PIL', 'cryptography', 'pytest', 'setuptools',
+        'jinja2', 'mako', 'markupsafe', 'yaml', 'contourpy', 'kiwisolver',
+        'dateutil', 'pygments', 'pyparsing', 'scipy.stats',
+    ],
     noarchive=False,
     optimize=0,
 )

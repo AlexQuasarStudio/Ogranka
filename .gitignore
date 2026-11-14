@@ -8,7 +8,6 @@ __pycache__/
 # Готовые сборки и промежуточные артефакты PyInstaller
 Огранка.app/
 Ogranka.app/
-Огранка Lite.app/
 Ogranka.exe
 app/build/
 app/dist/
