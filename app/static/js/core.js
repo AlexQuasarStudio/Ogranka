@@ -7,6 +7,8 @@ const App = {
   meshes: {},
   mode: "solid_edges",
   solo: null,
+  fullscreen: false,
+  fullViews: [],
   syncCam: true,
   camLock: false,
   sel: { points: [], polys: [], mode: "face", anchor: null, ids: [] },
@@ -34,7 +36,13 @@ const fmt = (v, d = 4) => {
 const badge = (q) => {
   if (!q) return "";
   const t = { good: "хорошо", medium: "средне", bad: "плохо", ref: "эталон" }[q] || q;
-  return `<span class="badge ${q}">${t}</span>`;
+  const hint = {
+    good: "RMSE ≤ 0.03 и dmax ≤ 0.15",
+    medium: "RMSE ≤ 0.12 и dmax ≤ 0.30",
+    bad: "превышены пороги MSE/RMSE или dmax",
+    ref: "эталонная модель",
+  }[q] || "";
+  return `<span class="badge ${q}" title="${hint}">${t}</span>`;
 };
 function pointInPoly(p, poly, tol) {
   if (!poly || poly.length < 3) return false;
@@ -190,6 +198,7 @@ function orderedResults(results) {
     if (!r || !r.id) return 1000;
     if (r.id.endsWith(":ref")) return 0;
     if (r.id.endsWith(":refmin")) return 1;
+    if (r.kind === "level") return 900 + (100 - Number(r.pct || 0));
     const m = r.id.match(/:v(\d+)(m)?$/);
     return m ? 2 + Number(m[1]) * 2 + (m[2] ? 1 : 0) : 1000;
   };
@@ -220,8 +229,8 @@ function currentLiveSource() {
 }
 
 function activeViewer() {
-  if (App.solo && App.viewers.includes(App.solo)) return App.solo;
   if (App.activeViewer && App.viewers.includes(App.activeViewer)) return App.activeViewer;
+  if (App.solo && App.viewers.includes(App.solo)) return App.solo;
   return App.viewers[0] || null;
 }
 
@@ -247,11 +256,35 @@ function fmtDur(sec) {
 
 function download(name, text, type = "text/plain") {
   const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
+  a.href = url;
   a.download = name;
+  a.style.display = "none";
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(a.href);
+  setTimeout(() => {
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, 1500);
+}
+
+function downloadDataUrl(name, url) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => a.remove(), 1000);
+}
+
+function exportBase(v) {
+  const label = v && v.select && v.select.selectedOptions[0]
+    ? v.select.selectedOptions[0].textContent
+    : "view";
+  const clean = label.replace(/[^\wа-яёА-ЯЁ]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+  return "ogranka-" + (clean || "view");
 }
 
 function toObj(mesh) {

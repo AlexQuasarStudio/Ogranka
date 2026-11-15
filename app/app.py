@@ -1,9 +1,10 @@
 """Локальное приложение-конвейер: сервер + веб-интерфейс.
 
 Запуск:  python app.py [--port 8765] [--no-browser]
-Зависимости: numpy, scipy.
+Зависимости: numpy, Qhull (встроенный _qhull).
 """
 import argparse
+import base64
 import csv
 import io
 import json
@@ -26,7 +27,7 @@ from config import APP_TITLE
 from live import clear_live, live_variant
 from platform_ui import console_print as _console_print
 from platform_ui import open_windows_window, setup_macos_about
-from sources import prepare_source, quality
+from sources import prepare_source, quality, scan_folder
 
 
 class Api:
@@ -37,25 +38,78 @@ class Api:
         win.toggle_fullscreen()
         return True
 
-    def save_csv(self):
-        text = _csv_text()
+    def _save_dialog(self, filename, file_types):
+        try:
+            import webview
+
+            win = webview.windows[0] if webview.windows else None
+            if win is None:
+                return None, {"error": "нет окна"}
+            path = win.create_file_dialog(
+                webview.SAVE_DIALOG, save_filename=filename, file_types=file_types
+            )
+        except Exception as exc:
+            return None, {"error": str(exc)}
+        if not path:
+            return None, {"cancelled": True}
+        if isinstance(path, (list, tuple)):
+            path = path[0]
+        return path, None
+
+    def pick_folder(self):
         try:
             import webview
 
             win = webview.windows[0] if webview.windows else None
             if win is None:
                 return {"error": "нет окна"}
-            path = win.create_file_dialog(
-                webview.SAVE_DIALOG, save_filename="metrics.csv", file_types=("CSV (*.csv)",)
-            )
+            dialog = getattr(webview, "FileDialog", None)
+            kind = getattr(dialog, "FOLDER", None) if dialog else None
+            if kind is None:
+                kind = webview.FOLDER_DIALOG
+            result = win.create_file_dialog(kind)
         except Exception as exc:
             return {"error": str(exc)}
-        if not path:
+        if not result:
             return {"cancelled": True}
-        if isinstance(path, (list, tuple)):
-            path = path[0]
+        if isinstance(result, (list, tuple)):
+            result = result[0]
+        return {"path": result}
+
+    def save_csv(self):
+        text = _csv_text()
+        path, error = self._save_dialog("metrics.csv", ("CSV (*.csv)",))
+        if error:
+            return error
         try:
             with open(path, "w", encoding="utf-8-sig", newline="") as f:
+                f.write(text)
+            return {"path": path}
+        except Exception as exc:
+            return {"error": str(exc)}
+
+    def save_png(self, data_url, filename="ogranka-view.png"):
+        try:
+            encoded = data_url.split(",", 1)[-1]
+            data = base64.b64decode(encoded)
+        except Exception as exc:
+            return {"error": "не удалось прочитать PNG: " + str(exc)}
+        path, error = self._save_dialog(filename or "ogranka-view.png", ("PNG (*.png)",))
+        if error:
+            return error
+        try:
+            with open(path, "wb") as f:
+                f.write(data)
+            return {"path": path}
+        except Exception as exc:
+            return {"error": str(exc)}
+
+    def save_obj(self, text, filename="ogranka-model.obj"):
+        path, error = self._save_dialog(filename or "ogranka-model.obj", ("OBJ (*.obj)",))
+        if error:
+            return error
+        try:
+            with open(path, "w", encoding="utf-8") as f:
                 f.write(text)
             return {"path": path}
         except Exception as exc:
@@ -87,6 +141,7 @@ def _data_dir():
 DATA = _data_dir()
 UPLOADS = os.path.join(DATA, "uploads")
 RUNS = os.path.join(DATA, "runs")
+WELCOME_FILE = os.path.join(DATA, "welcome_seen")
 os.makedirs(UPLOADS, exist_ok=True)
 os.makedirs(RUNS, exist_ok=True)
 
@@ -149,6 +204,7 @@ def _run(sources, params):
         do_min = bool(params.get("minimal", True))
         loss = float(params.get("loss", 0.1)) / 100.0
         angle = float(params.get("angle", 1.0))
+        noise_model = params.get("noise_model", "angles")
 
         for mi, source in enumerate(sources):
             base = mi / n_models
@@ -172,9 +228,15 @@ def _run(sources, params):
                 q = (float(p) - 0.05) / 0.40
                 _report("сечения", 0.08 + 0.12 * max(0.0, min(1.0, q)))
 
-            alphas, layers = pipeline.build_sections(
-                v, pipeline.mesh_edges(faces), n_layers, n_angles, progress=sec_progress
-            )
+            if noise_model == "edges":
+                alphas, layers, section_polys = pipeline.build_sections_ex(
+                    v, pipeline.mesh_edges(faces), n_layers, n_angles, progress=sec_progress
+                )
+            else:
+                alphas, layers = pipeline.build_sections(
+                    v, pipeline.mesh_edges(faces), n_layers, n_angles, progress=sec_progress
+                )
+                section_polys = None
             true_by_z = {round(z, 6): r for z, r in layers}
             ref_metrics = {"mse": 0.0, "rmse": 0.0, "dmax": 0.0}
             results = [
@@ -196,13 +258,14 @@ def _run(sources, params):
             try:
                 mpref = pipeline.minimal_polyhedron(v)
                 pr_v, pr_f = pipeline.polygons_to_mesh(mpref["polygons"])
+                mpref_metrics = pipeline.mesh_metrics(true_by_z, alphas, pr_v, pr_f)
                 results.append(
                     {
                         "id": f"m{mi}:refmin",
                         "label": "Эталон · мин. многогранник",
                         "kind": "min",
                         "mesh": {"v": pr_v.tolist(), "f": [list(f) for f in pr_f]},
-                        "metrics": ref_metrics,
+                        "metrics": mpref_metrics,
                         "quality": "ref",
                         "vertices": int(mpref["vertices"]),
                         "faces": int(mpref["faces"]),
@@ -215,6 +278,11 @@ def _run(sources, params):
 
             zs = np.array([z for z, _ in layers])
             R_true = np.vstack([r for _, r in layers])
+            noise_unit = np.random.default_rng(1000 + mi).uniform(-1.0, 1.0, size=R_true.shape)
+            edge_units = []
+            if noise_model == "edges":
+                edge_rng = np.random.default_rng(2000 + mi)
+                edge_units = [edge_rng.uniform(-1.0, 1.0, size=len(poly)) for _, poly in section_polys]
             variants = [(rv, me) for rv in levels for me in methods]
             total_variants = max(1, len(variants))
             A = pinv = None
@@ -252,12 +320,20 @@ def _run(sources, params):
                 else:
                     label_noise = f"шум {rv:g}"
                 label = f"{label_noise} · {names.get(method, method)}"
+                if noise_model == "edges":
+                    label += " · рёбра"
 
                 vstage(vi, 0.03, "подготовка варианта", label)
                 t_var = time.time()
-                rng = np.random.default_rng(1000 + mi * 100 + vi)
-                R = R_true + rv * rng.uniform(-1.0, 1.0, size=R_true.shape) if rv > 0 else R_true.copy()
-                vstage(vi, 0.12, "шум", label)
+                if noise_model == "edges":
+                    if rv > 0:
+                        noisy_layers = pipeline.edge_noise_layers(section_polys, alphas, rv, edge_units)
+                        R = np.vstack([r for _, r in noisy_layers])
+                    else:
+                        R = R_true.copy()
+                else:
+                    R = R_true + rv * noise_unit if rv > 0 else R_true.copy()
+                vstage(vi, 0.12, "шум по рёбрам" if noise_model == "edges" else "шум", label)
                 if method == "fft":
                     vstage(vi, 0.20, "ряд Фурье и МНК", label)
                     Rs = pipeline.fourier_denoise_matrix(R, A, pinv)
@@ -335,14 +411,15 @@ def _run(sources, params):
                                 pts, angle_tol_deg=angle, loss_target=loss, hull=(hv, hf)
                             )
                             mv, mf = pipeline.polygons_to_mesh(mp["polygons"])
+                            mm = pipeline.mesh_metrics(true_by_z, alphas, mv, mf)
                             out.append(
                                 {
                                     "id": f"m{mi}:v{vi}m",
                                     "label": label + " · мин. многогранник",
                                     "kind": "min",
                                     "mesh": {"v": mv.tolist(), "f": [list(f) for f in mf]},
-                                    "metrics": m,
-                                    "quality": quality(m),
+                                    "metrics": mm,
+                                    "quality": quality(mm),
                                     "vertices": int(mp["vertices"]),
                                     "faces": int(mp["faces"]),
                                     "points": int(len(pts)),
@@ -437,6 +514,8 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
+        if u.path == "/api/welcome":
+            return self._json({"seen": os.path.exists(WELCOME_FILE)})
         if u.path == "/api/status":
             with LOCK:
                 return self._json(STATE["job"] or {"state": "idle"})
@@ -459,6 +538,13 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         u = urlparse(self.path)
+        if u.path == "/api/welcome":
+            try:
+                with open(WELCOME_FILE, "w", encoding="utf-8") as f:
+                    f.write("1")
+                return self._json({"ok": True})
+            except Exception as exc:
+                return self._json({"error": str(exc)}, 500)
         if u.path == "/api/clear-cache":
             with LOCK:
                 STATE["models"] = None
@@ -467,7 +553,27 @@ class Handler(SimpleHTTPRequestHandler):
             for d in (UPLOADS, RUNS):
                 shutil.rmtree(d, ignore_errors=True)
                 os.makedirs(d, exist_ok=True)
+            try:
+                os.remove(WELCOME_FILE)
+            except FileNotFoundError:
+                pass
             return self._json({"ok": True})
+        if u.path == "/api/folder":
+            n = int(self.headers.get("Content-Length", 0))
+            try:
+                body = json.loads(self.rfile.read(n) or b"{}")
+                folder = body.get("path")
+                if not folder:
+                    return self._json({"error": "не выбрана папка"}, 400)
+                sources = scan_folder(folder)
+                if not sources:
+                    return self._json({"error": "в папке нет файлов .obj или .txt"}, 400)
+                return self._json({
+                    "sources": sources,
+                    "folder": os.path.abspath(os.path.expanduser(folder)),
+                })
+            except Exception as exc:
+                return self._json({"error": str(exc)}, 400)
         if u.path == "/api/upload":
             n = int(self.headers.get("Content-Length", 0))
             if n > 120 * 1024 * 1024:
@@ -489,6 +595,10 @@ class Handler(SimpleHTTPRequestHandler):
                     return self._json({"error": "уже выполняется"}, 409)
             try:
                 v, faces, title = prepare_source(source)
+                alphas, layers = pipeline.build_sections(
+                    v, pipeline.mesh_edges(faces), 60, 720
+                )
+                true_by_z = {round(z, 6): r for z, r in layers}
                 results = []
                 prev = None
                 for i, pct in enumerate(pipeline.SIMPLIFY_LEVELS):
@@ -504,10 +614,12 @@ class Handler(SimpleHTTPRequestHandler):
                         and (prev is None or mp["faces"] <= prev["faces"])
                     ):
                         mv, mf = pipeline.polygons_to_mesh(mp["polygons"])
+                        metrics = pipeline.mesh_metrics(true_by_z, alphas, mv, mf)
                         prev = {
                             "mesh": {"v": mv.tolist(), "f": [list(f) for f in mf]},
                             "vertices": int(mp["vertices"]),
                             "faces": int(mp["faces"]),
+                            "metrics": metrics,
                         }
                         sec = time.time() - t0
                     elif prev is not None:
@@ -518,11 +630,11 @@ class Handler(SimpleHTTPRequestHandler):
                     results.append(
                         {
                             "id": f"lv{i}",
-                            "label": f"{pct:g}% · {prev['vertices']}/{prev['faces']}",
+                            "label": f"оставлено {pct:g}% · {prev['vertices']}/{prev['faces']}",
                             "kind": "level",
                             "mesh": prev["mesh"],
-                            "metrics": {},
-                            "quality": None,
+                            "metrics": prev["metrics"],
+                            "quality": quality(prev["metrics"]),
                             "vertices": prev["vertices"],
                             "faces": prev["faces"],
                             "pct": pct,

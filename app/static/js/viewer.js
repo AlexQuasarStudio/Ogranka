@@ -36,7 +36,7 @@ class Viewer {
     this.selTarget = "face";
 
     this.hudCur = card.querySelector(".cur");
-    card.querySelectorAll(".ax").forEach((b) => b.onclick = () => this.alignAxis(b.dataset.a));
+    this.setupGizmo(card);
     this.canvas.addEventListener("pointermove", (e) => this.cursorInfo(e));
 
     this.raycaster = new THREE.Raycaster();
@@ -55,7 +55,12 @@ class Viewer {
 
     new ResizeObserver(() => this.resize()).observe(this.canvas.parentElement);
     this.resize();
-    const loop = () => { requestAnimationFrame(loop); this.controls.update(); this.renderer.render(this.scene, this.camera); };
+    const loop = () => {
+      requestAnimationFrame(loop);
+      this.controls.update();
+      this.renderer.render(this.scene, this.camera);
+      this.renderGizmo();
+    };
     loop();
   }
 
@@ -66,6 +71,136 @@ class Viewer {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     if (this.lineMat) this.lineMat.resolution.set(w, h);
+    this.resizeGizmo();
+  }
+
+  setupGizmo(card) {
+    const canvas = card.querySelector(".gizmo");
+    if (!canvas) return;
+    this.gizmoCanvas = canvas;
+    this.gizmoRenderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+    this.gizmoRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.gizmoRenderer.setClearColor(0x000000, 0);
+    this.gizmoScene = new THREE.Scene();
+    this.gizmoCamera = new THREE.OrthographicCamera(-1.25, 1.25, 1.25, -1.25, 0.1, 20);
+    this.gizmoCamera.position.set(0, 0, 4);
+    this.gizmoCamera.lookAt(0, 0, 0);
+    this.gizmoScene.add(new THREE.AmbientLight(0xffffff, 1.25));
+    const gl = new THREE.DirectionalLight(0xffffff, 0.75);
+    gl.position.set(-2, -3, 4);
+    this.gizmoScene.add(gl);
+    this.gizmoGroup = new THREE.Group();
+    this.gizmoMeshes = [];
+    this.gizmoMats = {};
+    const specs = [
+      ["x", 0xff6b6b, -Math.PI / 2, 0],
+      ["y", 0x6bff9d, 0, 0],
+      ["z", 0x6ba8ff, 0, Math.PI / 2],
+    ];
+    specs.forEach(([axis, color, rz, rx]) => {
+      const mat = new THREE.MeshStandardMaterial({
+        color, roughness: 0.32, metalness: 0.18, emissive: color, emissiveIntensity: 0.12,
+      });
+      this.gizmoMats[axis] = mat;
+      const g = new THREE.Group();
+      g.rotation.z = rz;
+      g.rotation.x = rx;
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.52, 12), mat);
+      shaft.position.y = 0.34;
+      const head = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.24, 16), mat);
+      head.position.y = 0.72;
+      shaft.userData.axis = axis;
+      head.userData.axis = axis;
+      g.add(shaft, head);
+      const label = this.makeAxisLabel(axis.toUpperCase(), color);
+      label.position.y = 1.03;
+      g.add(label);
+      this.gizmoMeshes.push(shaft, head);
+      this.gizmoGroup.add(g);
+    });
+    const hub = new THREE.Mesh(
+      new THREE.SphereGeometry(0.10, 20, 12),
+      new THREE.MeshStandardMaterial({ color: 0x253247, roughness: 0.8, metalness: 0.1 })
+    );
+    this.gizmoGroup.add(hub);
+    this.gizmoScene.add(this.gizmoGroup);
+    this.gizmoRaycaster = new THREE.Raycaster();
+    this.gizmoDown = null;
+    this._gizmoHover = null;
+    canvas.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      this.gizmoDown = { x: e.clientX, y: e.clientY };
+    });
+    canvas.addEventListener("pointerup", (e) => {
+      e.stopPropagation();
+      const down = this.gizmoDown;
+      this.gizmoDown = null;
+      if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) return;
+      const axis = this.gizmoHit(e);
+      if (axis) this.alignAxis(axis);
+    });
+    canvas.addEventListener("pointermove", (e) => {
+      e.stopPropagation();
+      this.setGizmoHover(this.gizmoHit(e));
+    });
+    canvas.addEventListener("pointerleave", () => this.setGizmoHover(null));
+    this.resizeGizmo();
+  }
+
+  makeAxisLabel(text, color) {
+    const c = document.createElement("canvas");
+    c.width = c.height = 64;
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = `#${color.toString(16).padStart(6, "0")}`;
+    ctx.beginPath();
+    ctx.arc(32, 32, 24, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#0f141c";
+    ctx.font = "800 30px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, 32, 34);
+    const tex = new THREE.CanvasTexture(c);
+    tex.minFilter = THREE.LinearFilter;
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.set(0.34, 0.34, 1);
+    sprite.renderOrder = 10;
+    return sprite;
+  }
+
+  resizeGizmo() {
+    if (!this.gizmoRenderer || !this.gizmoCanvas) return;
+    const w = Math.max(56, this.gizmoCanvas.clientWidth || 84);
+    const h = Math.max(56, this.gizmoCanvas.clientHeight || 84);
+    this.gizmoRenderer.setSize(w, h, false);
+  }
+
+  renderGizmo() {
+    if (!this.gizmoRenderer) return;
+    this.gizmoGroup.quaternion.copy(this.camera.quaternion).invert();
+    this.gizmoRenderer.render(this.gizmoScene, this.gizmoCamera);
+  }
+
+  gizmoHit(e) {
+    if (!this.gizmoCanvas || !this.gizmoRenderer) return null;
+    const r = this.gizmoCanvas.getBoundingClientRect();
+    const mouse = new THREE.Vector2(
+      ((e.clientX - r.left) / r.width) * 2 - 1,
+      -((e.clientY - r.top) / r.height) * 2 + 1
+    );
+    this.gizmoRaycaster.setFromCamera(mouse, this.gizmoCamera);
+    const hits = this.gizmoRaycaster.intersectObjects(this.gizmoMeshes, false);
+    return hits.length ? hits[0].object.userData.axis : null;
+  }
+
+  setGizmoHover(axis) {
+    if (this._gizmoHover === axis) return;
+    this._gizmoHover = axis;
+    for (const [key, mat] of Object.entries(this.gizmoMats)) {
+      mat.emissiveIntensity = key === axis ? 0.55 : 0.12;
+    }
+    if (this.gizmoCanvas) this.gizmoCanvas.style.cursor = axis ? "pointer" : "default";
   }
 
   clear() {
@@ -351,14 +486,45 @@ class Viewer {
   pathVerts(start, end) { return this.bfsPath(this.vertAdj, start, end); }
 
   alignAxis(axis) {
-    const c = this.controls.target.clone();
-    const r = this.camera.position.distanceTo(c) || 3;
-    if (axis === "x") { this.camera.up.set(0, 0, 1); this.camera.position.set(c.x + r, c.y, c.z); }
-    else if (axis === "y") { this.camera.up.set(0, 0, 1); this.camera.position.set(c.x, c.y - r, c.z); }
-    else { this.camera.up.set(0, 1, 0); this.camera.position.set(c.x, c.y, c.z + r); }
-    this.camera.lookAt(c);
-    this.controls.update();
-    this.onCam(this);
+    const dirs = {
+      x: new THREE.Vector3(1, 0, 0),
+      y: new THREE.Vector3(0, -1, 0),
+      z: new THREE.Vector3(0, 0, 1),
+    };
+    const ups = {
+      x: new THREE.Vector3(0, 0, 1),
+      y: new THREE.Vector3(0, 0, 1),
+      z: new THREE.Vector3(0, 1, 0),
+    };
+    if (!dirs[axis]) return;
+    const target = this.controls.target.clone();
+    const dist = this.camera.position.distanceTo(target) || 3;
+    const startDir = this.camera.position.clone().sub(target).normalize();
+    const startUp = this.camera.up.clone().normalize();
+    const endDir = dirs[axis];
+    const endUp = ups[axis];
+    const turn = new THREE.Quaternion().setFromUnitVectors(startDir, endDir);
+    const from = new THREE.Quaternion();
+    const current = new THREE.Quaternion();
+    const t0 = performance.now();
+    const duration = 380;
+    if (this._axisFrame) cancelAnimationFrame(this._axisFrame);
+    this.controls.enabled = false;
+    const step = () => {
+      const t = Math.min(1, (performance.now() - t0) / duration);
+      const ease = t * t * (3 - 2 * t);
+      current.copy(from).slerp(turn, ease);
+      const dir = startDir.clone().applyQuaternion(current);
+      this.camera.position.copy(target).addScaledVector(dir, dist);
+      this.camera.up.copy(startUp).lerp(endUp, ease).normalize();
+      this.camera.lookAt(target);
+      this.controls.target.copy(target);
+      this.controls.update();
+      this.onCam(this);
+      if (t < 1) this._axisFrame = requestAnimationFrame(step);
+      else { this._axisFrame = null; this.controls.enabled = true; }
+    };
+    step();
   }
 
   cursorInfo(e) {
@@ -399,15 +565,11 @@ class Viewer {
 function makeCard() {
   const card = document.createElement("div");
   card.className = "viewer-card";
-  card.innerHTML = `<div class="viewer-head"><select class="vsel"></select><span class="vmeta meta"></span><button class="vmax" title="Развернуть этот вьюпорт на всё окно">⤢</button></div>
+  card.innerHTML = `<div class="viewer-head"><select class="vsel"></select><span class="vmeta meta"></span><button class="vdel" title="Убрать это окно">− окно</button><button class="vadd" title="Добавить окно в полноэкранную сетку">+ окно</button><button class="vmax" title="Развернуть или свернуть этот вьюпорт">⤢</button></div>
                     <div class="canvas-wrap"><canvas></canvas>
                       <div class="hud">
-                        <div class="axes"><button class="ax x" data-a="x" title="Вид вдоль X" aria-label="Вид вдоль X">→</button><button class="ax y" data-a="y" title="Вид вдоль Y" aria-label="Вид вдоль Y">↗</button><button class="ax z" data-a="z" title="Вид вдоль Z" aria-label="Вид вдоль Z">↑</button></div>
+                        <div class="axis-gizmo"><canvas class="gizmo" title="3D-оси: клик по X, Y или Z плавно выравнивает камеру" aria-label="3D-оси X, Y, Z"></canvas></div>
                         <div class="cur">—</div>
-                      </div>
-                      <div class="vsliders" aria-label="Живой предпросмотр">
-                        <label>шум <input class="dock-noise" type="range" min="0" max="0.1" step="0.002"><output class="dock-noise-val">0.008</output></label>
-                        <label>упрощение <input class="dock-simplify" type="range" min="0" max="85" step="1"><output class="dock-simplify-val">0%</output></label>
                       </div>
                     </div>`;
   $("viewers").appendChild(card);
@@ -442,11 +604,20 @@ function ensureSplitV() {
 function layoutViewers() {
   const el = $("viewers");
   const n = App.viewers.length;
-  if (App.solo) {
-    el.style.gridTemplateColumns = "1fr";
+  if (App.fullscreen) {
+    const visible = App.fullViews.filter((v) => App.viewers.includes(v));
+    if (!visible.length && App.viewers.length) visible.push(App.viewers[0]);
+    const shown = Math.max(1, visible.length);
     if (App.splitV) App.splitV.style.display = "none";
+    const cols = shown <= 2 ? shown : (shown <= 4 ? 2 : 3);
+    el.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+    el.style.gridAutoRows = "minmax(0, 1fr)";
+    el.classList.add("fullscreen");
+    App.viewers.forEach((x) => x.card.classList.toggle("is-full", visible.includes(x)));
     return;
   }
+  el.classList.remove("fullscreen");
+  App.viewers.forEach((x) => x.card.classList.remove("is-full"));
   if (n === 2) {
     const sp = ensureSplitV();
     el.insertBefore(sp, App.viewers[1].card);
@@ -460,23 +631,28 @@ function layoutViewers() {
 }
 
 function toggleSolo(v) {
-  const wasSolo = !!App.solo;
-  const next = App.solo === v ? null : v;
-  if (!wasSolo && next) {
+  const entering = !App.fullscreen;
+  if (entering) {
     App.soloPrevH = document.documentElement.style.getPropertyValue("--viewer-h");
     document.documentElement.style.setProperty("--viewer-h", "72%");
-  } else if (wasSolo && !next) {
+    App.solo = v;
+    App.fullscreen = true;
+    App.fullViews = App.viewers.slice();
+    setActiveViewer(v);
+  } else {
     if (App.soloPrevH) document.documentElement.style.setProperty("--viewer-h", App.soloPrevH);
     else document.documentElement.style.removeProperty("--viewer-h");
     App.soloPrevH = null;
+    App.solo = null;
+    App.fullscreen = false;
+    App.fullViews = [];
   }
-  App.solo = next;
-  App.viewers.forEach((x) => x.card.classList.toggle("is-solo", x === App.solo));
-  $("viewers").classList.toggle("solo", !!App.solo);
-  document.querySelector(".workspace").classList.toggle("solo-mode", !!App.solo);
-  document.body.classList.toggle("viewer-full", !!App.solo);
+  App.viewers.forEach((x) => x.card.classList.remove("is-solo"));
+  $("viewers").classList.toggle("fullscreen", App.fullscreen);
+  document.querySelector(".workspace").classList.toggle("solo-mode", App.fullscreen);
+  document.body.classList.toggle("viewer-full", App.fullscreen);
   layoutViewers();
-  if (App.solo) App.solo.resize();
+  App.viewers.forEach((x) => x.resize());
 }
 
 function addViewer() {
@@ -484,31 +660,53 @@ function addViewer() {
   const card = makeCard();
   const v = new Viewer(card, handlePick, handleCam);
   card.querySelector(".vmax").onclick = () => toggleSolo(v);
-  card.querySelector(".dock-noise").oninput = (e) => {
-    $("liveNoise").value = e.target.value;
-    scheduleLive();
-  };
-  card.querySelector(".dock-simplify").oninput = (e) => {
-    $("liveSimplify").value = e.target.value;
-    scheduleLive();
-  };
+  card.querySelector(".vadd").onclick = () => addViewer();
+  card.querySelector(".vdel").onclick = () => removeViewer(v);
   card.addEventListener("pointerdown", () => setActiveViewer(v));
   App.viewers.push(v);
+  if (App.fullscreen) {
+    App.fullViews.push(v);
+    setActiveViewer(v);
+  }
   populateViewer(v, App.viewers.length - 1);
   if (App.models.length) loadViewer(v).then(() => v.applySelection(App.sel.points, App.sel.mode, App.sel.polys, App.sel.ids));
   if (App.viewers.length > 1) v.copyCamera(App.viewers[0]);
   layoutViewers();
-  syncLiveDocks();
+  updateViewButtons();
+  updateDiff();
   v.select.onchange = () => { setActiveViewer(v); loadViewer(v); };
   return v;
 }
 
-function removeViewer() {
-  if (App.viewers.length <= 2) return;
-  const v = App.viewers.pop();
+function removeViewer(target = null) {
+  if (App.viewers.length <= 1) return;
+  const v = target && App.viewers.includes(target)
+    ? target
+    : App.viewers[App.viewers.length - 1];
+  App.viewers = App.viewers.filter((x) => x !== v);
   v.card.remove();
+  if (App.fullscreen) {
+    App.fullViews = App.fullViews.filter((x) => x !== v);
+    if (!App.fullViews.length && App.viewers.length) App.fullViews = App.viewers.slice();
+  }
+  if (App.solo === v) App.solo = App.fullViews[0] || App.viewers[0] || null;
+  if (App.activeViewer === v) {
+    App.activeViewer = null;
+    if (App.viewers.length) setActiveViewer(App.viewers[0]);
+  }
   layoutViewers();
+  updateViewButtons();
+  updateDiff();
   selectionText();
+}
+
+function updateViewButtons() {
+  const add = $("addView");
+  const del = $("delView");
+  if (add) add.disabled = App.viewers.length >= 6;
+  if (del) del.disabled = App.viewers.length <= 1;
+  document.querySelectorAll(".vadd").forEach((b) => { b.disabled = App.viewers.length >= 6; });
+  document.querySelectorAll(".vdel").forEach((b) => { b.disabled = App.viewers.length <= 1; });
 }
 
 function populateViewer(v, idx) {

@@ -23,6 +23,7 @@ def live_variant(source, params):
     n_angles = int(params.get("angles", 720))
     n_layers = int(params.get("layers", 60))
     mode = params.get("mode", "envelope")
+    noise_model = params.get("noise_model", "angles")
     method = params.get("method", "fft")
     noise = max(0.0, min(0.2, float(params.get("noise", 0.008))))
     pct = max(5.0, min(100.0, float(params.get("pct", 100))))
@@ -37,6 +38,7 @@ def live_variant(source, params):
             "layers": n_layers,
             "mode": mode,
             "method": method,
+            "noise_model": noise_model,
             "harmonics": harmonics,
             "window": window,
             "angle": angle,
@@ -49,11 +51,26 @@ def live_variant(source, params):
         base = LIVE.get("base")
         if LIVE.get("key") != key:
             v, faces, title = prepare_source(source)
-            alphas, layers = pipeline.build_sections(v, pipeline.mesh_edges(faces), n_layers, n_angles)
-            zs = np.array([z for z, _ in layers])
-            r_true = np.vstack([r for _, r in layers])
-            true_by_z = {round(z, 6): r for z, r in layers}
-            unit = np.random.default_rng(12345).uniform(-1.0, 1.0, size=r_true.shape)
+            if noise_model == "edges":
+                alphas, layers, section_polys = pipeline.build_sections_ex(
+                    v, pipeline.mesh_edges(faces), n_layers, n_angles
+                )
+                zs = np.array([z for z, _ in layers])
+                r_true = np.vstack([r for _, r in layers])
+                true_by_z = {round(z, 6): r for z, r in layers}
+                edge_rng = np.random.default_rng(2000)
+                edge_units = [edge_rng.uniform(-1.0, 1.0, size=len(poly)) for _, poly in section_polys]
+                unit = None
+            else:
+                alphas, layers = pipeline.build_sections(
+                    v, pipeline.mesh_edges(faces), n_layers, n_angles
+                )
+                zs = np.array([z for z, _ in layers])
+                r_true = np.vstack([r for _, r in layers])
+                true_by_z = {round(z, 6): r for z, r in layers}
+                section_polys = None
+                edge_units = []
+                unit = np.random.default_rng(12345).uniform(-1.0, 1.0, size=r_true.shape)
             base = {
                 "title": title,
                 "alphas": alphas,
@@ -61,16 +78,27 @@ def live_variant(source, params):
                 "r_true": r_true,
                 "true_by_z": true_by_z,
                 "noise_unit": unit,
+                "section_polys": section_polys,
+                "edge_units": edge_units,
+                "noise_model": noise_model,
                 "noise": None,
                 "pts": None,
                 "hull": None,
-                "metrics": None,
             }
             LIVE["key"] = key
             LIVE["base"] = base
 
         if base["noise"] != noise:
-            r = base["r_true"] + noise * base["noise_unit"] if noise > 0 else base["r_true"].copy()
+            if noise_model == "edges":
+                if noise > 0:
+                    noisy_layers = pipeline.edge_noise_layers(
+                        base["section_polys"], base["alphas"], noise, base["edge_units"]
+                    )
+                    r = np.vstack([row for _, row in noisy_layers])
+                else:
+                    r = base["r_true"].copy()
+            else:
+                r = base["r_true"] + noise * base["noise_unit"] if noise > 0 else base["r_true"].copy()
             if method == "fft":
                 a, pinv = pipeline.fourier_design(base["alphas"], harmonics)
                 rs = pipeline.fourier_denoise_matrix(r, a, pinv)
@@ -93,7 +121,6 @@ def live_variant(source, params):
             hv, hf = pipeline.hull_compact(pts)
             base["pts"] = pts
             base["hull"] = (hv, hf)
-            base["metrics"] = pipeline.metrics(base["true_by_z"], base["alphas"], pts)
             base["noise"] = noise
 
         pts = base["pts"]
@@ -102,8 +129,8 @@ def live_variant(source, params):
             pts, angle_tol_deg=angle, loss_target=loss, hull=(hv, hf), pct=pct, snap=False
         )
         mv, mf = pipeline.polygons_to_mesh(mp["polygons"])
-        metrics = base["metrics"]
-        label = f"живой · шум {noise:g} · упрощение {round(100 - pct):g}%"
+        metrics = pipeline.mesh_metrics(base["true_by_z"], base["alphas"], mv, mf)
+        label = f"живой · шум {noise:g} · оставлено {round(pct):g}%"
         return {
             "id": "live",
             "label": label,

@@ -12,7 +12,7 @@ const TOUR_STEPS = [
   },
   {
     title: "Шум и упрощение",
-    text: "Двигайте ползунки: второе окно пересчитывается без запуска конвейера. «Упрощение» — сколько процентов убрать.",
+    text: "Активное окно пересчитывается без запуска конвейера. «Оставлено» — доля оставленных треугольников, 100% — без упрощения.",
     target: "#liveNoise",
   },
   {
@@ -47,6 +47,7 @@ function tourSeen() {
 
 function markTourSeen() {
   try { localStorage.setItem(TOUR_KEY, "1"); } catch (e) { /* ignore */ }
+  fetch("/api/welcome", { method: "POST", keepalive: true }).catch(() => {});
 }
 
 function resetTourSeen() {
@@ -81,7 +82,7 @@ function positionTour(target) {
   card.style.top = top + "px";
 }
 
-function showTourStep(i) {
+function showTourStep(i, animate = true) {
   App.tourStep = i;
   const step = TOUR_STEPS[i];
   $("tourStepLabel").textContent = i === 0 ? "Приветствие" : `Шаг ${i} из ${TOUR_STEPS.length - 1}`;
@@ -91,23 +92,35 @@ function showTourStep(i) {
   $("tourNext").textContent = i === TOUR_STEPS.length - 1 ? "Готово" : (i === 0 ? "Начать" : "Далее");
   const target = step.target ? document.querySelector(step.target) : null;
   if (target) target.scrollIntoView({ block: "center", inline: "nearest" });
-  const stepIndex = i;
-  setTimeout(() => { if (App.tourStep === stepIndex) positionTour(target); }, 50);
+  positionTour(target);
+  const card = $("tourCard");
+  card.classList.remove("step-in");
+  if (animate) {
+    void card.offsetWidth;
+    card.classList.add("step-in");
+  }
 }
 
 function startTour(force = false) {
   if (!force && tourSeen()) return;
+  clearTimeout(App.tourCloseTimer);
   $("helpModal").classList.add("hidden");
   $("aboutModal").classList.add("hidden");
+  $("tour").classList.remove("dim");
+  $("tourHole").hidden = true;
+  showTourStep(0, false);
   $("tour").classList.remove("hidden");
-  showTourStep(0);
+  markTourSeen();
 }
 
 function finishTour() {
   $("tour").classList.add("hidden");
-  $("tour").classList.remove("dim");
-  $("tourHole").hidden = true;
   markTourSeen();
   App.tourStep = 0;
+  clearTimeout(App.tourCloseTimer);
+  App.tourCloseTimer = setTimeout(() => {
+    $("tour").classList.remove("dim");
+    $("tourHole").hidden = true;
+  }, 240);
 }
 

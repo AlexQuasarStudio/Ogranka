@@ -1,7 +1,7 @@
 """Геометрия: разбор, сечения, оболочка и полигоны."""
 
 import numpy as np
-from scipy.spatial import ConvexHull, QhullError
+from qhull_compat import ConvexHull, QhullError
 
 __all__ = [
     "parse_obj",
@@ -77,7 +77,10 @@ def hull(verts):
 def mesh_edges(faces):
     edges = set()
     for f in faces:
-        for a, b in ((f[0], f[1]), (f[1], f[2]), (f[2], f[0])):
+        if len(f) < 2:
+            continue
+        for i, a in enumerate(f):
+            b = f[(i + 1) % len(f)]
             edges.add((min(a, b), max(a, b)))
     return sorted(edges)
 
@@ -105,19 +108,81 @@ def support(poly, alphas):
     return (e @ poly.T).max(axis=1)
 
 
-def build_sections(v, edges, n_layers=60, n_angles=720, progress=None):
+def build_sections_ex(v, edges, n_layers=60, n_angles=720, progress=None):
+    """Build sections and keep the ordered polygon of every section."""
     alphas = np.arange(n_angles) * (2.0 * np.pi / n_angles)
     dz = 3.0 / n_layers
     layers = []
+    polygons = []
     for k in range(n_layers):
         z = (k + 0.5) * dz
         poly = section_from_edges(v, edges, z)
         if poly is None:
             continue
         layers.append((float(z), support(poly, alphas)))
+        polygons.append((float(z), poly))
         if progress and k % 5 == 0:
             progress(0.05 + 0.4 * k / n_layers)
+    return alphas, layers, polygons
+
+
+def build_sections(v, edges, n_layers=60, n_angles=720, progress=None):
+    alphas, layers, _ = build_sections_ex(
+        v, edges, n_layers=n_layers, n_angles=n_angles, progress=progress
+    )
     return alphas, layers
+
+
+def _ccw_polygon(poly):
+    p = np.asarray(poly, float)
+    if len(p) < 3:
+        return p
+    area = 0.5 * float(np.sum(
+        p[:, 0] * np.roll(p[:, 1], -1) - p[:, 1] * np.roll(p[:, 0], -1)
+    ))
+    return p if area >= 0 else p[::-1]
+
+
+def edge_noise_support(poly, alphas, rv, unit):
+    """Support of a polygon whose edge lines are shifted by one epsilon each."""
+    p = _ccw_polygon(poly)
+    if rv <= 0 or len(p) < 3:
+        return support(p, alphas)
+    m = len(p)
+    unit = np.asarray(unit, float)
+    if len(unit) != m:
+        unit = np.resize(unit, m)
+    edge = np.roll(p, -1, axis=0) - p
+    length = np.linalg.norm(edge, axis=1)
+    if np.any(length < 1e-12):
+        return support(p, alphas)
+    normal = np.column_stack((edge[:, 1], -edge[:, 0])) / length[:, None]
+    rhs = np.einsum("ij,ij->i", normal, p) + rv * unit
+    verts = []
+    for i in range(m):
+        j = (i + 1) % m
+        a = np.vstack((normal[i], normal[j]))
+        det = a[0, 0] * a[1, 1] - a[0, 1] * a[1, 0]
+        if abs(det) < 1e-10:
+            return support(p, alphas)
+        verts.append(np.linalg.solve(a, np.array([rhs[i], rhs[j]])))
+    verts = np.asarray(verts, float)
+    try:
+        hull = ConvexHull(verts)
+        verts = verts[hull.vertices]
+    except QhullError:
+        return support(p, alphas)
+    return support(verts, alphas)
+
+
+def edge_noise_layers(polygons, alphas, rv, units):
+    """Apply edge-line noise to every section of the model."""
+    if rv <= 0:
+        return [(z, support(poly, alphas)) for z, poly in polygons]
+    return [
+        (z, edge_noise_support(poly, alphas, rv, unit))
+        for (z, poly), unit in zip(polygons, units)
+    ]
 
 
 def hull_compact(points):

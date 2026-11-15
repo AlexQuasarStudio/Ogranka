@@ -20,9 +20,16 @@ reconstruct3D/real_data/
 reconstruct3D/out3D/
 reconstruct3D/out3D_real/
 
+# Промежуточные файлы LaTeX; готовый PDF собирается в корень
+Отчет/*.aux
+Отчет/*.out
+Отчет/*.toc
+Отчет/*.pdf
+
 # Архивы не хранятся в репозитории
 *.zip
 *.tar.gz
 *.tgz
 *.7z
 *.rar
+app/welcome_seen

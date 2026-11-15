@@ -11,7 +11,7 @@
 
 ## Что лежит в репозитории
 
-- `Dyachenko_AM.pdf` — собранная курсовая работа (39 страниц).
+- `Dyachenko_AM.pdf` — собранная курсовая работа (33 страницы).
 - `point-cloud-3d-recovery.pptx` — презентация (25 слайдов).
 - `Отчет/` — LaTeX-исходник отчёта, рисунки и скрипт сборки коллажей.
 - `app/` — приложение «Огранка» 1.0.0: полный конвейер в интерактивном окне.
@@ -25,7 +25,9 @@
    получается выпуклое сечение.
 2. Сечение описывается опорной функцией
    `r(α) = max_j (x_j cos α + y_j sin α)`.
-3. В измерения добавляется шум r8 (0.008) или r80 (0.08).
+3. В измерения добавляется шум r8 (0.008) или r80 (0.08). В приложении
+   можно выбрать независимый шум по углам (как в отчёте) или структурный
+   шум по рёбрам сечений (эксперимент).
 4. Шум подавляется рядом Фурье с МНК или адаптивным методом «ближайших
    соседей».
 5. По сглаженным опорным функциям восстанавливаются точки
@@ -39,15 +41,14 @@
 
 ### Отчёт
 
-Нужен TeX Live (или TinyTeX) с русской поддержкой. Сборка — два прохода:
+Нужен TeX Live (или TinyTeX) с русской поддержкой:
 
 ```bash
-cd Отчет
-pdflatex -interaction=nonstopmode Dyachenko_AM.tex
-pdflatex -interaction=nonstopmode Dyachenko_AM.tex
+./build_report.sh
 ```
 
-Готовый PDF — `Отчет/Dyachenko_AM.pdf`; копия лежит в корне.
+Скрипт делает два прохода во временном каталоге и кладёт готовый
+`Dyachenko_AM.pdf` в корень. В `Отчет/` PDF и служебные файлы LaTeX не создаются.
 
 ### Презентация
 
@@ -79,7 +80,7 @@ python3 -m pip install open3d   # только для повторения эк�
 ```
 
 Готовые сборки в репозиторий не входят из-за размера: `Огранка.app` — около
-97 МБ, `Ogranka.exe` — около 44 МБ. Собираются локально, инструкции ниже.
+57 МБ, `Ogranka.exe` — около 26 МБ. Собираются локально, инструкции ниже.
 
 ### 3D-эксперименты
 
@@ -95,11 +96,12 @@ python3 export3D_obj.py          # выгрузка OBJ
 
 | Путь | Назначение |
 |---|---|
-| `Dyachenko_AM.pdf` | Собранная курсовая работа, 39 страниц |
+| `Dyachenko_AM.pdf` | Собранная курсовая работа, 33 страницы |
 | `point-cloud-3d-recovery.pptx` | Презентация, 25 слайдов |
 | `deck.js` | Исходник презентации (PptxGenJS) |
 | `img/` | Картинки и фоны для презентации |
-| `Отчет/` | LaTeX-исходник, рисунки, PDF, `make_collages.py` |
+| `build_report.sh` | Сборка PDF в корень: два прохода во временном каталоге |
+| `Отчет/` | LaTeX-исходник, рисунки, `make_collages.py` |
 | `Отчет/Dyachenko_AM.tex` | Основной текст курсовой |
 | `Отчет/fig*.png`, `Отчет/app_ui.jpg` | Рисунки для отчёта |
 | `app/` | Приложение «Огранка» |
@@ -108,6 +110,8 @@ python3 export3D_obj.py          # выгрузка OBJ
 | `app/sources.py` | Демо-тела и подготовка OBJ/TXT |
 | `app/live.py` | Кэш и расчёт живого предпросмотра |
 | `app/platform_ui.py` | Окна Windows/macOS, About и консоль |
+| `app/qhull_compat.py` | Подключение Qhull без полного SciPy |
+| `app/qhull_stub/` | Минимальный namespace для `_qhull` в сборке |
 | `app/core/pipeline.py` | Публичный фасад вычислительного ядра |
 | `app/core/geometry.py`, `denoise.py`, `simplify.py`, `minimal.py`, `metrics.py` | Геометрия, сглаживание, QEM, минимальный многогранник, метрики |
 | `app/static/` | Интерфейс: HTML, CSS, JS, локальный three.js |
@@ -131,15 +135,15 @@ python3 export3D_obj.py          # выгрузка OBJ
 | `reconstruct3D/real_data/` | Исходные OBJ сканера (не в git) |
 | `denoise.py`, `denoise_FFT.py`, `denoise_uniform.py` | 2D-сглаживание |
 | `reconstruct.py`, `compare.py`, `visualize.py` | 2D-восстановление и сравнение |
-| `Огранка.app` | Готовая macOS-сборка, 97 МБ (не в git) |
-| `Ogranka.exe` | Готовая Windows-сборка, 44 МБ (не в git) |
+| `Огранка.app` | Готовая macOS-сборка, 57 МБ (не в git) |
+| `Ogranka.exe` | Готовая Windows-сборка, 26 МБ (не в git) |
 
 > Карта каталога поддерживается в актуальном состоянии. При добавлении,
 > удалении или переименовании файлов обновляйте этот раздел.
 
 ## Что не хранится в git
 
-- `Огранка.app` — около 97 МБ, `Ogranka.exe` — около 44 МБ; собираются локально.
+- `Огранка.app` — около 57 МБ, `Ogranka.exe` — около 26 МБ; собираются локально.
 - `app/build/`, `app/dist/`, `app/dist_new/` — промежуточные артефакты
   PyInstaller.
 - `reconstruct3D/real_data/` — сырые OBJ со сканера (179 МБ).
@@ -154,13 +158,14 @@ python3 export3D_obj.py          # выгрузка OBJ
 
 ```bash
 cd app
-python3 -m PyInstaller --noconfirm --clean --windowed --onedir --name Ogranka \
-  --icon icon.icns --add-data "static:static" --exclude-module pkg_resources \
-  --exclude-module open3d --hidden-import fast_simplification --hidden-import webview.platforms.cocoa app.py
+python3 -m PyInstaller --noconfirm --clean --distpath dist_new --workpath build Ogranka.spec
 ```
 
 Готовый бандл — `app/dist_new/Ogranka.app`; его можно переименовать в
-`Огранка.app` и положить в корень.
+`Огранка.app` и положить в корень. Внутри только Python, NumPy, Qhull-расширение
+и fast-simplification; полный SciPy в сборку не входит. Для дополнительного
+уменьшения на ~2 МБ можно пройтись `strip -x` по `.so`/`.dylib` и подписать
+бандл заново.
 
 ### Windows
 

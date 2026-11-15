@@ -1,7 +1,72 @@
 /* Application orchestration: results, progress, run and init. */
+let splashDone = false;
+
+function finishSplash() {
+  const splash = $("splash");
+  if (!splash || splash.classList.contains("done")) return;
+  splash.classList.add("done");
+  splash.setAttribute("aria-hidden", "true");
+  const status = splash.querySelector(".splash-status");
+  if (status) status.textContent = "Готово";
+  const bar = splash.querySelector(".splash-progress span");
+  if (bar) bar.classList.add("done");
+  clearInterval(splash._statusTimer);
+  setTimeout(() => {
+    splashDone = true;
+    window.dispatchEvent(new Event("ogranka:splash-done"));
+  }, 700);
+}
+
+function initSplash() {
+  const splash = $("splash");
+  if (!splash) { splashDone = true; return; }
+  const status = splash.querySelector(".splash-status");
+  const stages = ["Собираю сечения…", "Строю опорные функции…", "Собираю грани…", "Сверяю метрики…"];
+  let index = 0;
+  splash._statusTimer = setInterval(() => {
+    index = (index + 1) % stages.length;
+    if (status) status.textContent = stages[index];
+  }, 620);
+  const started = performance.now();
+  const minMs = 1250;
+  const hide = () => setTimeout(finishSplash, Math.max(0, minMs - (performance.now() - started)));
+  if (document.readyState === "complete") hide();
+  else window.addEventListener("load", hide, { once: true });
+  setTimeout(finishSplash, 6000);
+}
+
+function setFullLiveCollapsed(collapsed, save = true) {
+  const panel = $("fullLive");
+  if (!panel) return;
+  panel.classList.toggle("collapsed", !!collapsed);
+  const btn = $("fullLiveToggle");
+  const body = $("fullLiveBody");
+  if (btn) {
+    btn.setAttribute("aria-expanded", String(!collapsed));
+    btn.title = collapsed ? "Развернуть панель" : "Свернуть панель";
+  }
+  if (body) {
+    body.setAttribute("aria-hidden", String(!!collapsed));
+    body.inert = !!collapsed;
+  }
+  if (save) {
+    try { localStorage.setItem("ogranka.fullLiveCollapsed", collapsed ? "1" : "0"); } catch (e) { /* ignore */ }
+  }
+}
+
+function startWelcomeTour() {
+  if (tourSeen()) return;
+  const begin = () => setTimeout(() => startTour(), 260);
+  if (splashDone) { begin(); return; }
+  window.addEventListener("ogranka:splash-done", begin, { once: true });
+}
+
 function updateDiff() {
   const model = currentModel();
-  if (!model || App.viewers.length < 2) return;
+  if (!model || App.viewers.length < 2) {
+    $("diffLine").textContent = "Сравнение: —";
+    return;
+  }
   const a = model.results.find((r) => r.id === App.viewers[0].select.value);
   const b = model.results.find((r) => r.id === App.viewers[1].select.value);
   if (!a || !b) return;
@@ -102,6 +167,7 @@ function params() {
     layers: +$("layers").value, angles: +$("angles").value,
     harmonics: +$("harm").value, window: +$("win").value,
     loss: +$("lossPct").value, angle: +$("angleDeg").value,
+    noise_model: $("noiseModel").value,
   };
 }
 
@@ -152,6 +218,7 @@ function hideProgress() {
 function showProgressError(msg) {
   clearTimeout(App.hideTimer);
   if (App.poll) clearInterval(App.poll);
+  App.poll = null;
   if (App.tick) clearInterval(App.tick);
   $("progress").classList.remove("hidden");
   $("progress").classList.add("error");
@@ -222,12 +289,55 @@ async function setFiles(fileList, folder) {
   App.hideTimer = setTimeout(hideProgress, 1200);
 }
 
+function setFolderSources(sources) {
+  App.uploading = false;
+  App.sources = sources;
+  App.liveSource = sources[0];
+  $("fileName").textContent = `папка: ${sources.length}`;
+  $("harm").value = 32;
+  document.querySelectorAll(".demo").forEach((x) => x.classList.remove("active"));
+  $("statusText").textContent = "Папка выбрана";
+  hideProgress();
+}
+
+async function loadFolder(path) {
+  showProgress("Сканирование папки", path);
+  try {
+    const r = await fetch("/api/folder", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || "не удалось прочитать папку");
+    if (!j.sources || !j.sources.length) throw new Error("в папке нет файлов .obj или .txt");
+    setFolderSources(j.sources);
+  } catch (e) {
+    showProgressError(e.message);
+  }
+}
+
+async function chooseFolder() {
+  const api = window.pywebview && window.pywebview.api;
+  if (api && typeof api.pick_folder === "function") {
+    try {
+      const res = await api.pick_folder();
+      if (!res || res.cancelled) return;
+      if (res.error) { alert("Не удалось выбрать папку: " + res.error); return; }
+      if (res.path) await loadFolder(res.path);
+    } catch (e) {
+      alert("Не удалось выбрать папку: " + e.message);
+    }
+    return;
+  }
+  $("dirInput").click();
+}
+
 async function run() {
   $("runBtn").disabled = true;
   App.liveSeq++;
   App.lastElapsed = 0;
   clearTimeout(App.liveTimer);
-  $("liveHint").textContent = "Конвейер выполняется…";
+  setLiveHint("Конвейер выполняется…");
   App.uploading = false;
   App.meshes = {};
   App.partialDone = 0;
@@ -250,6 +360,7 @@ async function run() {
 
 function poll() {
   clearInterval(App.poll);
+  App.poll = null;
   if (App.tick) clearInterval(App.tick);
   App.pollBusy = false;
   App.lastProgress = null;
@@ -279,6 +390,7 @@ function poll() {
       }
       if (st.state === "done") {
         clearInterval(App.poll);
+        App.poll = null;
         if (App.tick) clearInterval(App.tick);
         updateProgress({ ...st, state: "done", progress: 1 });
         $("progressText").textContent = "Готово";
@@ -299,9 +411,11 @@ function poll() {
 }
 
 function init() {
+  initSplash();
   addViewer();
   addViewer();
   layoutViewers();
+  updateViewButtons();
 
   document.querySelectorAll(".demo").forEach((b) => b.onclick = () => {
     document.querySelectorAll(".demo").forEach((x) => x.classList.remove("active"));
@@ -313,6 +427,7 @@ function init() {
   });
 
   $("fileInput").onchange = (e) => setFiles(e.target.files, false);
+  $("dirBtn").onclick = chooseFolder;
   $("dirInput").onchange = (e) => setFiles(e.target.files, true);
   $("levelsBtn").onclick = async () => {
     const src = currentLiveSource();
@@ -338,7 +453,12 @@ function init() {
   $("runBtn").onclick = run;
   $("liveNoise").oninput = scheduleLive;
   $("liveSimplify").oninput = scheduleLive;
-  ["mFft", "mUni", "mNone", "mode", "harm", "win", "layers", "angles", "angleDeg", "lossPct"].forEach((id) => {
+  $("fullLiveNoise").oninput = () => { $("liveNoise").value = $("fullLiveNoise").value; scheduleLive(); };
+  $("fullLiveSimplify").oninput = () => { $("liveSimplify").value = $("fullLiveSimplify").value; scheduleLive(); };
+  const savedFullLive = (() => { try { return localStorage.getItem("ogranka.fullLiveCollapsed") === "1"; } catch (e) { return false; } })();
+  setFullLiveCollapsed(savedFullLive, false);
+  $("fullLiveToggle").onclick = () => setFullLiveCollapsed(!$("fullLive").classList.contains("collapsed"));
+  ["mFft", "mUni", "mNone", "mode", "noiseModel", "harm", "win", "layers", "angles", "angleDeg", "lossPct"].forEach((id) => {
     const el = $(id);
     if (el) el.addEventListener("change", scheduleLive);
   });
@@ -373,10 +493,22 @@ function init() {
     if (App.syncCam && App.viewers.length) { App.camLock = true; App.viewers.forEach((v) => v.copyCamera(App.viewers[0])); App.camLock = false; }
   };
   $("objBtn").onclick = async () => {
-    const v = App.viewers[1] || App.viewers[0];
-    if (!v) return;
-    const r = await meshOf(v.select.value);
-    if (r.mesh) download("model.obj", toObj(r.mesh));
+    const v = activeViewer();
+    if (!v || !v.mesh) { $("statusText").textContent = "Нет модели для OBJ"; return; }
+    const name = exportBase(v) + ".obj";
+    const text = toObj(v.mesh);
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.save_obj) {
+      const res = await window.pywebview.api.save_obj(text, name);
+      if (res && res.path) {
+        $("statusText").textContent = "OBJ сохранён";
+        $("statusText").title = res.path;
+        return;
+      }
+      if (res && res.cancelled) return;
+      if (res && res.error) { alert("Не удалось сохранить OBJ: " + res.error); return; }
+    }
+    download(name, text, "text/plain");
+    $("statusText").textContent = "OBJ скачан в загрузки";
   };
   $("clearCache").onclick = async () => {
     if (!confirm("Удалить сохранённые результаты и загруженные файлы?")) return;
@@ -394,13 +526,23 @@ function init() {
     clearTimeout(App.liveTimer);
     startTour(true);
   };
-  $("pngBtn").onclick = () => {
-    const v = App.viewers[1] || App.viewers[0];
-    if (!v) return;
-    const a = document.createElement("a");
-    a.href = v.renderer.domElement.toDataURL("image/png");
-    a.download = "view.png";
-    a.click();
+  $("pngBtn").onclick = async () => {
+    const v = activeViewer();
+    if (!v || !v.renderer) return;
+    const name = exportBase(v) + ".png";
+    const dataUrl = v.renderer.domElement.toDataURL("image/png");
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.save_png) {
+      const res = await window.pywebview.api.save_png(dataUrl, name);
+      if (res && res.path) {
+        $("statusText").textContent = "PNG сохранён";
+        $("statusText").title = res.path;
+        return;
+      }
+      if (res && res.cancelled) return;
+      if (res && res.error) { alert("Не удалось сохранить PNG: " + res.error); return; }
+    }
+    downloadDataUrl(name, dataUrl);
+    $("statusText").textContent = "PNG скачан в загрузки";
   };
 
   $("csvLink").onclick = async (e) => {
@@ -506,7 +648,11 @@ function init() {
     if (d.models && d.models.length) loadResults();
     else run();
   });
-  if (!tourSeen()) setTimeout(() => startTour(), 900);
+  fetch("/api/welcome").then((r) => r.json()).then((j) => {
+    if (j.seen) return;
+    if (tourSeen()) { markTourSeen(); return; }
+    startWelcomeTour();
+  }).catch(() => startWelcomeTour());
 }
 
 window.addEventListener("DOMContentLoaded", init);

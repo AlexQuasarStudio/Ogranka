@@ -129,8 +129,11 @@ async function main() {
     x: 7.1, y: 2.35, w: 5.3, h: 0.75, fontFace: FONT, fontSize: 13, color: P.ink, valign: "top",
   });
   await tex(s3, "r(\\alpha)=\\max_j\\left(x_j\\cos\\alpha+y_j\\sin\\alpha\\right)", 7.1, 3.15, 19);
-  s3.addText("В точках локальных максимумов r(α) вершина восстанавливается: x_i = r_i cos α_i, y_i = r_i sin α_i. В 3D — для каждого слоя z_k.", {
-    x: 7.1, y: 4.0, w: 5.3, h: 1.6, fontFace: FONT, fontSize: 13, color: P.ink, valign: "top",
+  s3.addText("В активной вершине r(α)=x cos α+y sin α; дифференцируя, получаем x=r cos α−r′ sin α, y=r sin α+r′ cos α.", {
+    x: 7.1, y: 3.95, w: 5.3, h: 0.9, fontFace: FONT, fontSize: 12.5, color: P.ink, valign: "top",
+  });
+  s3.addText("Для правильного центрированного сечения r′=0, поэтому x_i=r_i cos α_i, y_i=r_i sin α_i и r_i=x_i/cos α_i=y_i/sin α_i. В 3D — для каждого слоя z_k.", {
+    x: 7.1, y: 4.85, w: 5.3, h: 1.15, fontFace: FONT, fontSize: 11.5, color: P.ink, valign: "top",
   });
   K.addFooter(s3, 3);
   finish(s3);
@@ -247,7 +250,7 @@ async function main() {
   // 8 — Вершины
   const s8 = pptx.addSlide();
   s8.background = { color: P.bg };
-  K.addHeader(s8, "Восстановление вершин", "Вершина — локальный максимум опорной функции");
+  K.addHeader(s8, "Восстановление вершин", "Локальный максимум r(α)");
   K.card(s8, 0.6, 1.5, 12.1, 2.1, CARD);
   await tex(s8, "d_1=r_i-r_{i-1},\\qquad d_2=r_{i+1}-r_i", 1.1, 1.75, 20);
   await tex(s8, "d_1\\ge 0\\ \\text{ и }\\ d_2<0", 7.4, 1.75, 20);
@@ -258,8 +261,11 @@ async function main() {
   });
   K.card(s8, 0.6, 3.85, 5.9, 2.4, CARD);
   s8.addText("Координаты вершины", { x: 0.95, y: 4.1, w: 5.2, h: 0.4, fontFace: FONT, fontSize: 15, bold: true, color: P.accent, valign: "top" });
-  await tex(s8, "x_i=r_i\\cos\\alpha_i,\\quad y_i=r_i\\sin\\alpha_i", 0.95, 4.7, 18);
-  s8.addText("z берётся из слоя z_k.", { x: 0.95, y: 5.45, w: 5.2, h: 0.35, fontFace: FONT, fontSize: 12, color: P.muted, valign: "top" });
+  await tex(s8, "x_i=r_i\\cos\\alpha_i-r_i'\\sin\\alpha_i", 0.95, 4.5, 15);
+  await tex(s8, "y_i=r_i\\sin\\alpha_i+r_i'\\cos\\alpha_i", 0.95, 4.9, 15);
+  s8.addText("При r′=0 (правильное центрированное сечение): x_i=r_i cos α_i, y_i=r_i sin α_i, r_i=x_i/cos α_i=y_i/sin α_i. z берётся из слоя z_k.", {
+    x: 0.95, y: 5.35, w: 5.2, h: 0.8, fontFace: FONT, fontSize: 11, color: P.ink, valign: "top",
+  });
   K.card(s8, 6.8, 3.85, 5.9, 2.4, CARD);
   s8.addText("В 3D", { x: 7.15, y: 4.1, w: 5.2, h: 0.4, fontFace: FONT, fontSize: 15, bold: true, color: P.accent, valign: "top" });
   s8.addText("Поиск максимумов выполняется внутри каждого слоя отдельно: замыкание массива по кругу не переходит на соседнюю высоту. Иначе вершины разных слоёв перемешались бы.", {

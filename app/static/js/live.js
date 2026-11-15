@@ -5,19 +5,26 @@ function liveMethod() {
   return "none";
 }
 
-function updateLiveLabels() {
-  $("liveNoiseVal").textContent = (+$("liveNoise").value).toFixed(3);
-  $("liveSimplifyVal").textContent = Math.round(+$("liveSimplify").value) + "%";
-  syncLiveDocks();
+function setLiveHint(text) {
+  const a = $("liveHint");
+  const b = $("fullLiveHint");
+  if (a) a.textContent = text;
+  if (b) b.textContent = text;
 }
 
-function syncLiveDocks() {
-  const noise = $("liveNoise").value;
-  const simplify = $("liveSimplify").value;
-  document.querySelectorAll(".dock-noise").forEach((el) => { el.value = noise; });
-  document.querySelectorAll(".dock-simplify").forEach((el) => { el.value = simplify; });
-  document.querySelectorAll(".dock-noise-val").forEach((el) => { el.textContent = (+noise).toFixed(3); });
-  document.querySelectorAll(".dock-simplify-val").forEach((el) => { el.textContent = Math.round(+simplify) + "%"; });
+function updateLiveLabels() {
+  const noise = +$("liveNoise").value;
+  const retained = +$("liveSimplify").value;
+  $("liveNoiseVal").textContent = noise.toFixed(3);
+  $("liveSimplifyVal").textContent = Math.round(retained) + "%";
+  const fn = $("fullLiveNoise");
+  const fs = $("fullLiveSimplify");
+  if (fn) fn.value = String(noise);
+  if (fs) fs.value = String(retained);
+  const fnv = $("fullLiveNoiseVal");
+  const fsv = $("fullLiveSimplifyVal");
+  if (fnv) fnv.textContent = noise.toFixed(3);
+  if (fsv) fsv.textContent = Math.round(retained) + "%";
 }
 
 function scheduleLive() {
@@ -28,28 +35,32 @@ function scheduleLive() {
 
 async function runLive() {
   const src = currentLiveSource();
-  if (!src) { $("liveHint").textContent = "Для этой модели источник не сохранён"; return; }
+  if (!src) { setLiveHint("Для этой модели источник не сохранён"); return; }
   if (App.poll) {
-    $("liveHint").textContent = "Дождитесь завершения конвейера";
+    setLiveHint("Дождитесь завершения конвейера");
     return;
   }
   const seq = ++App.liveSeq;
+  const target = App.activeViewer && App.viewers.includes(App.activeViewer)
+    ? App.activeViewer
+    : (App.fullscreen ? (App.solo || App.viewers[0]) : (App.viewers[1] || App.viewers[0]));
   const noise = +$("liveNoise").value;
-  const simplify = +$("liveSimplify").value;
+  const retained = +$("liveSimplify").value;
   const params = {
     noise,
-    pct: Math.max(5, 100 - simplify),
+    pct: Math.max(5, Math.min(100, retained)),
     method: liveMethod(),
     harmonics: +$("harm").value,
     window: +$("win").value,
     layers: +$("layers").value,
     angles: +$("angles").value,
     mode: $("mode").value,
+    noise_model: $("noiseModel").value,
     angle: +$("angleDeg").value,
     loss: +$("lossPct").value / 100,
   };
   const srcKey = JSON.stringify(src);
-  $("liveHint").textContent = "обновляю…";
+  setLiveHint("обновляю…");
   try {
     const r = await fetch("/api/live", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -59,14 +70,16 @@ async function runLive() {
     if (seq !== App.liveSeq) return;
     if (!r.ok) throw new Error(j.error || "не удалось обновить");
     if (JSON.stringify(currentLiveSource()) !== srcKey) return;
-    applyLive(j.result);
+    applyLive(j.result, target);
   } catch (e) {
-    if (seq === App.liveSeq) $("liveHint").textContent = "Ошибка: " + e.message;
+    if (seq === App.liveSeq) setLiveHint("Ошибка: " + e.message);
   }
 }
 
-function applyLive(result) {
-  const v = App.solo || App.viewers[1] || App.viewers[0];
+function applyLive(result, target) {
+  const v = (target && App.viewers.includes(target)) ? target :
+    (App.activeViewer && App.viewers.includes(App.activeViewer) ? App.activeViewer :
+      (App.fullscreen ? (App.solo || App.viewers[0]) : (App.viewers[1] || App.viewers[0])));
   if (!v || !result || !result.mesh) return;
   App.sel.points = [];
   App.sel.polys = [];
@@ -76,6 +89,6 @@ function applyLive(result) {
   const m = result.metrics || {};
   v.meta.innerHTML = `живой · MSE ${fmt(m.mse)} · RMSE ${fmt(m.rmse)} · dmax ${fmt(m.dmax)} · ${result.time != null ? result.time + " с" : "—"}`;
   broadcastSelection();
-  $("liveHint").textContent = `шум ${result.noise} · упрощение ${Math.round(100 - result.pct)}% · ${result.faces} граней`;
+  setLiveHint(`шум ${result.noise} · оставлено ${Math.round(result.pct)}% · ${result.faces} граней`);
 }
 

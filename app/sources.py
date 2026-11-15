@@ -54,14 +54,58 @@ def demo_body(name):
 
 
 GOOD_RMSE = 0.03
+GOOD_DMAX = 0.15
 MEDIUM_RMSE = 0.12
+MEDIUM_DMAX = 0.30
+MODEL_EXTENSIONS = (".obj", ".txt")
+
+
+def scan_folder(folder):
+    """Return model files below folder, recursively, in stable display order."""
+    root = os.path.abspath(os.path.expanduser(folder))
+    if not os.path.isdir(root):
+        raise ValueError("папка не найдена")
+    found = []
+    for base, dirs, files in os.walk(root):
+        dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d != "__MACOSX")
+        for name in sorted(files):
+            if name.startswith(".") or not name.lower().endswith(MODEL_EXTENSIONS):
+                continue
+            path = os.path.join(base, name)
+            found.append({
+                "kind": "file",
+                "path": path,
+                "name": os.path.relpath(path, root),
+            })
+    found.sort(key=lambda item: item["name"].lower())
+    return found
 
 
 def quality(m):
-    if not m or m.get("rmse") is None:
+    """Grade visual quality from average and worst-case reconstruction error.
+
+    RMSE and sqrt(MSE) describe the average error; dmax catches a single large
+    local defect that RMSE can hide.  Both must stay below a threshold.
+    """
+    if not m:
         return None
-    r = float(m["rmse"])
-    return "good" if r < GOOD_RMSE else ("medium" if r < MEDIUM_RMSE else "bad")
+    rmse = m.get("rmse")
+    mse = m.get("mse")
+    dmax = m.get("dmax")
+    if rmse is None and mse is None:
+        return None
+    try:
+        average = float(rmse) if rmse is not None else 0.0
+        if mse is not None:
+            average = max(average, float(max(0.0, float(mse))) ** 0.5)
+        worst = float(dmax) if dmax is not None else average
+    except (TypeError, ValueError):
+        return None
+    if average <= GOOD_RMSE and worst <= GOOD_DMAX:
+        return "good"
+    if average <= MEDIUM_RMSE and worst <= MEDIUM_DMAX:
+        return "medium"
+    return "bad"
 
 
 def prepare_source(source, report=None):

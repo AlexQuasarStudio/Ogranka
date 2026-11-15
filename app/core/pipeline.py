@@ -20,6 +20,9 @@ from .denoise import (
 )
 from .geometry import (
     build_sections,
+    build_sections_ex,
+    edge_noise_layers,
+    edge_noise_support,
     hull,
     hull_compact,
     merge_coplanar,
@@ -34,7 +37,7 @@ from .geometry import (
     support,
     triangulate_polygon,
 )
-from .metrics import metrics
+from .metrics import mesh_metrics, metrics
 from .minimal import SIMPLIFY_LEVELS, minimal_polyhedron
 from .simplify import HAS_FAST
 
@@ -47,6 +50,9 @@ __all__ = [
     "section_from_edges",
     "support",
     "build_sections",
+    "build_sections_ex",
+    "edge_noise_layers",
+    "edge_noise_support",
     "hull_compact",
     "mesh_area",
     "merge_coplanar",
@@ -64,6 +70,7 @@ __all__ = [
     "envelope_points",
     "minimal_polyhedron",
     "metrics",
+    "mesh_metrics",
     "SIMPLIFY_LEVELS",
     "HAS_FAST",
 ]
