@@ -8,7 +8,7 @@
 <meta name="author" content="Дьяченко Алексей">
 <meta name="description" content="Огранка 1.0.0 — восстановление формы по зашумлённым горизонтальным сечениям">
 <link rel="icon" href="/favicon.png">
-<link rel="stylesheet" href="/style.css?v=1.0.0-30">
+<link rel="stylesheet" href="/style.css?v=1.0.0-31">
 <script src="/vendor/three.min.js"></script>
 <script src="/vendor/OrbitControls.js"></script>
 <script src="/vendor/lines/LineSegmentsGeometry.js"></script>
@@ -165,8 +165,8 @@
         <select id="selTarget" title="Что выделять (V)">
           <option value="face">грани</option>
           <option value="vertex">вершины</option>
-          <option value="section">сечения</option>
           <option value="edge">рёбра</option>
+          <option value="section">сечения</option>
         </select>
       </label>
       <button id="addView" title="Добавить окно (+, до 6)">+ окно</button>
@@ -257,7 +257,7 @@
       и dmax ≤ 0.30; иначе <b>плохо</b>. Бейдж стоит в таблице вариантов,
       у каждого окна и в пакетной таблице.</p>
       <h3>Выделение</h3>
-      <p>«Выделять» переключает грани, вершины, сечения и рёбра (V — по кругу).
+      <p>«Выделять» переключает грани, вершины, рёбра и сечения (V — по кругу).
       Клик — один элемент, Shift — путь по соседям от последней выбранной,
       Ctrl/Cmd — добавить или убрать, клик по пустому — снять; при смене
       режима выделение не сбрасывается. Для вершин работает та же логика
@@ -300,7 +300,7 @@
       <h3>Горячие клавиши</h3>
       <p><b>R</b> — запуск, <b>1–7</b> — режим отображения, <b>F</b> — развернуть
       выбранный вьюпорт на всё окно, <b>Esc</b> — вернуть сетку, <b>+/−</b> — добавить
-      или убрать окно, <b>V</b> — грани → вершины → сечения → рёбра,
+      или убрать окно, <b>V</b> — грани → вершины → рёбра → сечения,
       <b>L</b> — только выделенное, <b>P</b> — ортогональный вид,
       <b>C</b> — общая камера, <b>A</b> — выделить всё, <b>Alt+A</b> — снять,
       <b>G</b> — сбросить вид, <b>O</b> — скачать OBJ, <b>S</b> — скриншот,
@@ -350,10 +350,10 @@
   </div>
 </div>
 
-<script src="/js/core.js?v=1.0.0-30"></script>
-<script src="/js/viewer.js?v=1.0.0-30"></script>
-<script src="/js/live.js?v=1.0.0-30"></script>
-<script src="/js/tour.js?v=1.0.0-30"></script>
-<script src="/app.js?v=1.0.0-30"></script>
+<script src="/js/core.js?v=1.0.0-31"></script>
+<script src="/js/viewer.js?v=1.0.0-31"></script>
+<script src="/js/live.js?v=1.0.0-31"></script>
+<script src="/js/tour.js?v=1.0.0-31"></script>
+<script src="/app.js?v=1.0.0-31"></script>
 </body>
 </html>

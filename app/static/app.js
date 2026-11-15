@@ -655,7 +655,7 @@ function init() {
     else if (k === "f") { if (App.solo) toggleSolo(App.solo); else if (App.viewers[0]) toggleSolo(App.viewers[0]); }
     else if (k === "v") {
       const s = $("selTarget");
-      const order = ["face", "vertex", "section", "edge"];
+      const order = ["face", "vertex", "edge", "section"];
       s.value = order[(order.indexOf(s.value) + 1) % order.length];
       s.dispatchEvent(new Event("change"));
     }
