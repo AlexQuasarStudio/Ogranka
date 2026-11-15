@@ -14,8 +14,7 @@ if not defined LAPACK (echo cython_lapack extension not found & exit /b 1)
 if not defined CYU (echo _cyutility extension not found & exit /b 1)
 if not defined OPENBLAS (echo SciPy OpenBLAS not found & exit /b 1)
 python -m PyInstaller --noconfirm --clean --onefile --windowed --name Ogranka ^
-  --add-data "static;static" --exclude-module pkg_resources --exclude-module open3d --exclude-module torch --exclude-module transformers ^
-  --exclude-module webview --exclude-module pythonnet --exclude-module clr_loader --exclude-module clr ^
+  --add-data "static;static"   --exclude-module pkg_resources --exclude-module open3d --exclude-module torch --exclude-module transformers ^
   --exclude-module scipy --add-data "qhull_stub\scipy;scipy" ^
   --add-binary "%QHULL%;scipy\spatial" ^
   --add-binary "%MSG%;scipy\_lib" ^
@@ -23,6 +22,10 @@ python -m PyInstaller --noconfirm --clean --onefile --windowed --name Ogranka ^
   --add-binary "%CYU%;scipy" ^
   --add-binary "%OPENBLAS%;." ^
   --hidden-import fast_simplification ^
+  --hidden-import webview.platforms.edgechromium ^
+  --hidden-import webview.platforms.winforms ^
+  --hidden-import clr_loader ^
+  --hidden-import pythonnet ^
   --version-file version_info.txt ^
   --icon icon.ico app.py
 echo Готово: dist\Ogranka.exe

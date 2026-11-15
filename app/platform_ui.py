@@ -1,6 +1,7 @@
 """Platform-specific window and About helpers."""
 import os
 import platform
+import shutil
 import subprocess
 import threading
 import time
@@ -38,6 +39,24 @@ def _browser_executable():
             seen.add(path)
             if os.path.isfile(path):
                 return path
+    for name in ("msedge.exe", "chrome.exe"):
+        path = shutil.which(name)
+        if path:
+            return path
+    try:
+        import winreg
+    except Exception:
+        return None
+    for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        for name in ("msedge.exe", "chrome.exe"):
+            try:
+                key_name = r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths" + "\\" + name
+                with winreg.OpenKey(hive, key_name) as key:
+                    path, _ = winreg.QueryValueEx(key, "")
+                if path and os.path.isfile(path):
+                    return path
+            except Exception:
+                pass
     return None
 
 

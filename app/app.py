@@ -1149,6 +1149,22 @@ def main():
         return
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     if platform.system() == "Windows":
+        try:
+            import webview
+
+            webview.create_window(
+                APP_TITLE,
+                url,
+                width=1440,
+                height=940,
+                min_size=(880, 560),
+                maximized=True,
+                js_api=Api(),
+            )
+            webview.start(gui="edgechromium")
+            return
+        except Exception as exc:
+            _console_print("Встроенное окно WebView2 недоступно, запускаю Edge/Chrome:", exc)
         proc = open_windows_window(url, os.path.join(DATA, "browser-profile"))
         if proc is not None:
             try:
