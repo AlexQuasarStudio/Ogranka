@@ -54,11 +54,55 @@ class UpdateTest(unittest.TestCase):
         self.assertEqual(len(info["notes"]), app.UPDATE_NOTES_LIMIT)
         self.assertTrue(info["notes_truncated"])
 
+    def test_release_asset_metadata_for_auto_update(self):
+        digest = "a" * 64
+        payload = {
+            "tag_name": "v1.0.2",
+            "name": "Огранка 1.0.2 · сборка 49",
+            "html_url": "https://example.com/release",
+            "body": "## Обновление",
+            "assets": [
+                {
+                    "name": "Ogranka-macos-1.0.2.zip",
+                    "browser_download_url": "https://example.com/Ogranka-macos-1.0.2.zip",
+                    "digest": "sha256:" + digest,
+                    "size": 123,
+                },
+                {
+                    "name": "SHA256SUMS.txt",
+                    "browser_download_url": "https://example.com/SHA256SUMS.txt",
+                },
+            ],
+        }
+        with patch("app.platform.system", return_value="Darwin"):
+            with patch("app.urlopen", return_value=FakeResponse(payload)):
+                info = app._update_info(True)
+        self.assertEqual(info["asset_name"], "Ogranka-macos-1.0.2.zip")
+        self.assertEqual(info["asset_sha256"], digest)
+        self.assertEqual(info["asset_size"], 123)
+        self.assertEqual(info["checksums_url"], "https://example.com/SHA256SUMS.txt")
+        self.assertFalse(info["installable"])
+        self.assertEqual(info["install_reason"], "dev")
+        self.assertEqual(info["update_kind"], "version")
+
+    def test_same_version_newer_build_is_a_build_update(self):
+        payload = {
+            "tag_name": "v1.0.1",
+            "name": "Огранка 1.0.1 · сборка 49",
+            "html_url": "https://example.com/release",
+            "body": "## Новая сборка",
+            "assets": [],
+        }
+        with patch("app.urlopen", return_value=FakeResponse(payload)):
+            info = app._update_info(True)
+        self.assertTrue(info["available"])
+        self.assertEqual(info["update_kind"], "build")
+
     def test_changelog_returns_published_releases(self):
         payload = [
             {
                 "tag_name": "v1.0.2",
-                "name": "Огранка 1.0.2 · build 45",
+                "name": "Огранка 1.0.2 · сборка 45",
                 "html_url": "https://example.com/v1.0.2",
                 "published_at": "2026-11-16T10:00:00Z",
                 "body": "## Новое\n- История",

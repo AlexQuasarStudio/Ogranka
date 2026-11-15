@@ -128,7 +128,8 @@ python3 export3D_obj.py          # выгрузка OBJ
 | `app/requirements.txt` | Зависимости приложения |
 | `app/build_windows.bat` | Сборка `Ogranka.exe` на Windows (onefile) |
 | `app/build_version.py` | Генерирует `version_info.txt` из `config.py` |
-| `app/icon.icns`, `app/icon.ico` | Иконки macOS и Windows |
+| `app/icon.icns`, `app/icon.ico`, `app/icon.png` | Иконки macOS, Windows и Linux |
+| `app/AppRun`, `app/ogranka.desktop` | Точка входа и запись меню AppImage |
 | `reconstruct3D/` | 3D-конвейер и эксперименты |
 | `reconstruct3D/run_bodies3D.py` | Генерация сечений и зашумлённых данных |
 | `reconstruct3D/visualization.py` | Сглаживание опорных функций на сечениях |

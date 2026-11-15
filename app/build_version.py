@@ -76,7 +76,7 @@ def main():
     path = ROOT / "version_info.txt"
     path.write_text(render_version_info(version, build), encoding="utf-8")
     info = write_build_info(build)
-    print(f"version_info.txt and {info.name}: {version} build {build}")
+    print(f"version_info.txt and {info.name}: версия {version}, сборка {build}")
 
 
 if __name__ == "__main__":

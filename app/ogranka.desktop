@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Огранка
+Comment=Восстановление формы по зашумлённым сечениям
+Exec=Ogranka
+Icon=ogranka
+Terminal=false
+Categories=Graphics;Science;
+StartupNotify=true

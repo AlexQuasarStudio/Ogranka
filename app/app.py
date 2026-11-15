@@ -32,6 +32,7 @@ from live import clear_live, live_variant
 from platform_ui import console_print as _console_print
 from platform_ui import open_windows_window, setup_macos_about
 from sources import prepare_source, quality, scan_folder
+import updater
 
 try:
     import certifi
@@ -470,21 +471,23 @@ def _run(sources, params, run_token, run_label):
                         except Exception:
                             pass
                 if noise_model == "normal" and method == "none" and rv > 0 and contours:
-                    loft = pipeline.loft_contours(contours)
+                    vstage(vi, 0.90, "сглаживание колец", label)
+                    smoothed = pipeline.fourier_smooth_contours(contours, harmonics)
+                    loft = pipeline.loft_contours(smoothed)
                     if loft is not None:
                         lv, lf = loft
-                        lm = pipeline.contours_metrics(true_by_z, alphas, contours)
+                        lm = pipeline.contours_metrics(true_by_z, alphas, smoothed)
                         out.append(
                             {
                                 "id": f"m{mi}:v{vi}c",
-                                "label": label + " · контуры (лофт)",
+                                "label": label + " · контуры (лофт, Фурье)",
                                 "kind": "loft",
                                 "mesh": {"v": lv.tolist(), "f": [list(f) for f in lf]},
                                 "metrics": lm,
                                 "quality": quality(lm),
                                 "vertices": int(len(lv)),
                                 "faces": int(len(lf)),
-                                "points": int(sum(len(p) for _, p in contours)),
+                                "points": int(sum(len(p) for _, p in smoothed)),
                                 "time": round(time.time() - t_var, 2),
                             }
                         )
@@ -597,20 +600,41 @@ def _is_newer_release(version, build, current_version, current_build):
     return False
 
 
-def _release_download(release):
+def _release_asset(release):
     assets = release.get("assets") or []
     system = platform.system().lower()
     if system == "darwin":
-        extensions = (".dmg", ".pkg", ".zip")
+        extensions = (".zip", ".dmg", ".pkg")
     elif system == "windows":
         extensions = (".exe", ".msi", ".zip")
     else:
-        extensions = (".appimage", ".tar.gz", ".zip")
+        extensions = (".tar.gz", ".appimage", ".zip")
     for extension in extensions:
         for asset in assets:
             name = str(asset.get("name") or "")
             if name.lower().endswith(extension):
-                return asset.get("browser_download_url"), name
+                return asset
+    return None
+
+
+def _asset_sha256(asset):
+    digest = str((asset or {}).get("digest") or "").strip().lower()
+    if digest.startswith("sha256:"):
+        digest = digest[7:]
+    return digest if re.fullmatch(r"[0-9a-f]{64}", digest) else ""
+
+
+def _checksums_url(release):
+    for asset in release.get("assets") or []:
+        if str(asset.get("name") or "").lower() == "sha256sums.txt":
+            return asset.get("browser_download_url")
+    return ""
+
+
+def _release_download(release):
+    asset = _release_asset(release)
+    if asset:
+        return asset.get("browser_download_url"), asset.get("name")
     return release.get("html_url"), None
 
 
@@ -654,20 +678,44 @@ def _update_info(force=False):
         tag = str(release.get("tag_name") or release.get("name") or "").strip()
         version = tag.lstrip("vV")
         build = _release_build(release)
-        download, asset = _release_download(release)
+        asset_info = _release_asset(release)
+        asset_url = str((asset_info or {}).get("browser_download_url") or "")
+        asset_name = str((asset_info or {}).get("name") or "")
+        asset_sha256 = _asset_sha256(asset_info)
+        checksums_url = _checksums_url(release)
+        installable, install_reason = updater.can_install(
+            asset_name, bool(asset_sha256 or checksums_url)
+        )
+        download = asset_url or release.get("html_url")
         notes = str(release.get("body") or "").strip()
         notes_truncated = len(notes) > UPDATE_NOTES_LIMIT
+        available = _is_newer_release(version, build, APP_VERSION, APP_BUILD)
+        if available and _is_newer_version(version, APP_VERSION):
+            update_kind = "version"
+        elif available:
+            update_kind = "build"
+        else:
+            update_kind = "none"
         result = {
-            "available": _is_newer_release(version, build, APP_VERSION, APP_BUILD),
+            "available": available,
+            "update_kind": update_kind,
             "current": APP_VERSION,
             "current_build": APP_BUILD,
             "version": version,
             "build": build,
             "tag": tag,
             "title": release.get("name") or tag,
-            "url": download or release.get("html_url"),
+            "url": download,
             "release_url": release.get("html_url"),
-            "asset": asset,
+            "asset": asset_name or None,
+            "asset_url": asset_url,
+            "asset_name": asset_name,
+            "asset_size": int((asset_info or {}).get("size") or 0),
+            "asset_sha256": asset_sha256,
+            "checksums_url": checksums_url,
+            "installable": installable,
+            "install_reason": install_reason,
+            "install_hint": updater.reason_text(install_reason) if install_reason else "",
             "published_at": release.get("published_at"),
             "notes": notes[:UPDATE_NOTES_LIMIT],
             "notes_truncated": notes_truncated,
@@ -828,6 +876,8 @@ class Handler(SimpleHTTPRequestHandler):
         if u.path == "/api/update":
             force = parse_qs(u.query).get("force", ["0"])[0].lower() in ("1", "true", "yes")
             return self._json(_update_info(force))
+        if u.path == "/api/update/status":
+            return self._json(updater.status())
         if u.path == "/api/mesh":
             rid = parse_qs(u.query).get("id", [""])[0]
             with LOCK:
@@ -844,6 +894,20 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         u = urlparse(self.path)
+        if u.path == "/api/update/install":
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            if length:
+                self.rfile.read(length)
+            with LOCK:
+                if STATE["job"] and STATE["job"].get("state") == "running":
+                    return self._json({"error": "Дождитесь завершения расчёта."}, 409)
+            try:
+                info = _update_info(False)
+                return self._json({"ok": True, **updater.start_install(info)})
+            except RuntimeError as exc:
+                return self._json({"error": str(exc)}, 409)
+            except Exception as exc:
+                return self._json({"error": str(exc)}, 500)
         if u.path == "/api/welcome":
             try:
                 with open(WELCOME_FILE, "w", encoding="utf-8") as f:

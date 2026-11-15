@@ -189,6 +189,20 @@ th, td { white-space: nowrap; }
 .update-notes a { color: #7fb3ff; }
 .update-notes hr { border: 0; border-top: 1px solid #2b3442; margin: 12px 0; }
 .update-empty, .update-truncated { color: #7f90a6; }
+.update-install-state { min-height: 18px; margin-top: 8px; color: #9fb0c6; font-size: 12.5px; line-height: 1.4; }
+.update-install-state.error { color: #ffb347; }
+.update-progress {
+  height: 6px; margin-top: 8px; overflow: hidden;
+  background: #232a35; border-radius: 999px;
+}
+.update-progress.hidden { display: none; }
+.update-progress span {
+  display: block; width: 0; height: 100%;
+  background: linear-gradient(90deg, #4f8cff, #6fe0b7);
+  transition: width .25s ease;
+}
+.update-hint { margin: 8px 0 0; color: #7f90a6; font-size: 12px; line-height: 1.4; }
+.update-download:disabled { opacity: .55; cursor: wait; }
 .update-actions {
   display: flex; align-items: center; gap: 8px; padding-top: 12px;
   border-top: 1px solid #232a35;

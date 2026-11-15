@@ -79,7 +79,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: linux
-          path: Ogranka-linux-*.tar.gz
+          path: |
+            Ogranka-linux-*.tar.gz
+            Ogranka-linux-*.AppImage
           if-no-files-found: error
 
   publish:
@@ -94,11 +96,11 @@ jobs:
       - name: Add build metadata
         run: |
           echo "" >> release-notes/${{ needs.verify.outputs.version }}.md
-          echo "<!-- build: ${{ needs.verify.outputs.build }} -->" >> release-notes/${{ needs.verify.outputs.version }}.md
+          echo "<!-- сборка: ${{ needs.verify.outputs.build }} -->" >> release-notes/${{ needs.verify.outputs.version }}.md
       - name: Create checksums
         run: |
           cd assets
-          sha256sum Ogranka-windows-*.exe Ogranka-linux-*.tar.gz > SHA256SUMS.txt
+          sha256sum Ogranka-windows-*.exe Ogranka-linux-*.tar.gz Ogranka-linux-*.AppImage > SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.verify.outputs.version }}
@@ -107,6 +109,7 @@ jobs:
           files: |
             assets/Ogranka-windows-*.exe
             assets/Ogranka-linux-*.tar.gz
+            assets/Ogranka-linux-*.AppImage
             assets/SHA256SUMS.txt
           overwrite_files: true
           make_latest: true

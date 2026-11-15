@@ -18,6 +18,8 @@ __all__ = [
     "snap_to_planes",
     "triangulate_polygon",
     "polygons_to_mesh",
+    "fourier_smooth_ring",
+    "fourier_smooth_contours",
 ]
 
 
@@ -256,6 +258,28 @@ def _resample_closed_n(poly, n):
     idx = np.clip(np.searchsorted(cum, s, side="right") - 1, 0, len(p) - 1)
     t = (s - cum[idx]) / np.maximum(length[idx], 1e-15)
     return p[idx] + t[:, None] * seg[idx]
+
+
+def fourier_smooth_ring(points, harmonics=32):
+    """Periodically low-pass a closed contour ring in its point order."""
+    pts = np.asarray(points, float)
+    n = len(pts)
+    if n < 4:
+        return pts.copy()
+    m = max(1, min(int(harmonics), n // 2 - 1))
+    spectrum = np.fft.rfft(pts, axis=0)
+    spectrum[m + 1:] = 0.0
+    return np.fft.irfft(spectrum, n=n, axis=0)
+
+
+def fourier_smooth_contours(contours, harmonics=32):
+    """Smooth every closed section ring before lofting the layers."""
+    out = []
+    for z, pts in contours:
+        pts = np.asarray(pts, float)
+        if len(pts) >= 3:
+            out.append((float(z), fourier_smooth_ring(pts, harmonics)))
+    return out
 
 
 def _triangulate_indices(poly):

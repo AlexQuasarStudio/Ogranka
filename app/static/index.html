@@ -74,7 +74,7 @@
   <div class="header-right">
     <div id="statusText" class="status">Готов к запуску</div>
     <button id="historyBtn" class="history-btn" title="История изменений">История</button>
-    <button id="updateBtn" class="update-btn hidden" title="Скачать обновление">Обновление</button>
+    <button id="updateBtn" class="update-btn hidden" title="Доступно обновление">Доступно обновление</button>
     <button id="aboutBtn" class="help-btn about-btn" title="О программе (I)">i</button>
     <button id="helpBtn" class="help-btn" title="Справка (?)">?</button>
   </div>
@@ -282,7 +282,8 @@
       сдвигаются по нормали к своему ребру; при выключенном сглаживании такой
       вариант дополнительно показывается невыпуклыми контурами отдельной строкой.
       Обычная строка «без сглаживания» показывает выпуклую оболочку, а «контуры
-      (лофт)» — те же сечения, сшитые как есть, без оболочки.
+      (лофт, Фурье)» — те же сечения, каждое кольцо которых периодически
+      сглажено рядом Фурье до сшивания слоёв.
       Фурье+МНК: M — число гармоник. «Соседи»: k — полуширина окна.
       Полуплоскости — основной режим для реальных огранок, максимумы —
       исходный метод для правильных многогранников.</p>
@@ -353,15 +354,18 @@
   <div class="modal-card update-card">
     <div class="modal-head">
       <div>
-        <h2 id="updateTitle">Что нового</h2>
+        <h2 id="updateTitle">Доступно обновление</h2>
         <div id="updateMeta" class="update-meta"></div>
       </div>
       <button id="updateClose" class="help-close" title="Закрыть">×</button>
     </div>
     <div class="modal-body update-body">
       <div id="updateNotes" class="update-notes"></div>
+      <div id="updateInstallState" class="update-install-state" aria-live="polite"></div>
+      <div id="updateProgress" class="update-progress hidden"><span id="updateProgressFill"></span></div>
+      <p id="updateInstallHint" class="update-hint"></p>
       <div class="update-actions">
-        <button id="updateDownload" class="update-download">Скачать обновление</button>
+        <button id="updateDownload" class="update-download">Установить и перезапустить</button>
         <button id="updateRelease" class="update-release">Страница релиза</button>
       </div>
     </div>

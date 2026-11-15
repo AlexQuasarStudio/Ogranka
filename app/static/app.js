@@ -496,7 +496,7 @@ function renderReleaseInline(text) {
 }
 
 function renderPatchNotes(text, truncated) {
-  const source = String(text || "").replace(/\r\n/g, "\n").trim();
+  const source = String(text || "").replace(/\r\n/g, "\n").replace(/<!--[\s\S]*?-->/g, "").trim();
   if (!source) return '<p class="update-empty">В описании релиза пока нет подробностей.</p>';
   const lines = source.split("\n");
   let html = "";
@@ -571,19 +571,69 @@ function formatReleaseDate(value) {
   }).format(date);
 }
 
+function isBuildUpdate(info) {
+  if (!info) return false;
+  if (info.update_kind) return info.update_kind === "build";
+  return !!info.version && info.version === info.current;
+}
+
+function updateHeadline(info) {
+  if (!info) return "Доступно обновление";
+  if (isBuildUpdate(info)) {
+    return "Доступна новая сборка" + (info.build ? " " + info.build : "");
+  }
+  return "Доступна новая версия" + (info.version ? " " + info.version : "");
+}
+
+function setUpdateInstall(state) {
+  const text = $("updateInstallState");
+  const bar = $("updateProgress");
+  const fill = $("updateProgressFill");
+  if (!text || !bar || !fill) return;
+  const current = state || {};
+  const progress = Math.max(0, Math.min(1, Number(current.progress) || 0));
+  const active = ["downloading", "verifying", "installing", "restarting"].includes(current.state);
+  bar.classList.toggle("hidden", !active);
+  fill.style.width = Math.round(progress * 100) + "%";
+  text.classList.toggle("error", current.state === "error");
+  if (current.state === "error") {
+    text.textContent = current.error || "Не удалось установить обновление.";
+  } else if (current.detail) {
+    text.textContent = current.detail;
+  } else if (current.state === "restarting") {
+    text.textContent = "Обновление установлено. Перезапускаю приложение…";
+  } else if (current.state && current.state !== "idle") {
+    text.textContent = "Подготовка…";
+  } else {
+    text.textContent = "";
+  }
+}
+
 function showUpdateModal(info) {
   if (!info || !info.available) return;
   $("changelogModal").classList.add("hidden");
   const version = info.version || info.tag || "";
-  $("updateTitle").textContent = version ? "Что нового в " + version : "Что нового";
+  const buildOnly = isBuildUpdate(info);
+  $("updateTitle").textContent = updateHeadline(info);
   const date = formatReleaseDate(info.published_at);
-  const build = info.build ? " · сборка " + info.build : "";
-  $("updateMeta").textContent = (date ? "Опубликовано " + date : "Новая версия") + build;
+  const meta = [];
+  if (!buildOnly && version) meta.push("версия " + version);
+  if (!buildOnly && info.build) meta.push("сборка " + info.build);
+  if (date) meta.push("опубликовано " + date);
+  $("updateMeta").textContent = meta.join(" · ");
   $("updateNotes").innerHTML = renderPatchNotes(info.notes, info.notes_truncated);
   const download = $("updateDownload");
-  download.textContent = info.asset ? "Скачать обновление" : "Открыть страницу релиза";
-  download.disabled = !info.url;
-  download.title = info.asset || "Страница релиза";
+  const installable = !!info.installable;
+  download.textContent = installable ? "Установить и перезапустить" : (info.asset_url ? "Скачать обновление" : "Открыть страницу релиза");
+  download.disabled = installable ? false : !(info.asset_url || info.url);
+  download.title = installable
+    ? "Скачать, установить и перезапустить приложение"
+    : (info.asset || "Страница релиза");
+  $("updateInstallHint").textContent = installable
+    ? "Приложение скачает обновление, проверит контрольную сумму, установит его и перезапустится."
+    : (info.install_hint || "Автоустановка недоступна. Скачайте обновление вручную.");
+  if (App.updateInstallActive) setUpdateInstall(App.updateInstall);
+  else setUpdateInstall(null);
   const release = $("updateRelease");
   release.classList.toggle("hidden", !info.release_url || info.release_url === info.url);
   $("updateModal").classList.remove("hidden");
@@ -707,8 +757,10 @@ async function checkForUpdates(force = false) {
     App.update = info;
     if (button) {
       if (info.available) {
-        button.textContent = "Обновление " + info.version;
-        button.title = "Что нового в " + info.version + (info.build ? " (сборка " + info.build + ")" : "");
+        button.textContent = isBuildUpdate(info)
+          ? "Новая сборка" + (info.build ? " " + info.build : "")
+          : "Новая версия " + (info.version || "");
+        button.title = updateHeadline(info);
         button.classList.remove("hidden");
       } else {
         button.classList.add("hidden");
@@ -717,7 +769,7 @@ async function checkForUpdates(force = false) {
     if (force && state) {
       if (info.available) {
         state.className = "update-state good";
-        state.textContent = "Доступна версия " + info.version + ".";
+        state.textContent = updateHeadline(info) + ".";
       } else if (info.checked) {
         state.className = "update-state";
         state.textContent = "Обновлений нет — установлена последняя версия (" + info.current + ").";
@@ -733,6 +785,75 @@ async function checkForUpdates(force = false) {
       state.textContent = "Не удалось проверить обновления. Проверьте подключение.";
     }
     return null;
+  }
+}
+
+async function pollUpdateInstall() {
+  for (let i = 0; i < 600; i++) {
+    try {
+      const response = await fetch("/api/update/status", { cache: "no-store" });
+      if (!response.ok) throw new Error("status unavailable");
+      const state = await response.json();
+      App.updateInstall = state;
+      setUpdateInstall(state);
+      if (state.state === "error") {
+        App.updateInstallActive = false;
+        const button = $("updateDownload");
+        button.disabled = false;
+        button.textContent = "Установить и перезапустить";
+        return;
+      }
+      if (state.state === "restarting") {
+        setTimeout(() => {
+          const text = $("updateInstallState");
+          if (text && text.textContent.indexOf("перезапуска") === -1) {
+            text.textContent = "Приложение перезапускается…";
+          }
+        }, 1200);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    } catch (error) {
+      $("updateProgress").classList.remove("hidden");
+      $("updateProgressFill").style.width = "100%";
+      const text = $("updateInstallState");
+      text.classList.remove("error");
+      text.textContent = "Обновление установлено. Приложение перезапускается…";
+      return;
+    }
+  }
+}
+
+async function installUpdate() {
+  const info = App.update;
+  if (!info) return;
+  if (!info.installable) {
+    const url = info.asset_url || info.url;
+    if (url) openExternal(url);
+    return;
+  }
+  const button = $("updateDownload");
+  button.disabled = true;
+  button.textContent = "Устанавливаю…";
+  App.updateInstallActive = true;
+  App.updateInstall = { state: "preparing", progress: 0, detail: "Подготовка…" };
+  setUpdateInstall(App.updateInstall);
+  try {
+    const response = await fetch("/api/update/install", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || "Не удалось начать установку.");
+    App.updateInstall = data;
+    setUpdateInstall(data);
+    pollUpdateInstall();
+  } catch (error) {
+    App.updateInstallActive = false;
+    button.disabled = false;
+    button.textContent = "Установить и перезапустить";
+    setUpdateInstall({ state: "error", error: String(error.message || error) });
   }
 }
 
@@ -973,7 +1094,12 @@ function init() {
   $("updateBtn").onclick = () => showUpdateModal(App.update);
   $("updateClose").onclick = () => $("updateModal").classList.add("hidden");
   $("updateDownload").onclick = () => {
-    if (App.update && App.update.url) openExternal(App.update.url);
+    if (App.update && App.update.installable) {
+      installUpdate();
+      return;
+    }
+    const url = App.update && (App.update.asset_url || App.update.url);
+    if (url) openExternal(url);
   };
   $("updateRelease").onclick = () => {
     if (App.update && App.update.release_url) openExternal(App.update.release_url);

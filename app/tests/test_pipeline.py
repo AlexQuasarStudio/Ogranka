@@ -175,6 +175,27 @@ class PipelineSmokeTest(unittest.TestCase):
         dist = np.linalg.norm(noisy - pts, axis=1)
         self.assertTrue(np.allclose(dist, 0.01))
 
+    def test_fourier_smooth_ring_is_periodic_and_removes_high_frequency(self):
+        theta = np.linspace(0.0, 2.0 * math.pi, 64, endpoint=False)
+        exact = np.column_stack([np.cos(theta), np.sin(theta)])
+        noisy = exact.copy()
+        noisy[:, 0] += 0.05 * np.cos(17.0 * theta)
+        smoothed = pipeline.fourier_smooth_ring(noisy, harmonics=4)
+        self.assertEqual(smoothed.shape, noisy.shape)
+        self.assertTrue(np.isfinite(smoothed).all())
+        self.assertLess(
+            float(np.max(np.linalg.norm(smoothed - exact, axis=1))),
+            float(np.max(np.linalg.norm(noisy - exact, axis=1))) * 0.1,
+        )
+
+    def test_fourier_smooth_contours_keeps_layers_and_point_order(self):
+        theta = np.linspace(0.0, 2.0 * math.pi, 32, endpoint=False)
+        ring = np.column_stack([np.cos(theta), np.sin(theta)])
+        contours = [(0.0, ring), (1.5, ring.copy())]
+        smoothed = pipeline.fourier_smooth_contours(contours, harmonics=5)
+        self.assertEqual([z for z, _ in smoothed], [0.0, 1.5])
+        self.assertEqual([len(p) for _, p in smoothed], [32, 32])
+
     def test_loft_contours_is_closed(self):
         ring = np.array([[1, 1], [-1, 1], [-1, -1], [1, -1]], float)
         contours = [(0.0, ring), (1.0, ring)]
@@ -210,7 +231,7 @@ class PipelineSmokeTest(unittest.TestCase):
         self.assertEqual(fft["mesh"], exact["mesh"])
         self.assertLess(float(fft["metrics"]["rmse"]), 1e-9)
 
-    def test_live_normal_noise_unsmoothed_returns_loft(self):
+    def test_live_normal_noise_returns_smoothed_loft(self):
         source = {"kind": "demo", "name": "octa"}
         params = {
             "noise": 0.008,
@@ -228,6 +249,7 @@ class PipelineSmokeTest(unittest.TestCase):
         clear_live()
         loft = live_variant(source, params)
         self.assertEqual(loft["method"], "none")
+        self.assertIn("лофт, Фурье", loft["label"])
         self.assertGreater(len(loft["mesh"]["f"]), 100)
         self.assertTrue(np.isfinite(loft["metrics"]["rmse"]))
         clear_live()

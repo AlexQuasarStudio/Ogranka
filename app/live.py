@@ -147,13 +147,14 @@ def live_variant(source, params):
             base["variant"] = variant
 
         if effective_method == "none" and noise > 0 and base.get("contours") is not None:
-            loft = pipeline.loft_contours(base["contours"])
+            smoothed = pipeline.fourier_smooth_contours(base["contours"], harmonics)
+            loft = pipeline.loft_contours(smoothed)
             if loft is not None:
                 lv, lf = loft
                 metrics = pipeline.contours_metrics(
-                    base["true_by_z"], base["alphas"], base["contours"]
+                    base["true_by_z"], base["alphas"], smoothed
                 )
-                label = f"живой · шум {noise:g} · контуры"
+                label = f"живой · шум {noise:g} · контуры (лофт, Фурье)"
                 return {
                     "id": "live",
                     "label": label,
@@ -163,7 +164,7 @@ def live_variant(source, params):
                     "quality": quality(metrics),
                     "vertices": int(len(lv)),
                     "faces": int(len(lf)),
-                    "points": int(sum(len(p) for _, p in base["contours"])),
+                    "points": int(sum(len(p) for _, p in smoothed)),
                     "time": round(time.time() - t0, 2),
                     "noise": noise,
                     "pct": pct,
