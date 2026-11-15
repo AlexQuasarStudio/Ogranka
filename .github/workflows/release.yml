@@ -55,6 +55,8 @@ jobs:
           cache-dependency-path: app/requirements.txt
       - name: Install dependencies
         run: python -m pip install -r app/requirements.txt pyinstaller
+      - name: Bake build metadata
+        run: python app/build_version.py
       - name: Build and sign app
         run: |
           cd app

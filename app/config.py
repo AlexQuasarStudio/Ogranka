@@ -1,8 +1,10 @@
 """Application metadata shared by the server and platform helpers."""
-import os
+try:
+    from build_info import BUILD as APP_BUILD
+except ImportError:
+    APP_BUILD = "44"
 
 APP_VERSION = "1.0.1"
-APP_BUILD = os.environ.get("OGRANKA_BUILD") or "44"
 APP_REPO = "AlexQuasarStudio/Ogranka"
 APP_AUTHOR = "Дьяченко Алексей"
 APP_AFFILIATION = "5 курс, мехмат МГУ, кафедра вычислительной математики"

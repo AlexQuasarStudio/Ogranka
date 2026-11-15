@@ -5,6 +5,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 VERSION="$(python3 -c 'import config; print(config.APP_VERSION)')"
 BUILD="$(python3 -c 'import config; print(config.APP_BUILD)')"
 
+python3 build_version.py
 python3 -m PyInstaller \
   --noconfirm --clean \
   --distpath dist_linux --workpath build_linux \
