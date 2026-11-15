@@ -10,7 +10,9 @@ __pycache__/
 Ogranka.app/
 Ogranka.exe
 app/build/
+app/build_linux/
 app/dist/
+app/dist_linux/
 app/dist_new/
 app/runs/
 app/uploads/

@@ -219,6 +219,22 @@ th, td { white-space: nowrap; }
   color: #9fc5ff; background: transparent; border-color: #2b405c;
 }
 .changelog-link:hover { border-color: #4f8cff; background: #1a2637; }
+.feedback-card { width: min(620px, 92vw); }
+.feedback-field {
+  display: grid; gap: 5px; margin: 0 0 11px;
+  color: #93a4b8; font-size: 12px;
+}
+.feedback-field span { color: #6f8095; }
+.feedback-field input, .feedback-field select, .feedback-field textarea {
+  width: 100%; font-size: 13.5px;
+}
+.feedback-field textarea { min-height: 120px; resize: vertical; line-height: 1.45; }
+.feedback-hint { margin: 0 0 12px !important; color: #7f90a6; font-size: 12px !important; }
+.feedback-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.feedback-send { padding: 7px 12px; color: #b9f0ce; background: #1f4d3a; border-color: #2f6b50; }
+.feedback-send:hover { background: #255c46; border-color: #3f916b; }
+.feedback-status { min-height: 16px; margin: 8px 0 0 !important; color: #7f90a6; font-size: 12px; }
+.feedback-status.error { color: #ffb347; }
 .app-foot {
   margin-top: 14px; padding-top: 10px; border-top: 1px solid #232a35;
   color: #6f8095; font-size: 11.5px; line-height: 1.5;

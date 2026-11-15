@@ -647,6 +647,52 @@ function showChangelog(force = false) {
   return loadChangelog(force);
 }
 
+function composeFeedback() {
+  const type = $("feedbackType").value || "Другое";
+  const name = $("feedbackName").value.trim();
+  const contact = $("feedbackContact").value.trim();
+  const message = $("feedbackText").value.trim();
+  const version = document.querySelector('meta[name="version"]')?.content || "";
+  const build = document.querySelector('meta[name="build"]')?.content || "";
+  const title = "[Обратная связь] " + type + " · Огранка " + version;
+  const lines = ["Тип: " + type];
+  if (name) lines.push("Имя: " + name);
+  if (contact) lines.push("Контакт: " + contact);
+  lines.push("", message, "", "Версия: " + version + (build ? " (build " + build + ")" : ""));
+  if (navigator.platform) lines.push("Платформа: " + navigator.platform);
+  return { title: title, body: lines.join("\n"), message: message };
+}
+
+function setFeedbackStatus(text, isError = false) {
+  const status = $("feedbackStatus");
+  status.textContent = text;
+  status.className = "feedback-status" + (isError ? " error" : "");
+}
+
+function showFeedback() {
+  $("updateModal").classList.add("hidden");
+  $("changelogModal").classList.add("hidden");
+  $("aboutModal").classList.add("hidden");
+  $("feedbackModal").classList.remove("hidden");
+  setFeedbackStatus("");
+  $("feedbackText").focus();
+}
+
+async function copyFeedback(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.appendChild(area);
+  area.select();
+  document.execCommand("copy");
+  area.remove();
+}
+
 async function checkForUpdates(force = false) {
   const button = $("updateBtn");
   const state = $("updateState");
@@ -890,6 +936,36 @@ function init() {
   };
   $("changelogClose").onclick = () => $("changelogModal").classList.add("hidden");
   $("changelogModal").onclick = (e) => { if (e.target.id === "changelogModal") $("changelogModal").classList.add("hidden"); };
+  $("feedbackBtn").onclick = () => {
+    $("aboutModal").classList.add("hidden");
+    showFeedback();
+  };
+  $("feedbackClose").onclick = () => $("feedbackModal").classList.add("hidden");
+  $("feedbackModal").onclick = (e) => { if (e.target.id === "feedbackModal") $("feedbackModal").classList.add("hidden"); };
+  $("feedbackSend").onclick = () => {
+    const data = composeFeedback();
+    if (data.message.length < 3) {
+      setFeedbackStatus("Напишите сообщение — хотя бы пару слов.", true);
+      return;
+    }
+    const url = "https://github.com/AlexQuasarStudio/Ogranka/issues/new?title=" +
+      encodeURIComponent(data.title) + "&body=" + encodeURIComponent(data.body);
+    openExternal(url);
+    setFeedbackStatus("Открыл GitHub Issues. Проверьте текст и отправьте Issue.");
+  };
+  $("feedbackCopy").onclick = async () => {
+    const data = composeFeedback();
+    if (data.message.length < 3) {
+      setFeedbackStatus("Напишите сообщение — хотя бы пару слов.", true);
+      return;
+    }
+    try {
+      await copyFeedback(data.title + "\n\n" + data.body);
+      setFeedbackStatus("Текст скопирован.");
+    } catch (error) {
+      setFeedbackStatus("Не удалось скопировать текст.", true);
+    }
+  };
   $("changelogList").addEventListener("click", (e) => {
     const button = e.target.closest(".changelog-link");
     if (button && button.dataset.url) openExternal(button.dataset.url);

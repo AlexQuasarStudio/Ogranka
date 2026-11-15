@@ -96,8 +96,31 @@ jobs:
           path: Ogranka-windows-*.exe
           if-no-files-found: error
 
+  linux:
+    needs: verify
+    runs-on: ubuntu-22.04
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      OGRANKA_BUILD: ${{ needs.verify.outputs.build }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: app/requirements.txt
+      - name: Install dependencies
+        run: python -m pip install -r app/requirements.txt pyinstaller
+      - name: Build Linux archive
+        run: bash app/build_linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: Ogranka-linux-*.tar.gz
+          if-no-files-found: error
+
   publish:
-    needs: [verify, macos, windows]
+    needs: [verify, macos, windows, linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -108,7 +131,7 @@ jobs:
       - name: Create checksums
         run: |
           cd assets
-          sha256sum Ogranka-macos-*.zip Ogranka-windows-*.exe > SHA256SUMS.txt
+          sha256sum Ogranka-macos-*.zip Ogranka-windows-*.exe Ogranka-linux-*.tar.gz > SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.verify.outputs.version }}
@@ -117,6 +140,7 @@ jobs:
           files: |
             assets/Ogranka-macos-*.zip
             assets/Ogranka-windows-*.exe
+            assets/Ogranka-linux-*.tar.gz
             assets/SHA256SUMS.txt
           overwrite_files: true
           make_latest: true

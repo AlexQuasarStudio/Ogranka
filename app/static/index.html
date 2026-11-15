@@ -342,6 +342,7 @@
         <button id="tourBtn" class="tour-start">Пройти тур</button>
         <button id="checkUpdates" class="update-check">Проверить обновления</button>
         <button id="changelogBtn" class="update-check">История изменений</button>
+        <button id="feedbackBtn" class="update-check">Обратная связь</button>
       </div>
       <p id="updateState" class="update-state" aria-live="polite"></p>
     </div>
@@ -380,6 +381,43 @@
       <div id="changelogList" class="changelog-list">
         <p class="update-empty">Загружаю…</p>
       </div>
+    </div>
+  </div>
+</div>
+
+<div id="feedbackModal" class="modal hidden">
+  <div class="modal-card feedback-card">
+    <div class="modal-head">
+      <div>
+        <h2>Обратная связь</h2>
+        <div class="update-meta">GitHub Issue — без автоматической отправки</div>
+      </div>
+      <button id="feedbackClose" class="help-close" title="Закрыть">×</button>
+    </div>
+    <div class="modal-body">
+      <label class="feedback-field">Тип
+        <select id="feedbackType">
+          <option value="Ошибка">Ошибка</option>
+          <option value="Идея">Идея</option>
+          <option value="Вопрос">Вопрос</option>
+          <option value="Другое">Другое</option>
+        </select>
+      </label>
+      <label class="feedback-field">Имя <span>(необязательно)</span>
+        <input id="feedbackName" type="text" maxlength="120" autocomplete="name">
+      </label>
+      <label class="feedback-field">Контакт <span>(необязательно)</span>
+        <input id="feedbackContact" type="text" maxlength="200" autocomplete="email">
+      </label>
+      <label class="feedback-field">Сообщение
+        <textarea id="feedbackText" rows="6" maxlength="8000" placeholder="Что случилось или что стоит улучшить?"></textarea>
+      </label>
+      <p class="feedback-hint">Откроется страница нового Issue в GitHub. Проверьте текст перед отправкой.</p>
+      <div class="feedback-actions">
+        <button id="feedbackSend" class="feedback-send">Открыть GitHub Issue</button>
+        <button id="feedbackCopy">Скопировать текст</button>
+      </div>
+      <p id="feedbackStatus" class="feedback-status" aria-live="polite"></p>
     </div>
   </div>
 </div>
