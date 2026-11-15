@@ -171,6 +171,10 @@ UPDATE_LOCK = threading.Lock()
 UPDATE_CACHE = {"at": 0.0, "data": None}
 UPDATE_TTL = 900
 UPDATE_NOTES_LIMIT = 12000
+CHANGELOG_LOCK = threading.Lock()
+CHANGELOG_CACHE = {"at": 0.0, "data": None}
+CHANGELOG_TTL = 900
+CHANGELOG_LIMIT = 20
 
 
 def load_latest():
@@ -652,6 +656,78 @@ def _update_info(force=False):
     return result
 
 
+def _changelog_info(force=False):
+    now = time.time()
+    if not force:
+        with CHANGELOG_LOCK:
+            cached = CHANGELOG_CACHE["data"]
+            if cached is not None and now - CHANGELOG_CACHE["at"] < CHANGELOG_TTL:
+                return cached
+
+    url = f"https://api.github.com/repos/{APP_REPO}/releases?per_page={CHANGELOG_LIMIT}"
+    request = Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": f"Ogranka/{APP_VERSION}",
+        },
+    )
+    try:
+        with urlopen(request, timeout=6, context=SSL_CONTEXT) as response:
+            releases = json.load(response)
+    except HTTPError as exc:
+        result = {
+            "current": APP_VERSION,
+            "releases": [],
+            "checked": False,
+            "error": f"github_http_{exc.code}",
+        }
+    except Exception:
+        result = {
+            "current": APP_VERSION,
+            "releases": [],
+            "checked": False,
+            "error": "network",
+        }
+    else:
+        if not isinstance(releases, list):
+            result = {
+                "current": APP_VERSION,
+                "releases": [],
+                "checked": False,
+                "error": "invalid_response",
+            }
+        else:
+            items = []
+            for release in releases:
+                if not isinstance(release, dict) or release.get("draft"):
+                    continue
+                tag = str(release.get("tag_name") or release.get("name") or "").strip()
+                notes = str(release.get("body") or "").strip()
+                items.append(
+                    {
+                        "version": tag.lstrip("vV"),
+                        "tag": tag,
+                        "title": release.get("name") or tag,
+                        "url": release.get("html_url"),
+                        "published_at": release.get("published_at"),
+                        "prerelease": bool(release.get("prerelease")),
+                        "notes": notes[:UPDATE_NOTES_LIMIT],
+                        "notes_truncated": len(notes) > UPDATE_NOTES_LIMIT,
+                    }
+                )
+            result = {
+                "current": APP_VERSION,
+                "releases": items,
+                "checked": True,
+            }
+
+    with CHANGELOG_LOCK:
+        CHANGELOG_CACHE["at"] = now
+        CHANGELOG_CACHE["data"] = result
+    return result
+
+
 def _save(models, run_id=None):
     run_id = run_id or _new_run_token()
     path = os.path.join(RUNS, run_id)
@@ -721,6 +797,9 @@ class Handler(SimpleHTTPRequestHandler):
         if u.path == "/api/results":
             with LOCK:
                 return self._json({"models": _public_models()})
+        if u.path == "/api/changelog":
+            force = parse_qs(u.query).get("force", ["0"])[0].lower() in ("1", "true", "yes")
+            return self._json(_changelog_info(force))
         if u.path == "/api/update":
             force = parse_qs(u.query).get("force", ["0"])[0].lower() in ("1", "true", "yes")
             return self._json(_update_info(force))

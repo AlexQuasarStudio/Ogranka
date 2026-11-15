@@ -573,6 +573,7 @@ function formatReleaseDate(value) {
 
 function showUpdateModal(info) {
   if (!info || !info.available) return;
+  $("changelogModal").classList.add("hidden");
   const version = info.version || info.tag || "";
   $("updateTitle").textContent = version ? "Что нового в " + version : "Что нового";
   const date = formatReleaseDate(info.published_at);
@@ -585,6 +586,64 @@ function showUpdateModal(info) {
   const release = $("updateRelease");
   release.classList.toggle("hidden", !info.release_url || info.release_url === info.url);
   $("updateModal").classList.remove("hidden");
+}
+
+function renderChangelog(info) {
+  const list = $("changelogList");
+  const releases = info && Array.isArray(info.releases) ? info.releases : [];
+  const current = document.querySelector('meta[name="version"]')?.content || "";
+  if (!info || !info.checked) {
+    $("changelogMeta").textContent = "Не удалось загрузить";
+    list.innerHTML = '<p class="update-empty">История сейчас недоступна. Проверьте подключение к GitHub.</p>';
+    return;
+  }
+  if (!releases.length) {
+    $("changelogMeta").textContent = "Релизов пока нет";
+    list.innerHTML = '<p class="update-empty">Опубликованных релизов пока нет.</p>';
+    return;
+  }
+  const latestDate = formatReleaseDate(releases[0].published_at);
+  $("changelogMeta").textContent = "Всего: " + releases.length + (latestDate ? " · последний " + latestDate : "");
+  list.innerHTML = releases.map((release, index) => {
+    const version = release.version || release.tag || "";
+    const title = release.title || (version ? "Огранка " + version : "Релиз");
+    const date = formatReleaseDate(release.published_at);
+    const badges = [];
+    if (index === 0) badges.push('<span class="changelog-badge">последний</span>');
+    if (version && version === current) badges.push('<span class="changelog-badge current">установлена</span>');
+    if (release.prerelease) badges.push('<span class="changelog-badge">pre-release</span>');
+    const link = release.url
+      ? '<button class="changelog-link" data-url="' + escapeHtml(release.url) + '">Страница релиза</button>'
+      : "";
+    return '<article class="changelog-entry">' +
+      '<div class="changelog-head"><h3>' + escapeHtml(title) + '</h3>' +
+      badges.join("") +
+      '<span class="changelog-date">' + escapeHtml(date) + '</span></div>' +
+      '<div class="changelog-notes update-notes">' +
+      renderPatchNotes(release.notes, release.notes_truncated) +
+      '</div>' + link + '</article>';
+  }).join("");
+}
+
+async function loadChangelog(force = false) {
+  const list = $("changelogList");
+  $("changelogMeta").textContent = "";
+  list.innerHTML = '<p class="update-empty">Загружаю историю…</p>';
+  try {
+    const response = await fetch("/api/changelog" + (force ? "?force=1" : ""));
+    if (!response.ok) throw new Error("changelog unavailable");
+    renderChangelog(await response.json());
+  } catch (error) {
+    $("changelogMeta").textContent = "Ошибка загрузки";
+    list.innerHTML = '<p class="update-empty">Не удалось загрузить историю изменений.</p>';
+  }
+}
+
+function showChangelog(force = false) {
+  $("updateModal").classList.add("hidden");
+  $("aboutModal").classList.add("hidden");
+  $("changelogModal").classList.remove("hidden");
+  return loadChangelog(force);
 }
 
 async function checkForUpdates(force = false) {
@@ -823,6 +882,17 @@ function init() {
       showUpdateModal(info);
     }
   };
+  $("historyBtn").onclick = () => showChangelog(true);
+  $("changelogBtn").onclick = () => {
+    $("aboutModal").classList.add("hidden");
+    showChangelog(true);
+  };
+  $("changelogClose").onclick = () => $("changelogModal").classList.add("hidden");
+  $("changelogModal").onclick = (e) => { if (e.target.id === "changelogModal") $("changelogModal").classList.add("hidden"); };
+  $("changelogList").addEventListener("click", (e) => {
+    const button = e.target.closest(".changelog-link");
+    if (button && button.dataset.url) openExternal(button.dataset.url);
+  });
   $("updateBtn").onclick = () => showUpdateModal(App.update);
   $("updateClose").onclick = () => $("updateModal").classList.add("hidden");
   $("updateDownload").onclick = () => {

@@ -120,6 +120,12 @@ th, td { white-space: nowrap; }
 .viewer-grid { grid-auto-rows: 1fr; }
 
 .header-right { display: flex; align-items: center; gap: 12px; }
+.history-btn {
+  padding: 5px 9px; border-radius: 999px; font-size: 12px;
+  color: #9fc5ff; background: #141f2e; border: 1px solid #2b405c;
+  white-space: nowrap;
+}
+.history-btn:hover { border-color: #4f8cff; background: #1a2637; }
 .update-btn {
   padding: 5px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
   color: #bcd7ff; background: #16263d; border: 1px solid #2f4c70;
@@ -193,6 +199,25 @@ th, td { white-space: nowrap; }
 .update-release { padding: 7px 12px; color: #9fc5ff; border-color: #2b405c; }
 .update-release:hover { border-color: #4f8cff; background: #1a2637; }
 .update-release.hidden { display: none; }
+.changelog-card { width: min(720px, 92vw); }
+.changelog-list { max-height: 60vh; overflow-y: auto; padding: 2px 2px 0; }
+.changelog-entry { padding: 14px 0 16px; border-bottom: 1px solid #232a35; }
+.changelog-entry:first-child { padding-top: 4px; }
+.changelog-entry:last-child { border-bottom: 0; padding-bottom: 4px; }
+.changelog-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.changelog-head h3 { margin: 0; color: #e7ecf3; font-size: 15px; }
+.changelog-date { margin-left: auto; color: #7f90a6; font-size: 12px; }
+.changelog-badge {
+  padding: 1px 6px; border-radius: 999px; font-size: 10.5px;
+  color: #9fc5ff; background: #1a2637; border: 1px solid #2b405c;
+}
+.changelog-badge.current { color: #b9f0ce; background: #1f4d3a; border-color: #2f6b50; }
+.changelog-notes { max-height: none; overflow: visible; padding: 8px 0 0; }
+.changelog-link {
+  margin-top: 6px; padding: 4px 9px; font-size: 12px;
+  color: #9fc5ff; background: transparent; border-color: #2b405c;
+}
+.changelog-link:hover { border-color: #4f8cff; background: #1a2637; }
 .app-foot {
   margin-top: 14px; padding-top: 10px; border-top: 1px solid #232a35;
   color: #6f8095; font-size: 11.5px; line-height: 1.5;

@@ -72,6 +72,7 @@
   <div class="brand">Огранка <span class="version">{{APP_VERSION}}</span> <span class="brand-sub">восстановление формы</span></div>
   <div class="header-right">
     <div id="statusText" class="status">Готов к запуску</div>
+    <button id="historyBtn" class="history-btn" title="История изменений">История</button>
     <button id="updateBtn" class="update-btn hidden" title="Скачать обновление">Обновление</button>
     <button id="aboutBtn" class="help-btn about-btn" title="О программе (I)">i</button>
     <button id="helpBtn" class="help-btn" title="Справка (?)">?</button>
@@ -339,6 +340,7 @@
       <div class="about-actions">
         <button id="tourBtn" class="tour-start">Пройти тур</button>
         <button id="checkUpdates" class="update-check">Проверить обновления</button>
+        <button id="changelogBtn" class="update-check">История изменений</button>
       </div>
       <p id="updateState" class="update-state" aria-live="polite"></p>
     </div>
@@ -359,6 +361,23 @@
       <div class="update-actions">
         <button id="updateDownload" class="update-download">Скачать обновление</button>
         <button id="updateRelease" class="update-release">Страница релиза</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="changelogModal" class="modal hidden">
+  <div class="modal-card changelog-card">
+    <div class="modal-head">
+      <div>
+        <h2>История изменений</h2>
+        <div id="changelogMeta" class="update-meta"></div>
+      </div>
+      <button id="changelogClose" class="help-close" title="Закрыть">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="changelogList" class="changelog-list">
+        <p class="update-empty">Загружаю…</p>
       </div>
     </div>
   </div>
