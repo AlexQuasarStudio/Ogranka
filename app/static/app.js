@@ -77,15 +77,31 @@ function updateDiff() {
     `ΔRMSE ${fmt(d(ma.rmse, mb.rmse))} · Δdmax ${fmt(d(ma.dmax, mb.dmax))}`;
 }
 
-async function loadResults() {
-  const prevName = App.models[App.modelIdx] ? App.models[App.modelIdx].name : null;
+function modelLabels() {
+  const counts = {};
+  App.models.forEach((m) => { counts[m.name] = (counts[m.name] || 0) + 1; });
+  return App.models.map((m) => (m.run_label && counts[m.name] > 1
+    ? `${m.name} · ${m.run_label}`
+    : m.name));
+}
+
+async function loadResults(selectNew = false) {
+  const prev = App.models[App.modelIdx] || null;
   const data = await (await fetch("/api/results")).json();
   App.models = data.models || [];
   App.meshes = {};
-  $("modelSel").innerHTML = App.models.map((m, i) => `<option value="${i}">${m.name}</option>`).join("");
-  const idx = prevName ? App.models.findIndex((m) => m.name === prevName) : -1;
-  App.modelIdx = idx >= 0 ? idx : 0;
+  const labels = modelLabels();
+  $("modelSel").innerHTML = App.models.map((m, i) => `<option value="${i}">${labels[i]}</option>`).join("");
+  let idx = -1;
+  if (selectNew && App.runBaseCount != null) idx = App.runBaseCount;
+  if (idx < 0 || idx >= App.models.length) {
+    if (prev && prev.uid) idx = App.models.findIndex((m) => m.uid === prev.uid);
+    if (idx < 0 && prev) idx = App.models.findIndex((m) => m.name === prev.name);
+  }
+  if (idx < 0) idx = 0;
+  App.modelIdx = idx;
   $("modelSel").value = String(App.modelIdx);
+  if (selectNew) App.runBaseCount = null;
   renderBatch();
   await renderModel();
 }
@@ -127,12 +143,13 @@ function renderTable(results) {
 function renderBatch() {
   const tb = $("batchTable").querySelector("tbody");
   tb.innerHTML = "";
+  const labels = modelLabels();
   App.models.forEach((model, i) => {
     const cand = model.results.filter((r) => r.mesh && !r.id.includes(":ref") && r.metrics && r.metrics.mse != null);
     cand.sort((a, b) => a.metrics.mse - b.metrics.mse);
     const best = cand[0];
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${model.name}</td><td>${best ? best.label : "—"}</td>
+    tr.innerHTML = `<td>${labels[i]}</td><td>${best ? best.label : "—"}</td>
       <td>${best ? fmt(best.metrics.mse) : "—"}</td><td>${best ? fmt(best.metrics.rmse) : "—"}</td>
       <td>${best ? fmt(best.metrics.dmax) : "—"}</td><td>${best ? badge(best.quality) : ""}</td>
       <td>${best && best.time != null ? best.time + " с" : "—"}</td>`;
@@ -352,6 +369,7 @@ async function run() {
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || "не удалось запустить");
+    App.runBaseCount = App.models.length;
     poll();
   } catch (e) {
     showProgressError(e.message);
@@ -398,7 +416,7 @@ function poll() {
         $("progressTime").textContent = "";
         $("runBtn").disabled = false;
         App.hideTimer = setTimeout(hideProgress, 2500);
-        await loadResults();
+        await loadResults(true);
       } else if (st.state === "error") {
         showProgressError(st.error || "неизвестная ошибка");
       }
@@ -470,24 +488,44 @@ function init() {
   $("syncCam").onchange = () => { App.syncCam = $("syncCam").checked; };
   $("selTarget").onchange = () => {
     App.selTarget = $("selTarget").value;
-    App.sel.points = [];
-    App.sel.polys = [];
-    App.sel.ids = [];
-    App.sel.anchor = null;
     App.viewers.forEach((v) => { v.selTarget = App.selTarget; v.rebuild(App.mode); });
     broadcastSelection();
   };
   $("selAll").onclick = () => {
     const v = App.viewers[0];
     if (!v || !v.mesh) return;
-    App.sel.mode = App.mode === "points" ? "vert" : "face";
-    App.sel.points = App.sel.mode === "face" ? v.faceCentroids.map((c) => c.slice()) : v.verts.map((p) => p.slice());
-    App.sel.polys = App.sel.mode === "face" ? v.facePolys.map((poly) => poly.map((p) => p.slice())) : [];
+    const target = App.selTarget;
+    if (target === "edge") {
+      App.sel.mode = "edge";
+      App.sel.points = v.edges.map((_, ei) => v.edgePoint(ei));
+      App.sel.polys = [];
+    } else if (target === "section") {
+      App.sel.mode = "section";
+      App.sel.points = v.sectionCentroid.map((c) => c.slice());
+      App.sel.polys = [];
+    } else if (target === "vertex" || App.mode === "points") {
+      App.sel.mode = "vert";
+      App.sel.points = v.verts.map((p) => p.slice());
+      App.sel.polys = [];
+    } else {
+      App.sel.mode = "face";
+      App.sel.points = v.faceCentroids.map((c) => c.slice());
+      App.sel.polys = v.facePolys.map((poly) => poly.map((p) => p.slice()));
+    }
     App.sel.ids = [];
     App.sel.anchor = null;
     broadcastSelection();
   };
   $("selClear").onclick = () => { App.sel.points = []; App.sel.polys = []; App.sel.ids = []; App.sel.anchor = null; broadcastSelection(); };
+  $("isoSel").onchange = () => {
+    App.isolate = $("isoSel").checked;
+    App.viewers.forEach((v) => { v.isolate = App.isolate; v.rebuild(App.mode); });
+    selectionText();
+  };
+  $("orthoSel").onchange = () => {
+    App.ortho = $("orthoSel").checked;
+    App.viewers.forEach((v) => v.setOrtho(App.ortho));
+  };
   $("resetBtn").onclick = () => {
     App.viewers.forEach((v) => v.mesh && v.frame(v.mesh));
     if (App.syncCam && App.viewers.length) { App.camLock = true; App.viewers.forEach((v) => v.copyCamera(App.viewers[0])); App.camLock = false; }
@@ -513,7 +551,8 @@ function init() {
   $("clearCache").onclick = async () => {
     if (!confirm("Удалить сохранённые результаты и загруженные файлы?")) return;
     await fetch("/api/clear-cache", { method: "POST" });
-    App.models = []; App.meshes = {}; App.partialDone = 0; App.liveSource = null;
+    App.models = []; App.meshes = {}; App.partialDone = 0;
+    App.liveSource = null; App.runBaseCount = null;
     $("modelSel").innerHTML = "";
     $("batchTable").querySelector("tbody").innerHTML = "";
     $("metricsTable").querySelector("tbody").innerHTML = "";
@@ -602,9 +641,11 @@ function init() {
     }
     if (e.altKey && e.code === "KeyA") { e.preventDefault(); $("selClear").click(); return; }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    const k = e.key.toLowerCase();
+    const code = e.code || "";
+    const k = code.startsWith("Key") ? code.slice(3).toLowerCase() : e.key.toLowerCase();
     const modes = ["solid_edges", "solid", "face", "area", "wire", "edges", "points"];
-    if (/^[1-7]$/.test(e.key)) { setViewMode(modes[+e.key - 1]); e.preventDefault(); return; }
+    const num = /^([1-7])$/.exec(e.key) || (!e.shiftKey && /^Digit([1-7])$/.exec(code));
+    if (num) { setViewMode(modes[+num[1] - 1]); e.preventDefault(); return; }
     if (e.code === "BracketLeft" || e.code === "BracketRight") {
       e.preventDefault();
       cycleViewerResult(e.code === "BracketRight" ? 1 : -1);
@@ -612,9 +653,16 @@ function init() {
     }
     if (k === "r") { if (!$("runBtn").disabled) run(); }
     else if (k === "f") { if (App.solo) toggleSolo(App.solo); else if (App.viewers[0]) toggleSolo(App.viewers[0]); }
-    else if (k === "v") { const s = $("selTarget"); s.value = s.value === "face" ? "vertex" : "face"; s.dispatchEvent(new Event("change")); }
+    else if (k === "v") {
+      const s = $("selTarget");
+      const order = ["face", "vertex", "section", "edge"];
+      s.value = order[(order.indexOf(s.value) + 1) % order.length];
+      s.dispatchEvent(new Event("change"));
+    }
     else if (k === "c") { const c = $("syncCam"); c.checked = !c.checked; c.dispatchEvent(new Event("change")); }
     else if (k === "a") { $("selAll").click(); }
+    else if (k === "l") { const c = $("isoSel"); c.checked = !c.checked; c.dispatchEvent(new Event("change")); }
+    else if (k === "p") { const c = $("orthoSel"); c.checked = !c.checked; c.dispatchEvent(new Event("change")); }
     else if (k === "g") { $("resetBtn").click(); }
     else if (k === "o") { $("objBtn").click(); }
     else if (k === "s") { $("pngBtn").click(); }

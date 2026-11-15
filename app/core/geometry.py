@@ -185,6 +185,163 @@ def edge_noise_layers(polygons, alphas, rv, units):
     ]
 
 
+def resample_contour(poly, step):
+    """Sample a closed section contour by arc length with a fixed step.
+
+    Returns (points, outward edge normals, source edge index).  The step is
+    the same as the vertical spacing of sections, so the noisy point grid is
+    roughly isotropic in 3D.
+    """
+    p = _ccw_polygon(poly)
+    if len(p) < 3:
+        return np.zeros((0, 2)), np.zeros((0, 2)), np.zeros(0, int)
+    seg = np.roll(p, -1, axis=0) - p
+    length = np.linalg.norm(seg, axis=1)
+    perim = float(length.sum())
+    if perim <= 1e-12:
+        return np.zeros((0, 2)), np.zeros((0, 2)), np.zeros(0, int)
+    step = max(float(step), perim / 4000.0, 1e-6)
+    n = max(8, int(round(perim / step)))
+    s = np.linspace(0.0, perim, n, endpoint=False)
+    cum = np.concatenate(([0.0], np.cumsum(length)))
+    idx = np.clip(np.searchsorted(cum, s, side="right") - 1, 0, len(p) - 1)
+    safe = np.maximum(length[idx], 1e-15)
+    t = (s - cum[idx]) / safe
+    pts = p[idx] + t[:, None] * seg[idx]
+    normals = np.column_stack((seg[idx, 1], -seg[idx, 0])) / safe[:, None]
+    return pts, normals, idx
+
+
+def normal_noise_contour(poly, step, rv, unit=None):
+    """Shift every resampled contour point along the normal of its edge."""
+    pts, normals, _ = resample_contour(poly, step)
+    if len(pts) == 0 or rv <= 0:
+        return pts
+    u = np.asarray(unit, float) if unit is not None else np.zeros(len(pts))
+    if len(u) != len(pts):
+        u = np.resize(u, len(pts)) if len(u) else np.zeros(len(pts))
+    return pts + rv * u[:, None] * normals
+
+
+def normal_noise_layers(polygons, step, rv, units):
+    """Apply point-normal noise to every ordered section contour."""
+    out = []
+    for (z, poly), unit in zip(polygons, units):
+        out.append((float(z), normal_noise_contour(poly, step, rv, unit)))
+    return out
+
+
+def contours_support_layers(contours, alphas):
+    """Support function of every noisy contour (rows match section order)."""
+    out = []
+    for z, pts in contours:
+        pts = np.asarray(pts, float)
+        if len(pts) < 3:
+            continue
+        out.append((float(z), support(pts, alphas)))
+    return out
+
+
+def _resample_closed_n(poly, n):
+    p = np.asarray(poly, float)
+    if len(p) < 2:
+        return np.zeros((n, 2))
+    seg = np.roll(p, -1, axis=0) - p
+    length = np.linalg.norm(seg, axis=1)
+    perim = float(length.sum())
+    if perim <= 1e-12:
+        return np.repeat(p[:1], n, axis=0)
+    s = np.linspace(0.0, perim, n, endpoint=False)
+    cum = np.concatenate(([0.0], np.cumsum(length)))
+    idx = np.clip(np.searchsorted(cum, s, side="right") - 1, 0, len(p) - 1)
+    t = (s - cum[idx]) / np.maximum(length[idx], 1e-15)
+    return p[idx] + t[:, None] * seg[idx]
+
+
+def _triangulate_indices(poly):
+    """Ear clipping for a possibly non-convex 2D ring; returns index triples."""
+    p = np.asarray(poly, float)
+    n = len(p)
+    if n < 3:
+        return []
+    area = 0.5 * float(np.sum(
+        p[:, 0] * np.roll(p[:, 1], -1) - np.roll(p[:, 0], -1) * p[:, 1]
+    ))
+    idx = list(range(n))
+    if area < 0:
+        idx.reverse()
+    tris = []
+    guard = 0
+    while len(idx) > 3 and guard < n * n:
+        guard += 1
+        found = False
+        for k in range(len(idx)):
+            i0 = idx[(k - 1) % len(idx)]
+            i1 = idx[k]
+            i2 = idx[(k + 1) % len(idx)]
+            a, b, c = p[i0], p[i1], p[i2]
+            cross = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0])
+            if cross <= 1e-12:
+                continue
+            inside = False
+            for j in idx:
+                if j in (i0, i1, i2):
+                    continue
+                if _pt_in_tri(p[j], a, b, c):
+                    inside = True
+                    break
+            if inside:
+                continue
+            tris.append((i0, i1, i2))
+            idx.pop(k)
+            found = True
+            break
+        if not found:
+            break
+    for k in range(1, len(idx) - 1):
+        tris.append((idx[0], idx[k], idx[k + 1]))
+    return tris
+
+
+def loft_contours(contours, ring_points=200):
+    """Build a closed non-convex surface by lofting ordered section rings."""
+    rings = []
+    for z, pts in contours:
+        pts = np.asarray(pts, float)
+        if len(pts) >= 3:
+            rings.append((float(z), pts))
+    if len(rings) < 2:
+        return None
+    counts = [len(pts) for _, pts in rings]
+    n = max(8, min(int(ring_points), int(round(float(np.median(counts))))))
+    samples = []
+    ref = None
+    for z, pts in rings:
+        q = _resample_closed_n(pts, n)
+        if ref is not None:
+            shift = int(np.argmin(np.linalg.norm(q - ref, axis=1)))
+            q = np.roll(q, -shift, axis=0)
+        ref = q[0]
+        samples.append((z, q))
+    verts = []
+    for z, q in samples:
+        verts.extend([[float(p[0]), float(p[1]), z] for p in q])
+    faces = []
+    layers = len(samples)
+    for li in range(layers - 1):
+        a0 = li * n
+        b0 = (li + 1) * n
+        for k in range(n):
+            k2 = (k + 1) % n
+            faces.append([a0 + k, a0 + k2, b0 + k2, b0 + k])
+    for tri in _triangulate_indices(samples[0][1]):
+        faces.append([tri[2], tri[1], tri[0]])
+    off = (layers - 1) * n
+    for tri in _triangulate_indices(samples[-1][1]):
+        faces.append([off + tri[0], off + tri[1], off + tri[2]])
+    return np.asarray(verts, float), faces
+
+
 def hull_compact(points):
     h = ConvexHull(points)
     hv = points[h.vertices]

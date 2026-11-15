@@ -56,3 +56,20 @@ def mesh_metrics(true_by_z, alphas, verts, faces):
         dmax = max(dmax, float(diff.max()))
         n += len(diff)
     return _pack(sq, dmax, n)
+
+
+def contours_metrics(true_by_z, alphas, contours):
+    """Support-based error of ordered section contours (works for loud rings)."""
+    sq, dmax, n = 0.0, 0.0, 0
+    keys = list(true_by_z.keys())
+    for z, pts in contours:
+        pts = np.asarray(pts, float)
+        if len(pts) < 3 or not keys:
+            continue
+        key = min(keys, key=lambda k: abs(k - float(z)))
+        r_rec = support(pts, alphas)
+        diff = np.abs(r_rec - np.asarray(true_by_z[key], float))
+        sq += float((diff**2).sum())
+        dmax = max(dmax, float(diff.max()))
+        n += len(diff)
+    return _pack(sq, dmax, n)

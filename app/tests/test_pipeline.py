@@ -158,6 +158,82 @@ class PipelineSmokeTest(unittest.TestCase):
         self.assertEqual(quality({"mse": 0.01, "rmse": 0.10, "dmax": 0.40}), "bad")
         self.assertEqual(quality({"mse": 0.02, "rmse": 0.14, "dmax": 0.10}), "bad")
 
+    def test_resample_contour_uses_section_step(self):
+        poly = np.array([[1, 1], [-1, 1], [-1, -1], [1, -1]], float)
+        pts, normals, idx = pipeline.resample_contour(poly, 0.5)
+        self.assertEqual(len(pts), 16)
+        self.assertEqual(normals.shape, (16, 2))
+        self.assertTrue(np.allclose(np.linalg.norm(normals, axis=1), 1.0))
+        self.assertEqual(int(idx.min()), 0)
+        self.assertEqual(int(idx.max()), 3)
+
+    def test_normal_noise_stays_within_amplitude(self):
+        poly = np.array([[1, 1], [-1, 1], [-1, -1], [1, -1]], float)
+        pts, _, _ = pipeline.resample_contour(poly, 0.5)
+        unit = np.ones(len(pts))
+        noisy = pipeline.normal_noise_contour(poly, 0.5, 0.01, unit)
+        dist = np.linalg.norm(noisy - pts, axis=1)
+        self.assertTrue(np.allclose(dist, 0.01))
+
+    def test_loft_contours_is_closed(self):
+        ring = np.array([[1, 1], [-1, 1], [-1, -1], [1, -1]], float)
+        contours = [(0.0, ring), (1.0, ring)]
+        verts, faces = pipeline.loft_contours(contours, ring_points=8)
+        self.assertGreater(len(verts), 0)
+        uses = {}
+        for face in faces:
+            for i in range(len(face)):
+                a, b = face[i], face[(i + 1) % len(face)]
+                key = (min(a, b), max(a, b))
+                uses[key] = uses.get(key, 0) + 1
+        self.assertTrue(uses)
+        self.assertTrue(all(n == 2 for n in uses.values()))
+
+    def test_live_zero_noise_is_exact_for_any_method(self):
+        source = {"kind": "demo", "name": "octa"}
+        params = {
+            "noise": 0.0,
+            "method": "fft",
+            "harmonics": 32,
+            "window": 5,
+            "layers": 12,
+            "angles": 90,
+            "mode": "envelope",
+            "angle": 1.0,
+            "loss": 0.001,
+            "pct": 100,
+        }
+        clear_live()
+        fft = live_variant(source, params)
+        clear_live()
+        exact = live_variant(source, {**params, "method": "none"})
+        self.assertEqual(fft["mesh"], exact["mesh"])
+        self.assertLess(float(fft["metrics"]["rmse"]), 1e-9)
+
+    def test_live_normal_noise_unsmoothed_returns_loft(self):
+        source = {"kind": "demo", "name": "octa"}
+        params = {
+            "noise": 0.008,
+            "method": "none",
+            "noise_model": "normal",
+            "harmonics": 32,
+            "window": 5,
+            "layers": 12,
+            "angles": 90,
+            "mode": "envelope",
+            "angle": 1.0,
+            "loss": 0.001,
+            "pct": 100,
+        }
+        clear_live()
+        loft = live_variant(source, params)
+        self.assertEqual(loft["method"], "none")
+        self.assertGreater(len(loft["mesh"]["f"]), 100)
+        self.assertTrue(np.isfinite(loft["metrics"]["rmse"]))
+        clear_live()
+        smoothed = live_variant(source, {**params, "method": "fft"})
+        self.assertNotEqual(len(loft["mesh"]["f"]), len(smoothed["mesh"]["f"]))
+
 
 if __name__ == "__main__":
     unittest.main()

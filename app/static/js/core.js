@@ -13,6 +13,8 @@ const App = {
   camLock: false,
   sel: { points: [], polys: [], mode: "face", anchor: null, ids: [] },
   selTarget: "face",
+  isolate: false,
+  ortho: false,
   viewers: [],
   activeViewer: null,
   poll: null,
@@ -23,6 +25,7 @@ const App = {
   liveTimer: null,
   liveSeq: 0,
   lastElapsed: 0,
+  runBaseCount: null,
 };
 
 const TOL = 0.03;
@@ -83,6 +86,16 @@ function pointInPoly(p, poly, tol) {
 }
 
 const near = (a, p) => (a[0] - p[0]) ** 2 + (a[1] - p[1]) ** 2 + (a[2] - p[2]) ** 2 < TOL * TOL;
+
+function pointSegDist2(p, a, b) {
+  const abx = b[0] - a[0], aby = b[1] - a[1], abz = b[2] - a[2];
+  const apx = p[0] - a[0], apy = p[1] - a[1], apz = p[2] - a[2];
+  const den = abx * abx + aby * aby + abz * abz;
+  let t = den > 1e-15 ? (apx * abx + apy * aby + apz * abz) / den : 0;
+  t = Math.max(0, Math.min(1, t));
+  const dx = apx - t * abx, dy = apy - t * aby, dz = apz - t * abz;
+  return dx * dx + dy * dy + dz * dz;
+}
 
 function triPointInTri(p, a, b, c) {
   const s1 = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);

@@ -189,7 +189,7 @@ def _stage(text, progress, detail="", eta=None, **extra):
             job.update(extra)
 
 
-def _run(sources, params):
+def _run(sources, params, run_token, run_label):
     t0 = time.time()
     models = []
     n_models = max(1, len(sources))
@@ -228,7 +228,7 @@ def _run(sources, params):
                 q = (float(p) - 0.05) / 0.40
                 _report("сечения", 0.08 + 0.12 * max(0.0, min(1.0, q)))
 
-            if noise_model == "edges":
+            if noise_model in ("edges", "normal"):
                 alphas, layers, section_polys = pipeline.build_sections_ex(
                     v, pipeline.mesh_edges(faces), n_layers, n_angles, progress=sec_progress
                 )
@@ -283,6 +283,13 @@ def _run(sources, params):
             if noise_model == "edges":
                 edge_rng = np.random.default_rng(2000 + mi)
                 edge_units = [edge_rng.uniform(-1.0, 1.0, size=len(poly)) for _, poly in section_polys]
+            normal_units = []
+            contour_step = 3.0 / max(1, n_layers)
+            if noise_model == "normal":
+                normal_rng = np.random.default_rng(3000 + mi)
+                for _, poly in section_polys:
+                    cnt = len(pipeline.resample_contour(poly, contour_step)[0])
+                    normal_units.append(normal_rng.uniform(-1.0, 1.0, size=cnt))
             variants = [(rv, me) for rv in levels for me in methods]
             total_variants = max(1, len(variants))
             A = pinv = None
@@ -305,9 +312,6 @@ def _run(sources, params):
                     total=total_variants,
                 )
 
-            with LOCK:
-                STATE["models"] = [{"id": mi, "name": title, "results": list(results)}]
-
             def run_variant(args):
                 vi, rv, method = args
                 names = {"none": "без сглаживания", "fft": "Фурье+МНК", "uni": "соседи"}
@@ -322,10 +326,19 @@ def _run(sources, params):
                 label = f"{label_noise} · {names.get(method, method)}"
                 if noise_model == "edges":
                     label += " · рёбра"
+                elif noise_model == "normal":
+                    label += " · нормали"
 
                 vstage(vi, 0.03, "подготовка варианта", label)
                 t_var = time.time()
-                if noise_model == "edges":
+                contours = None
+                if noise_model == "normal":
+                    contours = pipeline.normal_noise_layers(
+                        section_polys, contour_step, rv, normal_units
+                    )
+                    support_rows = pipeline.contours_support_layers(contours, alphas)
+                    R = np.vstack([row for _, row in support_rows])
+                elif noise_model == "edges":
                     if rv > 0:
                         noisy_layers = pipeline.edge_noise_layers(section_polys, alphas, rv, edge_units)
                         R = np.vstack([r for _, r in noisy_layers])
@@ -428,6 +441,25 @@ def _run(sources, params):
                             )
                         except Exception:
                             pass
+                if noise_model == "normal" and method == "none" and rv > 0 and contours:
+                    loft = pipeline.loft_contours(contours)
+                    if loft is not None:
+                        lv, lf = loft
+                        lm = pipeline.contours_metrics(true_by_z, alphas, contours)
+                        out.append(
+                            {
+                                "id": f"m{mi}:v{vi}c",
+                                "label": label + " · контуры",
+                                "kind": "loft",
+                                "mesh": {"v": lv.tolist(), "f": [list(f) for f in lf]},
+                                "metrics": lm,
+                                "quality": quality(lm),
+                                "vertices": int(len(lv)),
+                                "faces": int(len(lf)),
+                                "points": int(sum(len(p) for _, p in contours)),
+                                "time": round(time.time() - t_var, 2),
+                            }
+                        )
                 vstage(vi, 1.0, "готово", label)
                 return out
 
@@ -435,18 +467,24 @@ def _run(sources, params):
                 for out in pool.map(
                     run_variant, [(vi, rv, me) for vi, (rv, me) in enumerate(variants)]
                 ):
-                    with LOCK:
-                        results.extend(out)
-                        STATE["models"][0]["results"] = list(results)
+                    results.extend(out)
 
             mreport("модель готова", 0.96)
-            models.append({"id": mi, "name": title, "source": source, "results": results})
+            models.append({
+                "id": mi,
+                "uid": f"{run_token}:m{mi}",
+                "name": title,
+                "source": source,
+                "run": run_token,
+                "run_label": run_label,
+                "results": _prefix_result_ids(results, run_token),
+            })
 
         _stage("Сохранение результатов", 0.985, detail=f"моделей: {len(models)}")
-        _save(models)
+        _save(models, run_token)
         elapsed = round(time.time() - t0, 1)
         with LOCK:
-            STATE["models"] = models
+            STATE["models"] = list(STATE["models"] or []) + models
             if STATE["job"]:
                 STATE["job"].update(
                     state="done",
@@ -472,8 +510,19 @@ def _run(sources, params):
         raise
 
 
-def _save(models):
-    run_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:4]
+def _new_run_token():
+    return time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:4]
+
+
+def _prefix_result_ids(results, run_token):
+    for r in results:
+        if not r["id"].startswith(run_token + ":"):
+            r["id"] = f"{run_token}:{r['id']}"
+    return results
+
+
+def _save(models, run_id=None):
+    run_id = run_id or _new_run_token()
     path = os.path.join(RUNS, run_id)
     os.makedirs(path, exist_ok=True)
     with open(os.path.join(path, "results.json"), "w", encoding="utf-8") as f:
@@ -667,6 +716,8 @@ class Handler(SimpleHTTPRequestHandler):
         if u.path == "/api/run":
             n = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(n) or b"{}")
+            run_token = _new_run_token()
+            run_label = time.strftime("%H:%M:%S") + " · " + run_token[-4:]
             with LOCK:
                 if STATE["job"] and STATE["job"].get("state") == "running":
                     return self._json({"error": "уже выполняется"}, 409)
@@ -682,10 +733,14 @@ class Handler(SimpleHTTPRequestHandler):
                     "models": max(1, len(body.get("sources") or [body.get("source")])),
                     "done": 0,
                     "total": 0,
+                    "run": run_token,
                 }
-                STATE["models"] = None
             sources = body.get("sources") or [body.get("source")]
-            threading.Thread(target=_run, args=(sources, body.get("params", {})), daemon=True).start()
+            threading.Thread(
+                target=_run,
+                args=(sources, body.get("params", {}), run_token, run_label),
+                daemon=True,
+            ).start()
             return self._json({"ok": True})
         return self._json({"error": "неизвестный запрос"}, 404)
 

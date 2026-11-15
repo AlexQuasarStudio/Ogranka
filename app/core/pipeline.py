@@ -21,23 +21,28 @@ from .denoise import (
 from .geometry import (
     build_sections,
     build_sections_ex,
+    contours_support_layers,
     edge_noise_layers,
     edge_noise_support,
     hull,
     hull_compact,
+    loft_contours,
     merge_coplanar,
     mesh_area,
     mesh_edges,
+    normal_noise_contour,
+    normal_noise_layers,
     normalize_mesh,
     parse_obj,
     parse_points,
     polygons_to_mesh,
+    resample_contour,
     section_from_edges,
     snap_to_planes,
     support,
     triangulate_polygon,
 )
-from .metrics import mesh_metrics, metrics
+from .metrics import contours_metrics, mesh_metrics, metrics
 from .minimal import SIMPLIFY_LEVELS, minimal_polyhedron
 from .simplify import HAS_FAST
 
@@ -53,6 +58,11 @@ __all__ = [
     "build_sections_ex",
     "edge_noise_layers",
     "edge_noise_support",
+    "resample_contour",
+    "normal_noise_contour",
+    "normal_noise_layers",
+    "contours_support_layers",
+    "loft_contours",
     "hull_compact",
     "mesh_area",
     "merge_coplanar",
@@ -71,6 +81,7 @@ __all__ = [
     "minimal_polyhedron",
     "metrics",
     "mesh_metrics",
+    "contours_metrics",
     "SIMPLIFY_LEVELS",
     "HAS_FAST",
 ]

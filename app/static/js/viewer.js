@@ -16,6 +16,11 @@ class Viewer {
     this.camera.up.set(0, 0, 1);
     this.controls = new THREE.OrbitControls(this.camera, this.canvas);
     this.controls.enableDamping = true;
+    this.perspCamera = this.camera;
+    this.orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 500);
+    this.orthoCamera.up.set(0, 0, 1);
+    this.isOrtho = false;
+    this.orthoHalfH = 2;
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.62));
     const l1 = new THREE.DirectionalLight(0xffffff, 0.85); l1.position.set(5, -8, 10); this.scene.add(l1);
     const l2 = new THREE.DirectionalLight(0x88bbff, 0.4); l2.position.set(-6, 5, -4); this.scene.add(l2);
@@ -32,6 +37,16 @@ class Viewer {
     this.pointsObj = null;
     this.hlFaces = new Set();
     this.hlVerts = new Set();
+    this.hlSections = new Set();
+    this.hlEdges = new Set();
+    this.hlMode = "face";
+    this.isolate = false;
+    this.pointIdx = null;
+    this.edges = [];
+    this.edgeAdj = [];
+    this.vertEdges = [];
+    this.vertFaces = [];
+    this.edgeTol = 0.1;
     this.mode = "solid_edges";
     this.selTarget = "face";
 
@@ -68,10 +83,66 @@ class Viewer {
     const el = this.canvas.parentElement;
     const w = Math.max(120, el.clientWidth), h = Math.max(120, el.clientHeight);
     this.renderer.setSize(w, h, false);
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+    const aspect = w / h;
+    if (this.camera.isOrthographicCamera) {
+      const half = this.orthoHalfH || 2;
+      this.camera.left = -half * aspect;
+      this.camera.right = half * aspect;
+      this.camera.top = half;
+      this.camera.bottom = -half;
+      this.camera.updateProjectionMatrix();
+    } else {
+      this.camera.aspect = aspect;
+      this.camera.updateProjectionMatrix();
+    }
     if (this.lineMat) this.lineMat.resolution.set(w, h);
     this.resizeGizmo();
+  }
+
+  setOrtho(on) {
+    const flag = !!on;
+    if (flag === this.isOrtho) return;
+    const target = this.controls.target.clone();
+    const pos = this.camera.position.clone();
+    const up = this.camera.up.clone();
+    const el = this.canvas.parentElement;
+    const aspect = Math.max(0.01, el.clientWidth / Math.max(1, el.clientHeight));
+    if (flag) {
+      const dist = pos.distanceTo(target) || 3;
+      const half = dist * Math.tan((this.perspCamera.fov * Math.PI / 180) / 2);
+      this.orthoHalfH = Math.max(1e-4, half);
+      const cam = this.orthoCamera;
+      cam.left = -this.orthoHalfH * aspect;
+      cam.right = this.orthoHalfH * aspect;
+      cam.top = this.orthoHalfH;
+      cam.bottom = -this.orthoHalfH;
+      cam.near = this.perspCamera.near;
+      cam.far = this.perspCamera.far;
+      cam.position.copy(pos);
+      cam.up.copy(up);
+      cam.zoom = 1;
+      cam.lookAt(target);
+      cam.updateProjectionMatrix();
+      this.camera = cam;
+    } else {
+      const cam = this.perspCamera;
+      const half = this.orthoHalfH / Math.max(0.01, this.orthoCamera.zoom);
+      const dist = half / Math.tan((cam.fov * Math.PI / 180) / 2);
+      const dir = pos.clone().sub(target);
+      if (dir.lengthSq() < 1e-12) dir.set(0, 0, 1);
+      dir.normalize();
+      cam.position.copy(target).addScaledVector(dir, dist);
+      cam.up.copy(up);
+      cam.aspect = aspect;
+      cam.updateProjectionMatrix();
+      cam.lookAt(target);
+      this.camera = cam;
+    }
+    this.isOrtho = flag;
+    this.controls.object = this.camera;
+    this.controls.target.copy(target);
+    this.controls.update();
+    this.resize();
   }
 
   setupGizmo(card) {
@@ -233,8 +304,18 @@ class Viewer {
     const v = mesh.v, faces = mesh.f;
     this.verts = v;
     this.faces = faces;
+    const hasSel = this.hlFaces.size > 0 || this.hlVerts.size > 0
+      || this.hlEdges.size > 0 || this.hlSections.size > 0;
+    const iso = this.isolate && hasSel;
+    const selMode = this.hlMode || "face";
+    const keepFace = (fi) => {
+      if (!iso) return true;
+      if (selMode === "edge") return false;
+      return this.hlFaces.has(fi);
+    };
     const tris = [], triFace = [];
     faces.forEach((f, fi) => {
+      if (!keepFace(fi)) return;
       const ft = triangulateFace(f, v);
       for (const t of ft) { tris.push(t); triFace.push(fi); }
     });
@@ -253,6 +334,33 @@ class Viewer {
     });
 
     this.faceAdj = Array.from({ length: faces.length }, () => []);
+
+    this.sectionZ = [];
+    this.sectionCentroid = [];
+    this.sectionVerts = [];
+    this.vertSection = new Int32Array(v.length).fill(-1);
+    const byZ = new Map();
+    v.forEach((p, i) => {
+      const key = Math.round(p[2] * 1e6) / 1e6;
+      if (!byZ.has(key)) byZ.set(key, []);
+      byZ.get(key).push(i);
+    });
+    const rings = [...byZ.entries()].filter(([, idx]) => idx.length >= 3).sort((a, b) => a[0] - b[0]);
+    rings.forEach(([z, idx], si) => {
+      this.sectionZ.push(z);
+      this.sectionVerts.push(idx);
+      let x = 0, y = 0;
+      idx.forEach((i) => { x += v[i][0]; y += v[i][1]; this.vertSection[i] = si; });
+      this.sectionCentroid.push([x / idx.length, y / idx.length, z]);
+    });
+    this.faceSections = faces.map((f) => {
+      const ss = new Set();
+      f.forEach((i) => { if (this.vertSection[i] >= 0) ss.add(this.vertSection[i]); });
+      return [...ss];
+    });
+    this.sectionFaces = this.sectionZ.map(() => []);
+    this.faceSections.forEach((ss, fi) => ss.forEach((si) => this.sectionFaces[si].push(fi)));
+    this.sectionAdj = this.sectionZ.map((_, si) => [si - 1, si + 1].filter((k) => k >= 0 && k < this.sectionZ.length));
     const edgeOwner = new Map();
     faces.forEach((f, fi) => {
       for (let i = 0; i < f.length; i++) {
@@ -279,6 +387,32 @@ class Viewer {
         }
       }
     });
+
+    this.edges = [];
+    this.edgeIndex = new Map();
+    this.vertEdges = Array.from({ length: v.length }, () => []);
+    this.vertFaces = Array.from({ length: v.length }, () => []);
+    faces.forEach((f, fi) => {
+      f.forEach((i) => this.vertFaces[i].push(fi));
+      for (let i = 0; i < f.length; i++) {
+        const a = f[i], b = f[(i + 1) % f.length];
+        const key = a < b ? `${a}_${b}` : `${b}_${a}`;
+        if (this.edgeIndex.has(key)) continue;
+        const ei = this.edges.length;
+        this.edgeIndex.set(key, ei);
+        this.edges.push([a, b]);
+        this.vertEdges[a].push(ei);
+        this.vertEdges[b].push(ei);
+      }
+    });
+    this.edgeAdj = this.edges.map((e, ei) => {
+      const out = new Set();
+      e.forEach((i) => this.vertEdges[i].forEach((ej) => { if (ej !== ei) out.add(ej); }));
+      return [...out];
+    });
+    const bbMin = [Infinity, Infinity, Infinity], bbMax = [-Infinity, -Infinity, -Infinity];
+    v.forEach((p) => p.forEach((x, i) => { bbMin[i] = Math.min(bbMin[i], x); bbMax[i] = Math.max(bbMax[i], x); }));
+    this.edgeTol = Math.max(0.02, 0.02 * Math.hypot(bbMax[0] - bbMin[0], bbMax[1] - bbMin[1], bbMax[2] - bbMin[2]));
 
     const pos = new Float32Array(tris.length * 9);
     const col = new Float32Array(tris.length * 9);
@@ -326,7 +460,8 @@ class Viewer {
           }
         });
       } else {
-        faces.forEach((f) => {
+        faces.forEach((f, fi) => {
+          if (!keepFace(fi)) return;
           for (let i = 0; i < f.length; i++) {
             const a = v[f[i]], b = v[f[(i + 1) % f.length]];
             segs.push(a[0], a[1], a[2], b[0], b[1], b[2]);
@@ -349,11 +484,18 @@ class Viewer {
       }
     }
 
-    if (mode === "points" || this.selTarget === "vertex") {
+    this.pointIdx = null;
+    const showPoints = (mode === "points" || this.selTarget === "vertex") && (!iso || selMode === "vertex");
+    if (showPoints) {
+      const pointIdx = (iso && selMode === "vertex") ? [...this.hlVerts] : null;
+      this.pointIdx = pointIdx;
+      const arr = pointIdx ? pointIdx.flatMap((i) => v[i]) : v.flat();
       const pg = new THREE.BufferGeometry();
-      pg.setAttribute("position", new THREE.Float32BufferAttribute(v.flat(), 3));
+      pg.setAttribute("position", new THREE.Float32BufferAttribute(arr, 3));
       this.pointsObj = new THREE.Points(pg, new THREE.PointsMaterial({ color: 0x9fd8ff, size: mode === "points" ? 0.035 : 0.02 }));
       this.group.add(this.pointsObj);
+    } else {
+      this.pointsObj = null;
     }
 
     const sel = [...this.hlVerts];
@@ -361,6 +503,29 @@ class Viewer {
       const sg = new THREE.BufferGeometry();
       sg.setAttribute("position", new THREE.Float32BufferAttribute(sel.flatMap((i) => v[i]), 3));
       this.group.add(new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xffb347, size: 0.06 })));
+    }
+
+    if (this.hlEdges.size) {
+      const esegs = [];
+      this.hlEdges.forEach((ei) => {
+        const e = this.edges[ei];
+        if (!e) return;
+        const a = v[e[0]], b = v[e[1]];
+        esegs.push(a[0], a[1], a[2], b[0], b[1], b[2]);
+      });
+      if (esegs.length) {
+        if (THREE.LineSegments2 && THREE.LineMaterial) {
+          const eg = new THREE.LineSegmentsGeometry().setPositions(esegs);
+          const em = new THREE.LineMaterial({ color: 0xffb347, linewidth: 4.0 });
+          const el = this.canvas.parentElement;
+          em.resolution.set(Math.max(1, el.clientWidth), Math.max(1, el.clientHeight));
+          this.group.add(new THREE.LineSegments2(eg, em));
+        } else {
+          const eg = new THREE.BufferGeometry();
+          eg.setAttribute("position", new THREE.Float32BufferAttribute(esegs, 3));
+          this.group.add(new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: 0xffb347 })));
+        }
+      }
     }
   }
 
@@ -373,11 +538,44 @@ class Viewer {
     this.raycaster.setFromCamera(mouse, this.camera);
     const action = ctrl ? "toggle" : (shift ? "path" : "replace");
 
+    if (this.selTarget === "section") {
+      if (!this.solid || !this.sectionZ.length) {
+        if (action === "replace") this.onPick(this, null, "section", "clear");
+        return;
+      }
+      const hits = this.raycaster.intersectObject(this.solid);
+      if (!hits.length) {
+        if (action === "replace") this.onPick(this, null, "section", "clear");
+        return;
+      }
+      const hz = hits[0].point.z;
+      let si = 0, best = Infinity;
+      this.sectionZ.forEach((z, i) => { const d = Math.abs(z - hz); if (d < best) { best = d; si = i; } });
+      this.onPick(this, this.sectionCentroid[si].slice(), "section", action, null, si);
+      return;
+    }
+
+    if (this.selTarget === "edge") {
+      if (!this.edges.length) {
+        if (action === "replace") this.onPick(this, null, "edge", "clear");
+        return;
+      }
+      const ei = this.pickEdge();
+      if (ei < 0) {
+        if (action === "replace") this.onPick(this, null, "edge", "clear");
+        return;
+      }
+      this.onPick(this, this.edgePoint(ei), "edge", action, null, ei);
+      return;
+    }
+
     if (this.selTarget === "vertex" || this.pointsObj) {
-      const hits = this.raycaster.intersectObject(this.pointsObj);
       if (!this.pointsObj) return;
+      const hits = this.raycaster.intersectObject(this.pointsObj);
       if (!hits.length) { if (action === "replace") this.onPick(this, null, "vert", "clear"); return; }
-      this.onPick(this, this.verts[hits[0].index].slice(), "vert", action, null, hits[0].index);
+      const pi = this.pointIdx ? this.pointIdx[hits[0].index] : hits[0].index;
+      if (pi == null || !this.verts[pi]) return;
+      this.onPick(this, this.verts[pi].slice(), "vert", action, null, pi);
       return;
     }
     const hits = this.raycaster.intersectObject(this.solid);
@@ -390,16 +588,25 @@ class Viewer {
   applySelection(points, mode, polys = [], ids = []) {
     this.hlFaces = new Set();
     this.hlVerts = new Set();
+    this.hlSections = new Set();
+    this.hlEdges = new Set();
+    this.hlMode = mode;
     if (points.length && this.mesh) {
       const mappedPoints = [];
       const mappedPolys = [];
       const exactFaces = [];
       const exactVerts = [];
+      const exactSections = [];
+      const exactEdges = [];
       for (let i = 0; i < points.length; i++) {
         const id = ids && ids[i];
-        const total = mode === "face" ? this.faceCentroids.length : this.verts.length;
+        const total = mode === "face" ? this.faceCentroids.length
+          : mode === "section" ? this.sectionZ.length
+          : mode === "edge" ? this.edges.length : this.verts.length;
         if (id && id.viewer === this && id.type === mode && id.index >= 0 && id.index < total) {
           if (mode === "face") exactFaces.push(id.index);
+          else if (mode === "section") exactSections.push(id.index);
+          else if (mode === "edge") exactEdges.push(id.index);
           else exactVerts.push(id.index);
         } else {
           mappedPoints.push(points[i]);
@@ -439,17 +646,63 @@ class Viewer {
             if (hit) this.hlFaces.add(fi);
           }
         }
+      } else if (mode === "section") {
+        exactSections.forEach((si) => {
+          if (si >= 0 && si < this.sectionZ.length) this.hlSections.add(si);
+        });
+        mappedPoints.forEach((p) => {
+          let si = -1, best = Infinity;
+          this.sectionZ.forEach((z, k) => { const d = Math.abs(z - p[2]); if (d < best) { best = d; si = k; } });
+          if (si >= 0) this.hlSections.add(si);
+        });
+        this.hlSections.forEach((si) => {
+          (this.sectionFaces[si] || []).forEach((fi) => this.hlFaces.add(fi));
+          (this.sectionVerts[si] || []).forEach((i) => this.hlVerts.add(i));
+        });
+      } else if (mode === "edge") {
+        exactEdges.forEach((ei) => {
+          if (ei >= 0 && ei < this.edges.length) this.hlEdges.add(ei);
+        });
+        mappedPoints.forEach((p) => {
+          let best = -1, bd = Infinity;
+          this.edges.forEach((e, ei) => {
+            const d = pointSegDist2(p, this.verts[e[0]], this.verts[e[1]]);
+            if (d < bd) { bd = d; best = ei; }
+          });
+          if (best >= 0) this.hlEdges.add(best);
+        });
+        this.hlEdges.forEach((ei) => {
+          const e = this.edges[ei];
+          if (!e) return;
+          this.hlVerts.add(e[0]);
+          this.hlVerts.add(e[1]);
+        });
       } else {
-        exactVerts.forEach((i) => this.hlVerts.add(i));
+        exactVerts.forEach((i) => {
+          this.hlVerts.add(i);
+          (this.vertFaces[i] || []).forEach((fi) => this.hlFaces.add(fi));
+        });
         if (mappedPoints.length) {
           const dist2 = (a, p) => (a[0] - p[0]) ** 2 + (a[1] - p[1]) ** 2 + (a[2] - p[2]) ** 2;
-          const small = mappedPoints.length <= 200;
+          const facesHit = new Set();
+          const loose = [];
           mappedPoints.forEach((p) => {
+            let found = false;
+            this.facePolys.forEach((poly, fi) => {
+              if (pointInPoly(p, poly, TOL)) { facesHit.add(fi); found = true; }
+            });
+            if (!found) loose.push(p);
+          });
+          facesHit.forEach((fi) => {
+            this.hlFaces.add(fi);
+            (this.faces[fi] || []).forEach((i) => this.hlVerts.add(i));
+          });
+          loose.forEach((p) => {
             let found = false;
             this.verts.forEach((c, i) => {
               if (near(c, p)) { this.hlVerts.add(i); found = true; }
             });
-            if (!found && small && this.verts.length) {
+            if (!found && this.verts.length) {
               let best = -1, bd = Infinity;
               this.verts.forEach((c, i) => { const d = dist2(c, p); if (d < bd) { bd = d; best = i; } });
               if (best >= 0) this.hlVerts.add(best);
@@ -484,6 +737,31 @@ class Viewer {
 
   pathFaces(start, end) { return this.bfsPath(this.faceAdj, start, end); }
   pathVerts(start, end) { return this.bfsPath(this.vertAdj, start, end); }
+  pathSections(start, end) {
+    if (start == null || end == null) return [end];
+    const lo = Math.min(start, end), hi = Math.max(start, end);
+    return Array.from({ length: hi - lo + 1 }, (_, k) => lo + k);
+  }
+  pathEdges(start, end) { return this.bfsPath(this.edgeAdj, start, end); }
+  edgePoint(ei) {
+    const e = this.edges[ei];
+    if (!e) return [0, 0, 0];
+    const a = this.verts[e[0]], b = this.verts[e[1]];
+    return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+  }
+  pickEdge() {
+    if (!this.solid) return -1;
+    const ray = this.raycaster.ray;
+    const a = new THREE.Vector3(), b = new THREE.Vector3();
+    let best = -1, bestD = Infinity;
+    this.edges.forEach((e, ei) => {
+      a.fromArray(this.verts[e[0]]);
+      b.fromArray(this.verts[e[1]]);
+      const d = Math.sqrt(ray.distanceSqToSegment(a, b));
+      if (d < bestD) { bestD = d; best = ei; }
+    });
+    return bestD <= this.edgeTol ? best : -1;
+  }
 
   alignAxis(axis) {
     const dirs = {
@@ -543,6 +821,12 @@ class Viewer {
   }
 
   copyCamera(src) {
+    this.setOrtho(src.isOrtho);
+    if (src.isOrtho) {
+      this.orthoHalfH = src.orthoHalfH;
+      this.orthoCamera.zoom = src.orthoCamera.zoom;
+      this.resize();
+    }
     this.camera.position.copy(src.camera.position);
     this.camera.up.copy(src.camera.up);
     this.controls.target.copy(src.controls.target);
@@ -558,7 +842,13 @@ class Viewer {
     this.camera.position.set(c[0] + r * 2.1, c[1] - r * 2.4, c[2] + r * 1.7);
     this.controls.target.set(c[0], c[1], c[2]);
     this.camera.near = r / 50; this.camera.far = r * 60;
-    this.camera.updateProjectionMatrix();
+    if (this.isOrtho) {
+      this.orthoHalfH = r * 1.25;
+      this.orthoCamera.zoom = 1;
+      this.resize();
+    } else {
+      this.camera.updateProjectionMatrix();
+    }
     this.controls.update();
   }
 }
@@ -659,6 +949,8 @@ function addViewer() {
   if (App.viewers.length >= 6) return;
   const card = makeCard();
   const v = new Viewer(card, handlePick, handleCam);
+  v.isolate = App.isolate;
+  v.setOrtho(App.ortho);
   card.querySelector(".vmax").onclick = () => toggleSolo(v);
   card.querySelector(".vadd").onclick = () => addViewer();
   card.querySelector(".vdel").onclick = () => removeViewer(v);
@@ -771,10 +1063,16 @@ function handlePick(src, point, type, action, poly, index) {
       App.sel.polys = [poly || null];
       App.sel.ids = [{ viewer: src, type, index }];
     } else {
-      const path = type === "face" ? src.pathFaces(anchor.index, index) : src.pathVerts(anchor.index, index);
+      const path = type === "face" ? src.pathFaces(anchor.index, index)
+        : type === "section" ? src.pathSections(anchor.index, index)
+        : type === "edge" ? src.pathEdges(anchor.index, index)
+        : src.pathVerts(anchor.index, index);
       const keys = new Set(App.sel.points.map(keyOf));
       path.forEach((fi) => {
-        const p = type === "face" ? src.faceCentroids[fi].slice() : src.verts[fi].slice();
+        const p = type === "face" ? src.faceCentroids[fi].slice()
+          : type === "section" ? src.sectionCentroid[fi].slice()
+          : type === "edge" ? src.edgePoint(fi)
+          : src.verts[fi].slice();
         const k = keyOf(p);
         if (keys.has(k)) return;
         keys.add(k);
@@ -821,11 +1119,13 @@ function selectionText() {
     $("selectionInfo").textContent = "Выделение: —";
     return;
   }
-  const parts = App.viewers.map((v, i) => {
-    const n = App.sel.mode === "face" ? v.hlFaces.size : v.hlVerts.size;
-    return `окно ${i + 1}: ${n}`;
-  });
-  const what = App.sel.mode === "face" ? "граней" : "вершин";
+  const count = (v) => App.sel.mode === "face" ? v.hlFaces.size
+    : App.sel.mode === "section" ? v.hlSections.size
+    : App.sel.mode === "edge" ? v.hlEdges.size : v.hlVerts.size;
+  const parts = App.viewers.map((v, i) => `окно ${i + 1}: ${count(v)}`);
+  const what = App.sel.mode === "face" ? "граней"
+    : App.sel.mode === "section" ? "сечений"
+    : App.sel.mode === "edge" ? "рёбер" : "вершин";
   $("selectionInfo").textContent =
     `Выделено точек: ${App.sel.points.length} (${what}) · ` + parts.join(" · ");
 }
