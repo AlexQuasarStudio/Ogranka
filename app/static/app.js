@@ -694,7 +694,10 @@ function init() {
   window.__app = App;
   fetch("/api/results").then((r) => r.json()).then((d) => {
     if (d.models && d.models.length) loadResults();
-    else run();
+    else {
+      $("statusText").textContent = "Готов к запуску";
+      $("batchInfo").textContent = "прогонов пока нет";
+    }
   });
   fetch("/api/welcome").then((r) => r.json()).then((j) => {
     if (j.seen) return;
