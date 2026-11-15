@@ -102,7 +102,6 @@ python3 export3D_obj.py          # выгрузка OBJ
 | `img/` | Картинки и фоны для презентации |
 | `build_report.sh` | Сборка PDF в корень: два прохода во временном каталоге |
 | `LICENSE` | MIT-лицензия на код проекта (английский оригинал) |
-| `LICENSE.ru` | Неофициальный русский перевод MIT |
 | `ACKNOWLEDGMENTS.md` | Благодарности, включая научного руководителя |
 | `THIRD_PARTY_NOTICES.md` | Лицензии сторонних компонентов |
 | `.github/workflows/ci.yml` | CI: тесты при push и pull request |
@@ -203,7 +202,6 @@ python reconstruct3D/benchmark_real.py
 Учебная работа. При использовании текста, кода или рисунков ссылайтесь на
 автора и научного руководителя.
 
-- Код проекта — MIT: `LICENSE` (английский оригинал), `LICENSE.ru`
-  (неофициальный русский перевод; юридическую силу имеет `LICENSE`).
+- Код проекта — MIT: `LICENSE`.
 - Благодарности и роли — `ACKNOWLEDGMENTS.md`.
 - Лицензии зависимостей и Qhull — `THIRD_PARTY_NOTICES.md`.
