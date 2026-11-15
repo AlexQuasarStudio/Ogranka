@@ -394,7 +394,7 @@
     <div class="modal-head">
       <div>
         <h2>Обратная связь</h2>
-        <div class="update-meta">GitHub Issue — без автоматической отправки</div>
+        <div class="update-meta">Запросы сохраняются в приложении — без GitHub</div>
       </div>
       <button id="feedbackClose" class="help-close" title="Закрыть">×</button>
     </div>
@@ -416,12 +416,19 @@
       <label class="feedback-field">Сообщение
         <textarea id="feedbackText" rows="6" maxlength="8000" placeholder="Что случилось или что стоит улучшить?"></textarea>
       </label>
-      <p class="feedback-hint">Откроется страница нового Issue в GitHub. Проверьте текст перед отправкой.</p>
+      <p class="feedback-hint">Запрос сохранится локально; ниже будут видны все запросы и их статусы.</p>
       <div class="feedback-actions">
-        <button id="feedbackSend" class="feedback-send">Открыть GitHub Issue</button>
+        <button id="feedbackSend" class="feedback-send">Отправить запрос</button>
         <button id="feedbackCopy">Скопировать текст</button>
       </div>
       <p id="feedbackStatus" class="feedback-status" aria-live="polite"></p>
+      <div class="feedback-list-head">
+        <h3>Все запросы</h3>
+        <span id="feedbackCount" class="feedback-count"></span>
+      </div>
+      <div id="feedbackList" class="feedback-list">
+        <p class="feedback-empty">Запросов пока нет.</p>
+      </div>
     </div>
   </div>
 </div>

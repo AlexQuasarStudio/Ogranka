@@ -163,10 +163,13 @@ DATA = _data_dir()
 UPLOADS = os.path.join(DATA, "uploads")
 RUNS = os.path.join(DATA, "runs")
 WELCOME_FILE = os.path.join(DATA, "welcome_seen")
+FEEDBACK_FILE = os.path.join(DATA, "feedback.json")
+FEEDBACK_STATUSES = ("in_progress", "questions", "done")
 os.makedirs(UPLOADS, exist_ok=True)
 os.makedirs(RUNS, exist_ok=True)
 
 LOCK = threading.Lock()
+FEEDBACK_LOCK = threading.Lock()
 STATE = {"job": None, "models": None}
 UPDATE_LOCK = threading.Lock()
 UPDATE_CACHE = {"at": 0.0, "data": None}
@@ -178,7 +181,7 @@ CHANGELOG_TTL = 900
 CHANGELOG_LIMIT = 20
 
 
-def load_latest():
+def load_all_models():
     if not os.path.isdir(RUNS):
         return None
     cands = []
@@ -189,11 +192,82 @@ def load_latest():
     if not cands:
         return None
     cands.sort()
+    models = []
+    for _, path in cands:
+        try:
+            with open(path, encoding="utf-8") as f:
+                batch = json.load(f).get("models")
+        except Exception:
+            continue
+        if isinstance(batch, list):
+            models.extend(batch)
+    return models or None
+
+
+def _read_feedback_file():
     try:
-        with open(cands[-1][1], encoding="utf-8") as f:
-            return json.load(f).get("models")
+        with open(FEEDBACK_FILE, encoding="utf-8") as f:
+            items = json.load(f)
+    except FileNotFoundError:
+        return []
     except Exception:
-        return None
+        return []
+    return items if isinstance(items, list) else []
+
+
+def _write_feedback_file(items):
+    tmp = FEEDBACK_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(items, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, FEEDBACK_FILE)
+
+
+def _feedback_items():
+    with FEEDBACK_LOCK:
+        items = _read_feedback_file()
+    return list(reversed(items))
+
+
+def _add_feedback(payload):
+    message = str(payload.get("message") or "").strip()
+    if len(message) < 3:
+        raise ValueError("Сообщение слишком короткое.")
+    item = {
+        "id": time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6],
+        "type": str(payload.get("type") or "Другое").strip()[:40],
+        "name": str(payload.get("name") or "").strip()[:120],
+        "contact": str(payload.get("contact") or "").strip()[:200],
+        "message": message[:8000],
+        "status": "in_progress",
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "version": APP_VERSION,
+        "build": APP_BUILD,
+        "os": platform.system(),
+    }
+    with FEEDBACK_LOCK:
+        items = _read_feedback_file()
+        items.append(item)
+        _write_feedback_file(items)
+    return item
+
+
+def _set_feedback_status(feedback_id, status):
+    if status not in FEEDBACK_STATUSES:
+        raise ValueError("Неизвестный статус.")
+    with FEEDBACK_LOCK:
+        items = _read_feedback_file()
+        found = None
+        for item in items:
+            if item.get("id") == feedback_id:
+                item["status"] = status
+                item["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                found = item
+                break
+        if found is None:
+            return None
+        _write_feedback_file(items)
+    return found
 
 
 def _stage(text, progress, detail="", eta=None, **extra):
@@ -878,6 +952,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(_update_info(force))
         if u.path == "/api/update/status":
             return self._json(updater.status())
+        if u.path == "/api/feedback":
+            return self._json({"items": _feedback_items()})
         if u.path == "/api/mesh":
             rid = parse_qs(u.query).get("id", [""])[0]
             with LOCK:
@@ -906,6 +982,32 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json({"ok": True, **updater.start_install(info)})
             except RuntimeError as exc:
                 return self._json({"error": str(exc)}, 409)
+            except Exception as exc:
+                return self._json({"error": str(exc)}, 500)
+        if u.path == "/api/feedback":
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            if length > 64 * 1024:
+                return self._json({"error": "слишком большой запрос"}, 413)
+            try:
+                body = json.loads(self.rfile.read(length) or b"{}")
+                item = _add_feedback(body)
+                return self._json({"ok": True, "item": item})
+            except ValueError as exc:
+                return self._json({"error": str(exc)}, 400)
+            except Exception as exc:
+                return self._json({"error": str(exc)}, 500)
+        if u.path == "/api/feedback/status":
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            if length > 8 * 1024:
+                return self._json({"error": "слишком большой запрос"}, 413)
+            try:
+                body = json.loads(self.rfile.read(length) or b"{}")
+                item = _set_feedback_status(str(body.get("id") or ""), str(body.get("status") or ""))
+                if item is None:
+                    return self._json({"error": "запрос не найден"}, 404)
+                return self._json({"ok": True, "item": item})
+            except ValueError as exc:
+                return self._json({"error": str(exc)}, 400)
             except Exception as exc:
                 return self._json({"error": str(exc)}, 500)
         if u.path == "/api/welcome":
@@ -1132,7 +1234,7 @@ def main():
     ap.add_argument("--no-window", action="store_true", help="без отдельного окна")
     args = ap.parse_args()
     with LOCK:
-        STATE["models"] = load_latest()
+        STATE["models"] = load_all_models()
         if STATE["models"]:
             _console_print("загружены сохранённые результаты:", len(STATE["models"]), "модел(ей)")
     srv = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)

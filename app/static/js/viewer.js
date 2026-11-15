@@ -101,9 +101,22 @@ class Viewer {
     this.resizeGizmo();
   }
 
+  stopViewAnimation() {
+    if (this._resetFrame) {
+      cancelAnimationFrame(this._resetFrame);
+      this._resetFrame = null;
+    }
+    if (this._axisFrame) {
+      cancelAnimationFrame(this._axisFrame);
+      this._axisFrame = null;
+    }
+    this.controls.enabled = true;
+  }
+
   setOrtho(on) {
     const flag = !!on;
     if (flag === this.isOrtho) return;
+    this.stopViewAnimation();
     const target = this.controls.target.clone();
     const pos = this.camera.position.clone();
     const up = this.camera.up.clone();
@@ -777,6 +790,7 @@ class Viewer {
       z: new THREE.Vector3(0, 1, 0),
     };
     if (!dirs[axis]) return;
+    this.stopViewAnimation();
     const target = this.controls.target.clone();
     const dist = this.camera.position.distanceTo(target) || 3;
     const startDir = this.camera.position.clone().sub(target).normalize();
@@ -823,6 +837,7 @@ class Viewer {
   }
 
   copyCamera(src) {
+    this.stopViewAnimation();
     this.setOrtho(src.isOrtho);
     if (src.isOrtho) {
       this.orthoHalfH = src.orthoHalfH;
@@ -835,23 +850,77 @@ class Viewer {
     this.controls.update();
   }
 
-  frame(mesh) {
+  frameTarget(mesh) {
     const v = mesh.v;
     const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
     v.forEach((p) => p.forEach((x, i) => { min[i] = Math.min(min[i], x); max[i] = Math.max(max[i], x); }));
     const c = min.map((m, i) => (m + max[i]) / 2);
     const r = Math.max(0.5, Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) / 2);
-    this.camera.position.set(c[0] + r * 2.1, c[1] - r * 2.4, c[2] + r * 1.7);
-    this.controls.target.set(c[0], c[1], c[2]);
-    this.camera.near = r / 50; this.camera.far = r * 60;
+    return {
+      position: new THREE.Vector3(c[0] + r * 2.1, c[1] - r * 2.4, c[2] + r * 1.7),
+      target: new THREE.Vector3(c[0], c[1], c[2]),
+      near: r / 50,
+      far: r * 60,
+      half: r * 1.25,
+    };
+  }
+
+  frame(mesh) {
+    this.stopViewAnimation();
+    const view = this.frameTarget(mesh);
+    this.camera.position.copy(view.position);
+    this.controls.target.copy(view.target);
+    this.camera.near = view.near;
+    this.camera.far = view.far;
     if (this.isOrtho) {
-      this.orthoHalfH = r * 1.25;
+      this.orthoHalfH = view.half;
       this.orthoCamera.zoom = 1;
       this.resize();
     } else {
       this.camera.updateProjectionMatrix();
     }
     this.controls.update();
+  }
+
+  resetView(mesh) {
+    const view = this.frameTarget(mesh);
+    const startPosition = this.camera.position.clone();
+    const startTarget = this.controls.target.clone();
+    const startUp = this.camera.up.clone().normalize();
+    const endUp = new THREE.Vector3(0, 0, 1);
+    const startHalf = this.orthoHalfH;
+    const startZoom = this.orthoCamera.zoom;
+    const duration = 560;
+    const started = performance.now();
+    this.stopViewAnimation();
+    this.controls.enabled = false;
+    this.camera.near = view.near;
+    this.camera.far = view.far;
+    const ease = (t) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    const step = () => {
+      const t = Math.min(1, (performance.now() - started) / duration);
+      const k = ease(t);
+      this.camera.position.lerpVectors(startPosition, view.position, k);
+      this.controls.target.lerpVectors(startTarget, view.target, k);
+      this.camera.up.copy(startUp).lerp(endUp, k).normalize();
+      if (this.isOrtho) {
+        this.orthoHalfH = startHalf + (view.half - startHalf) * k;
+        this.orthoCamera.zoom = startZoom + (1 - startZoom) * k;
+        this.resize();
+      } else {
+        this.camera.updateProjectionMatrix();
+      }
+      this.camera.lookAt(this.controls.target);
+      this.controls.update();
+      this.onCam(this);
+      if (t < 1) {
+        this._resetFrame = requestAnimationFrame(step);
+      } else {
+        this._resetFrame = null;
+        this.controls.enabled = true;
+      }
+    };
+    step();
   }
 }
 function makeCard() {

@@ -697,6 +697,12 @@ function showChangelog(force = false) {
   return loadChangelog(force);
 }
 
+const FEEDBACK_STATUS_LABELS = {
+  in_progress: "в процессе",
+  questions: "есть вопросы",
+  done: "выполнено",
+};
+
 function composeFeedback() {
   const type = $("feedbackType").value || "Другое";
   const name = $("feedbackName").value.trim();
@@ -710,7 +716,58 @@ function composeFeedback() {
   if (contact) lines.push("Контакт: " + contact);
   lines.push("", message, "", "Версия: " + version + (build ? " (сборка " + build + ")" : ""));
   if (navigator.platform) lines.push("Платформа: " + navigator.platform);
-  return { title: title, body: lines.join("\n"), message: message };
+  return { type, name, contact, message, title, body: lines.join("\n") };
+}
+
+function formatFeedbackDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+  }).format(date);
+}
+
+function renderFeedback(items) {
+  const list = $("feedbackList");
+  const count = $("feedbackCount");
+  const rows = Array.isArray(items) ? items : [];
+  count.textContent = rows.length ? rows.length + " шт." : "";
+  if (!rows.length) {
+    list.innerHTML = '<p class="feedback-empty">Запросов пока нет.</p>';
+    return;
+  }
+  const options = Object.entries(FEEDBACK_STATUS_LABELS).map(([value, label]) =>
+    `<option value="${value}">${label}</option>`
+  ).join("");
+  list.innerHTML = rows.map((item) => {
+    const status = FEEDBACK_STATUS_LABELS[item.status] ? item.status : "in_progress";
+    const statusOptions = options.replace(`value="${status}"`, `value="${status}" selected`);
+    const who = [item.name, item.contact].filter(Boolean).map(escapeHtml).join(" · ");
+    return `<article class="feedback-item">
+      <div class="feedback-item-head">
+        <span class="feedback-item-type">${escapeHtml(item.type || "Другое")}</span>
+        <span class="feedback-item-date">${formatFeedbackDate(item.created_at)}</span>
+      </div>
+      ${who ? `<div class="feedback-item-meta">${who}</div>` : ""}
+      <p class="feedback-item-text">${escapeHtml(item.message || "")}</p>
+      <label class="feedback-item-status">Статус
+        <select class="feedback-status-select" data-id="${escapeHtml(item.id || "")}">${statusOptions}</select>
+      </label>
+    </article>`;
+  }).join("");
+}
+
+async function loadFeedback() {
+  const list = $("feedbackList");
+  try {
+    const response = await fetch("/api/feedback", { cache: "no-store" });
+    if (!response.ok) throw new Error("feedback unavailable");
+    const data = await response.json();
+    renderFeedback(data.items || []);
+  } catch (error) {
+    list.innerHTML = '<p class="feedback-empty">Не удалось загрузить запросы.</p>';
+    $("feedbackCount").textContent = "";
+  }
 }
 
 function setFeedbackStatus(text, isError = false) {
@@ -725,6 +782,7 @@ function showFeedback() {
   $("aboutModal").classList.add("hidden");
   $("feedbackModal").classList.remove("hidden");
   setFeedbackStatus("");
+  loadFeedback();
   $("feedbackText").focus();
 }
 
@@ -741,6 +799,54 @@ async function copyFeedback(text) {
   area.select();
   document.execCommand("copy");
   area.remove();
+}
+
+async function submitFeedback() {
+  const data = composeFeedback();
+  if (data.message.length < 3) {
+    setFeedbackStatus("Напишите сообщение — хотя бы пару слов.", true);
+    return;
+  }
+  const button = $("feedbackSend");
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: data.type,
+        name: data.name,
+        contact: data.contact,
+        message: data.message,
+      }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || "Не удалось сохранить запрос.");
+    $("feedbackText").value = "";
+    setFeedbackStatus("Запрос сохранён.");
+    await loadFeedback();
+  } catch (error) {
+    setFeedbackStatus(String(error.message || error), true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function updateFeedbackStatus(id, status) {
+  try {
+    const response = await fetch("/api/feedback/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, status }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || "Не удалось изменить статус.");
+    setFeedbackStatus("Статус обновлён.");
+    await loadFeedback();
+  } catch (error) {
+    setFeedbackStatus(String(error.message || error), true);
+    await loadFeedback();
+  }
 }
 
 async function checkForUpdates(force = false) {
@@ -962,8 +1068,19 @@ function init() {
     App.viewers.forEach((v) => v.setOrtho(App.ortho));
   };
   $("resetBtn").onclick = () => {
-    App.viewers.forEach((v) => v.mesh && v.frame(v.mesh));
-    if (App.syncCam && App.viewers.length) { App.camLock = true; App.viewers.forEach((v) => v.copyCamera(App.viewers[0])); App.camLock = false; }
+    const viewers = App.viewers.filter((v) => v.mesh);
+    if (!viewers.length) return;
+    if (App.resetTimer) clearTimeout(App.resetTimer);
+    App.camLock = true;
+    viewers.forEach((v) => v.resetView(v.mesh));
+    App.resetTimer = setTimeout(() => {
+      if (App.syncCam && App.viewers.length) {
+        const source = App.viewers.find((v) => v.mesh) || App.viewers[0];
+        App.viewers.forEach((v) => v.copyCamera(source));
+      }
+      App.camLock = false;
+      App.resetTimer = null;
+    }, 620);
   };
   $("objBtn").onclick = async () => {
     const v = activeViewer();
@@ -1063,17 +1180,13 @@ function init() {
   };
   $("feedbackClose").onclick = () => $("feedbackModal").classList.add("hidden");
   $("feedbackModal").onclick = (e) => { if (e.target.id === "feedbackModal") $("feedbackModal").classList.add("hidden"); };
-  $("feedbackSend").onclick = () => {
-    const data = composeFeedback();
-    if (data.message.length < 3) {
-      setFeedbackStatus("Напишите сообщение — хотя бы пару слов.", true);
-      return;
+  $("feedbackSend").onclick = () => submitFeedback();
+  $("feedbackList").addEventListener("change", (e) => {
+    const select = e.target.closest(".feedback-status-select");
+    if (select && select.dataset.id) {
+      updateFeedbackStatus(select.dataset.id, select.value);
     }
-    const url = "https://github.com/AlexQuasarStudio/Ogranka/issues/new?title=" +
-      encodeURIComponent(data.title) + "&body=" + encodeURIComponent(data.body);
-    openExternal(url);
-    setFeedbackStatus("Открыл GitHub Issues. Проверьте текст и отправьте Issue.");
-  };
+  });
   $("feedbackCopy").onclick = async () => {
     const data = composeFeedback();
     if (data.message.length < 3) {
