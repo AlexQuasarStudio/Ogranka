@@ -2,6 +2,7 @@ name: Release
 
 on:
   push:
+    branches: [main]
     tags:
       - "v*"
 
@@ -13,8 +14,11 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      build: ${{ steps.version.outputs.build }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -26,8 +30,10 @@ jobs:
         id: version
         run: |
           VERSION=$(python -c "import sys; sys.path.insert(0, 'app'); import config; print(config.APP_VERSION)")
+          BUILD=$(git rev-list --count HEAD)
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          if [ "${GITHUB_REF_NAME}" != "v${VERSION}" ]; then
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v${VERSION}" ]; then
             echo "Tag ${GITHUB_REF_NAME} does not match app/config.py v${VERSION}" >&2
             exit 1
           fi
@@ -39,6 +45,7 @@ jobs:
     runs-on: macos-latest
     env:
       VERSION: ${{ needs.verify.outputs.version }}
+      OGRANKA_BUILD: ${{ needs.verify.outputs.build }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -68,6 +75,7 @@ jobs:
     runs-on: windows-latest
     env:
       VERSION: ${{ needs.verify.outputs.version }}
+      OGRANKA_BUILD: ${{ needs.verify.outputs.build }}
       CI: "true"
     steps:
       - uses: actions/checkout@v4
@@ -103,11 +111,13 @@ jobs:
           sha256sum Ogranka-macos-*.zip Ogranka-windows-*.exe > SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Огранка ${{ needs.verify.outputs.version }}
+          tag_name: v${{ needs.verify.outputs.version }}
+          name: Огранка ${{ needs.verify.outputs.version }} · build ${{ needs.verify.outputs.build }}
           body_path: release-notes/${{ needs.verify.outputs.version }}.md
           files: |
             assets/Ogranka-macos-*.zip
             assets/Ogranka-windows-*.exe
             assets/SHA256SUMS.txt
+          overwrite_files: true
+          make_latest: true
           generate_release_notes: false

@@ -577,7 +577,8 @@ function showUpdateModal(info) {
   const version = info.version || info.tag || "";
   $("updateTitle").textContent = version ? "Что нового в " + version : "Что нового";
   const date = formatReleaseDate(info.published_at);
-  $("updateMeta").textContent = date ? "Опубликовано " + date : "Новая версия";
+  const build = info.build ? " · build " + info.build : "";
+  $("updateMeta").textContent = (date ? "Опубликовано " + date : "Новая версия") + build;
   $("updateNotes").innerHTML = renderPatchNotes(info.notes, info.notes_truncated);
   const download = $("updateDownload");
   download.textContent = info.asset ? "Скачать обновление" : "Открыть страницу релиза";
@@ -661,7 +662,7 @@ async function checkForUpdates(force = false) {
     if (button) {
       if (info.available) {
         button.textContent = "Обновление " + info.version;
-        button.title = "Что нового в " + info.version;
+        button.title = "Что нового в " + info.version + (info.build ? " (build " + info.build + ")" : "");
         button.classList.remove("hidden");
       } else {
         button.classList.add("hidden");

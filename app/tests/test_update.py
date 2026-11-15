@@ -24,6 +24,9 @@ class UpdateTest(unittest.TestCase):
         self.assertEqual(app._version_key("v1.2.10"), (1, 2, 10))
         self.assertTrue(app._is_newer_version("1.2.10", "1.2.9"))
         self.assertFalse(app._is_newer_version("1.2.9", "1.2.10"))
+        self.assertTrue(app._is_newer_release("1.0.1", "45", "1.0.1", "44"))
+        self.assertFalse(app._is_newer_release("1.0.1", "44", "1.0.1", "44"))
+        self.assertTrue(app._is_newer_release("1.0.2", "", "1.0.1", "44"))
 
     def test_release_notes_are_returned(self):
         payload = {
@@ -55,7 +58,7 @@ class UpdateTest(unittest.TestCase):
         payload = [
             {
                 "tag_name": "v1.0.2",
-                "name": "Огранка 1.0.2",
+                "name": "Огранка 1.0.2 · build 45",
                 "html_url": "https://example.com/v1.0.2",
                 "published_at": "2026-11-16T10:00:00Z",
                 "body": "## Новое\n- История",
@@ -82,5 +85,6 @@ class UpdateTest(unittest.TestCase):
         self.assertTrue(info["checked"])
         self.assertEqual(len(info["releases"]), 2)
         self.assertEqual(info["releases"][0]["version"], "1.0.2")
+        self.assertEqual(info["releases"][0]["build"], "45")
         self.assertEqual(info["releases"][0]["notes"], "## Новое\n- История")
         self.assertFalse(info["releases"][1]["notes"])

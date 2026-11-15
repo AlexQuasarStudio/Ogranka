@@ -576,6 +576,27 @@ def _is_newer_version(latest, current):
     return bool(latest_key) and latest_key > current_key
 
 
+def _build_number(value):
+    match = re.search(r"(\d+)", str(value or ""))
+    return int(match.group(1)) if match else 0
+
+
+def _release_build(release):
+    text = "\n".join(
+        str(release.get(key) or "") for key in ("name", "body")
+    )
+    match = re.search(r"\bbuild\s*[:#]?\s*(\d+)\b", text, re.IGNORECASE)
+    return match.group(1) if match else ""
+
+
+def _is_newer_release(version, build, current_version, current_build):
+    if _is_newer_version(version, current_version):
+        return True
+    if _version_key(version) == _version_key(current_version):
+        return _build_number(build) > _build_number(current_build)
+    return False
+
+
 def _release_download(release):
     assets = release.get("assets") or []
     system = platform.system().lower()
@@ -632,13 +653,16 @@ def _update_info(force=False):
     else:
         tag = str(release.get("tag_name") or release.get("name") or "").strip()
         version = tag.lstrip("vV")
+        build = _release_build(release)
         download, asset = _release_download(release)
         notes = str(release.get("body") or "").strip()
         notes_truncated = len(notes) > UPDATE_NOTES_LIMIT
         result = {
-            "available": _is_newer_version(version, APP_VERSION),
+            "available": _is_newer_release(version, build, APP_VERSION, APP_BUILD),
             "current": APP_VERSION,
+            "current_build": APP_BUILD,
             "version": version,
+            "build": build,
             "tag": tag,
             "title": release.get("name") or tag,
             "url": download or release.get("html_url"),
@@ -708,6 +732,7 @@ def _changelog_info(force=False):
                     {
                         "version": tag.lstrip("vV"),
                         "tag": tag,
+                        "build": _release_build(release),
                         "title": release.get("name") or tag,
                         "url": release.get("html_url"),
                         "published_at": release.get("published_at"),

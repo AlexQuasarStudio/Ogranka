@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Огранка {{APP_VERSION}} — восстановление формы</title>
 <meta name="version" content="{{APP_VERSION}}">
+<meta name="build" content="{{APP_BUILD}}">
 <meta name="author" content="Дьяченко Алексей">
 <meta name="description" content="Огранка {{APP_VERSION}} — восстановление формы по зашумлённым горизонтальным сечениям">
 <link rel="icon" href="/favicon.png">
@@ -65,11 +66,11 @@
     <div class="splash-tagline">восстановление формы по сечениям</div>
     <div class="splash-progress"><span></span></div>
     <div class="splash-status">Собираю сечения…</div>
-    <div class="splash-version">{{APP_VERSION}}</div>
+    <div class="splash-version">{{APP_VERSION}} · build {{APP_BUILD}}</div>
   </div>
 </div>
 <header>
-  <div class="brand">Огранка <span class="version">{{APP_VERSION}}</span> <span class="brand-sub">восстановление формы</span></div>
+  <div class="brand">Огранка <span class="version">{{APP_VERSION}}</span> <span class="build">build {{APP_BUILD}}</span> <span class="brand-sub">восстановление формы</span></div>
   <div class="header-right">
     <div id="statusText" class="status">Готов к запуску</div>
     <button id="historyBtn" class="history-btn" title="История изменений">История</button>
@@ -137,7 +138,7 @@
 
     <button id="levelsBtn" class="levels-btn" title="6 уровней: 100, 70, 50, 35, 25 и 15 % оставленных треугольников">6 уровней упрощения</button>
     <button id="runBtn" title="Запустить весь конвейер (R)" class="primary">Запустить конвейер</button>
-    <div class="app-foot">Огранка {{APP_VERSION}}<br>Дьяченко Алексей · мехмат МГУ<br>Науч. рук. — Валединский В.Д.</div>
+    <div class="app-foot">Огранка {{APP_VERSION}} · build {{APP_BUILD}}<br>Дьяченко Алексей · мехмат МГУ<br>Науч. рук. — Валединский В.Д.</div>
   </aside>
 
   <section class="workspace">
@@ -331,7 +332,7 @@
       <button id="aboutClose" class="help-close" title="Закрыть">×</button>
     </div>
     <div class="modal-body">
-      <p><b>Огранка {{APP_VERSION}}</b> — восстановление формы по зашумлённым
+      <p><b>Огранка {{APP_VERSION}} · build {{APP_BUILD}}</b> — восстановление формы по зашумлённым
       горизонтальным сечениям и построение минимального многогранника.</p>
       <p><b>Создатель:</b> Дьяченко Алексей, 5 курс,
       мехмат МГУ, кафедра вычислительной математики.</p>

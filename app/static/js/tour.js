@@ -1,10 +1,11 @@
 /* First-run tour. */
 const TOUR_KEY = "ogranka.tour.v1";
 const APP_VERSION_TEXT = document.querySelector('meta[name="version"]')?.content || "";
+const APP_BUILD_TEXT = document.querySelector('meta[name="build"]')?.content || "";
 const TOUR_STEPS = [
   {
     title: "Добро пожаловать в «Огранку»",
-    text: (APP_VERSION_TEXT ? `Версия ${APP_VERSION_TEXT}. ` : "") + "Приложение восстанавливает форму по зашумлённым горизонтальным сечениям. Короткий тур покажет основные элементы.",
+    text: (APP_VERSION_TEXT ? `Версия ${APP_VERSION_TEXT}${APP_BUILD_TEXT ? `, сборка ${APP_BUILD_TEXT}` : ""}. ` : "") + "Приложение восстанавливает форму по зашумлённым горизонтальным сечениям. Короткий тур покажет основные элементы.",
   },
   {
     title: "Модель",
