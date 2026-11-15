@@ -130,6 +130,10 @@ jobs:
         with:
           path: assets
           merge-multiple: true
+      - name: Add build metadata
+        run: |
+          echo "" >> release-notes/${{ needs.verify.outputs.version }}.md
+          echo "<!-- build: ${{ needs.verify.outputs.build }} -->" >> release-notes/${{ needs.verify.outputs.version }}.md
       - name: Create checksums
         run: |
           cd assets
@@ -137,7 +141,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.verify.outputs.version }}
-          name: Огранка ${{ needs.verify.outputs.version }} · build ${{ needs.verify.outputs.build }}
+          name: Огранка ${{ needs.verify.outputs.version }} · сборка ${{ needs.verify.outputs.build }}
           body_path: release-notes/${{ needs.verify.outputs.version }}.md
           files: |
             assets/Ogranka-macos-*.zip

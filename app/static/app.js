@@ -577,7 +577,7 @@ function showUpdateModal(info) {
   const version = info.version || info.tag || "";
   $("updateTitle").textContent = version ? "Что нового в " + version : "Что нового";
   const date = formatReleaseDate(info.published_at);
-  const build = info.build ? " · build " + info.build : "";
+  const build = info.build ? " · сборка " + info.build : "";
   $("updateMeta").textContent = (date ? "Опубликовано " + date : "Новая версия") + build;
   $("updateNotes").innerHTML = renderPatchNotes(info.notes, info.notes_truncated);
   const download = $("updateDownload");
@@ -658,7 +658,7 @@ function composeFeedback() {
   const lines = ["Тип: " + type];
   if (name) lines.push("Имя: " + name);
   if (contact) lines.push("Контакт: " + contact);
-  lines.push("", message, "", "Версия: " + version + (build ? " (build " + build + ")" : ""));
+  lines.push("", message, "", "Версия: " + version + (build ? " (сборка " + build + ")" : ""));
   if (navigator.platform) lines.push("Платформа: " + navigator.platform);
   return { title: title, body: lines.join("\n"), message: message };
 }
@@ -708,7 +708,7 @@ async function checkForUpdates(force = false) {
     if (button) {
       if (info.available) {
         button.textContent = "Обновление " + info.version;
-        button.title = "Что нового в " + info.version + (info.build ? " (build " + info.build + ")" : "");
+        button.title = "Что нового в " + info.version + (info.build ? " (сборка " + info.build + ")" : "");
         button.classList.remove("hidden");
       } else {
         button.classList.add("hidden");

@@ -585,7 +585,7 @@ def _release_build(release):
     text = "\n".join(
         str(release.get(key) or "") for key in ("name", "body")
     )
-    match = re.search(r"\bbuild\s*[:#]?\s*(\d+)\b", text, re.IGNORECASE)
+    match = re.search(r"\b(?:build|сборка)\s*[:#]?\s*(\d+)\b", text, re.IGNORECASE)
     return match.group(1) if match else ""
 
 
