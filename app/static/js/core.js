@@ -209,6 +209,11 @@ function currentModel() { return App.models[App.modelIdx]; }
 
 function hasMesh(r) { return !!(r && (r.has_mesh ?? r.mesh)); }
 
+function isSmoothedResult(r) {
+  const label = String(r && r.label || "");
+  return label.includes("Фурье") || label.includes("соседи");
+}
+
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",

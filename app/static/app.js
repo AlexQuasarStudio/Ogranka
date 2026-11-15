@@ -189,7 +189,7 @@ function renderBatch() {
   tb.innerHTML = "";
   const labels = modelLabels();
   App.models.forEach((model, i) => {
-    const cand = model.results.filter((r) => hasMesh(r) && !r.id.includes(":ref") && r.metrics && r.metrics.mse != null);
+    const cand = model.results.filter((r) => hasMesh(r) && !r.id.includes(":ref") && r.metrics && r.metrics.mse != null && isSmoothedResult(r));
     cand.sort((a, b) => a.metrics.mse - b.metrics.mse);
     const best = cand[0];
     const tr = document.createElement("tr");
