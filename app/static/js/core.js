@@ -26,6 +26,7 @@ const App = {
   liveSeq: 0,
   lastElapsed: 0,
   runBaseCount: null,
+  update: null,
 };
 
 const TOL = 0.03;
@@ -206,14 +207,38 @@ function setViewMode(mode) {
 
 function currentModel() { return App.models[App.modelIdx]; }
 
+function hasMesh(r) { return !!(r && (r.has_mesh ?? r.mesh)); }
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[ch]));
+}
+
 function orderedResults(results) {
+  const noiseOrder = new Map();
+  results.forEach((r) => {
+    const key = String(r.label || "").split(" · ")[0];
+    if (!noiseOrder.has(key)) noiseOrder.set(key, noiseOrder.size);
+  });
+  const variantRank = (r) => {
+    const label = String(r.label || "");
+    let method = 6;
+    if (label.includes("без сглаживания")) method = 0;
+    else if (label.includes("Фурье")) method = 2;
+    else if (label.includes("соседи")) method = 4;
+    if (label.includes("контуры")) method += 1;
+    if (label.includes("мин. многогранник")) method += 1;
+    return method;
+  };
   const rank = (r) => {
     if (!r || !r.id) return 1000;
     if (r.id.endsWith(":ref")) return 0;
     if (r.id.endsWith(":refmin")) return 1;
     if (r.kind === "level") return 900 + (100 - Number(r.pct || 0));
-    const m = r.id.match(/:v(\d+)(m)?$/);
-    return m ? 2 + Number(m[1]) * 2 + (m[2] ? 1 : 0) : 1000;
+    const key = String(r.label || "").split(" · ")[0];
+    const group = noiseOrder.has(key) ? noiseOrder.get(key) : 999;
+    return 10 + group * 10 + variantRank(r);
   };
   return [...results].sort((a, b) => rank(a) - rank(b));
 }
@@ -250,6 +275,7 @@ function activeViewer() {
 function setActiveViewer(v) {
   App.activeViewer = v;
   App.viewers.forEach((x) => x.card.classList.toggle("active-viewer", x === v));
+  if (typeof syncPrimaryFromViewer === "function") syncPrimaryFromViewer(v);
 }
 
 async function cycleViewerResult(delta) {

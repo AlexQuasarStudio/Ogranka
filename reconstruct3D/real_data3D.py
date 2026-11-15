@@ -14,6 +14,8 @@ import argparse
 import csv
 import glob
 import os
+import time
+
 import numpy as np
 
 from real3D import load_obj, mesh_edges, normalize_mesh, section_from_edges, support, envelope
@@ -109,15 +111,18 @@ def run(model_paths, out_dir="out3D_real", data_dir="data3D_real", modes=("maxim
                 else:
                     src = os.path.join(data_dir, f"data3D_{name}_{variant}.txt")
 
+                started = time.perf_counter()
                 if mode == "maxima":
                     pts = rec.reconstruct(src)
                 else:
                     pts = envelope_reconstruct(src)
 
+                elapsed = time.perf_counter() - started
                 if len(pts) < 4:
                     rows.append({"model": name, "file": os.path.basename(path), "mode": mode,
                                  "variant": variant, "points": len(pts), "mse": None,
-                                 "rmse": None, "dmax": None, "min_vertices": 0, "min_faces": 0})
+                                 "rmse": None, "dmax": None, "min_vertices": 0, "min_faces": 0,
+                                 "time_sec": round(elapsed, 3)})
                     print(f"{name} {mode:8s} {variant:8s}: вырождено ({len(pts)} точек)")
                     continue
 
@@ -131,12 +136,14 @@ def run(model_paths, out_dir="out3D_real", data_dir="data3D_real", modes=("maxim
                     print(f"{name} {mode:8s} {variant:8s}: не строится ({type(exc).__name__})")
                     rows.append({"model": name, "file": os.path.basename(path), "mode": mode,
                                  "variant": variant, "points": len(pts), "mse": None,
-                                 "rmse": None, "dmax": None, "min_vertices": 0, "min_faces": 0})
+                                 "rmse": None, "dmax": None, "min_vertices": 0, "min_faces": 0,
+                                 "time_sec": round(time.perf_counter() - started, 3)})
                     continue
                 rows.append({"model": name, "file": os.path.basename(path), "mode": mode,
                              "variant": variant, "points": len(pts), "mse": mse,
                              "rmse": rmse, "dmax": dmax,
-                             "min_vertices": minv, "min_faces": minf})
+                             "min_vertices": minv, "min_faces": minf,
+                             "time_sec": round(time.perf_counter() - started, 3)})
                 print(f"{name} {mode:8s} {variant:8s}: точек={len(pts):6d} "
                       f"MSE={mse:.6f} dmax={dmax:.4f} min={minv}/{minf}")
 

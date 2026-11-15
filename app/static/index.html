@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Огранка 1.0.0 — восстановление формы</title>
-<meta name="version" content="1.0.0">
+<title>Огранка {{APP_VERSION}} — восстановление формы</title>
+<meta name="version" content="{{APP_VERSION}}">
 <meta name="author" content="Дьяченко Алексей">
-<meta name="description" content="Огранка 1.0.0 — восстановление формы по зашумлённым горизонтальным сечениям">
+<meta name="description" content="Огранка {{APP_VERSION}} — восстановление формы по зашумлённым горизонтальным сечениям">
 <link rel="icon" href="/favicon.png">
-<link rel="stylesheet" href="/style.css?v=1.0.0-31">
+<link rel="stylesheet" href="/style.css?v={{APP_VERSION}}-{{APP_BUILD}}">
 <script src="/vendor/three.min.js"></script>
 <script src="/vendor/OrbitControls.js"></script>
 <script src="/vendor/lines/LineSegmentsGeometry.js"></script>
@@ -65,13 +65,14 @@
     <div class="splash-tagline">восстановление формы по сечениям</div>
     <div class="splash-progress"><span></span></div>
     <div class="splash-status">Собираю сечения…</div>
-    <div class="splash-version">1.0.0</div>
+    <div class="splash-version">{{APP_VERSION}}</div>
   </div>
 </div>
 <header>
-  <div class="brand">Огранка <span class="version">1.0.0</span> <span class="brand-sub">восстановление формы</span></div>
+  <div class="brand">Огранка <span class="version">{{APP_VERSION}}</span> <span class="brand-sub">восстановление формы</span></div>
   <div class="header-right">
     <div id="statusText" class="status">Готов к запуску</div>
+    <button id="updateBtn" class="update-btn hidden" title="Скачать обновление">Обновление</button>
     <button id="aboutBtn" class="help-btn about-btn" title="О программе (I)">i</button>
     <button id="helpBtn" class="help-btn" title="Справка (?)">?</button>
   </div>
@@ -100,10 +101,9 @@
     <label class="check"><input type="checkbox" id="noiseCustom" title="Свои уровни шума через запятую"> свой уровень:</label>
     <input id="customNoise" class="wide" value="0.02, 0.05" title="значения через запятую">
     <div class="row"><span>модель шума</span>
-      <select id="noiseModel" title="По углам — как в отчёте; по рёбрам — сдвиг каждой кромки сечения; по нормали — каждая точка контура сдвигается по нормали к своему ребру">
-        <option value="angles">по углам</option>
-        <option value="edges" selected>по рёбрам</option>
-        <option value="normal">по нормали к ребру</option>
+      <select id="noiseModel" title="По углам — независимый шум опорных значений, как в отчёте; по нормали — точечный шум контура">
+        <option value="angles" selected>по углам (как в отчёте)</option>
+        <option value="normal">по нормали к ребру (точки)</option>
       </select>
     </div>
 
@@ -136,12 +136,12 @@
 
     <button id="levelsBtn" class="levels-btn" title="6 уровней: 100, 70, 50, 35, 25 и 15 % оставленных треугольников">6 уровней упрощения</button>
     <button id="runBtn" title="Запустить весь конвейер (R)" class="primary">Запустить конвейер</button>
-    <div class="app-foot">Огранка 1.0.0<br>Дьяченко Алексей · мехмат МГУ<br>Науч. рук. — Валединский В.Д.</div>
+    <div class="app-foot">Огранка {{APP_VERSION}}<br>Дьяченко Алексей · мехмат МГУ<br>Науч. рук. — Валединский В.Д.</div>
   </aside>
 
   <section class="workspace">
     <div class="model-row">
-      <label title="Модель; [ и ] переключают">модель <select id="modelSel"></select></label>
+      <label title="Модель; , и . переключают в активном вьюпорте">модель <select id="modelSel"></select></label>
       <span id="batchInfo" class="meta"></span>
     </div>
 
@@ -275,11 +275,12 @@
       TXT — три числа в строке: x y z.</p>
       <h3>Шум и методы</h3>
       <p>r8 — 0.008, r80 — 0.08, свои уровни через запятую — несколько сразу.
-      «По углам» — независимый шум опорной функции, как в отчёте; «по рёбрам» —
-      одна ошибка на кромку каждого сечения, эксперимент с более структурным шумом.
-      «По нормали к ребру» — точки контура с шагом между сечениями сдвигаются
-      по нормали к своему ребру; при выключенном сглаживании такой вариант
-      дополнительно показывается невыпуклыми контурами отдельной строкой.
+      «По углам» — независимый шум опорной функции, как в отчёте.
+      «По нормали к ребру» — точечный шум: точки контура с шагом между сечениями
+      сдвигаются по нормали к своему ребру; при выключенном сглаживании такой
+      вариант дополнительно показывается невыпуклыми контурами отдельной строкой.
+      Обычная строка «без сглаживания» показывает выпуклую оболочку, а «контуры
+      (лофт)» — те же сечения, сшитые как есть, без оболочки.
       Фурье+МНК: M — число гармоник. «Соседи»: k — полуширина окна.
       Полуплоскости — основной режим для реальных огранок, максимумы —
       исходный метод для правильных многогранников.</p>
@@ -297,6 +298,10 @@
       панель живого предпросмотра доступна слева снизу; её можно свернуть
       кнопкой со стрелкой. Новый запуск добавляет модели в список, старые
       остаются до «Очистить кеш»; одинаковые имена различаются временем прогона.</p>
+      <h3>Модели во вьюпортах</h3>
+      <p>У каждого окна есть свой выбор модели: можно сравнивать разные прогоны
+      рядом. Верхний список «модель» задаёт модель сразу для всех окон, а выбор
+      в шапке окна меняет только это окно.</p>
       <h3>Горячие клавиши</h3>
       <p><b>R</b> — запуск, <b>1–7</b> — режим отображения, <b>F</b> — развернуть
       выбранный вьюпорт на всё окно, <b>Esc</b> — вернуть сетку, <b>+/−</b> — добавить
@@ -304,13 +309,14 @@
       <b>L</b> — только выделенное, <b>P</b> — ортогональный вид,
       <b>C</b> — общая камера, <b>A</b> — выделить всё, <b>Alt+A</b> — снять,
       <b>G</b> — сбросить вид, <b>O</b> — скачать OBJ, <b>S</b> — скриншот,
-      <b>[</b> и <b>]</b> — предыдущая и следующая модель в списке активного
-      вьюпорта, <b>?</b> — справка, <b>I</b> — о программе.
+      <b>,</b> и <b>.</b> — предыдущая и следующая модель в активном вьюпорте,
+      <b>[</b> и <b>]</b> — вариант обработки в нём, <b>?</b> — справка,
+      <b>I</b> — о программе.
       Хоткеи работают и в русской, и в английской раскладке.</p>
       <h3>Экспорт</h3>
       <p>OBJ и PNG сохраняются из активного подсвеченного вьюпорта. В macOS-приложении открывается системный диалог сохранения, в браузере файлы попадают в папку загрузок. CSV — все метрики.</p>
       <h3>О программе</h3>
-      <p><b>Огранка 1.0.0</b>. Создатель — Дьяченко Алексей, 5 курс,
+      <p><b>Огранка {{APP_VERSION}}</b>. Создатель — Дьяченко Алексей, 5 курс,
       мехмат МГУ, кафедра вычислительной математики.
       Научный руководитель — Валединский Владимир Дмитриевич.</p>
     </div>
@@ -324,13 +330,36 @@
       <button id="aboutClose" class="help-close" title="Закрыть">×</button>
     </div>
     <div class="modal-body">
-      <p><b>Огранка 1.0.0</b> — восстановление формы по зашумлённым
+      <p><b>Огранка {{APP_VERSION}}</b> — восстановление формы по зашумлённым
       горизонтальным сечениям и построение минимального многогранника.</p>
       <p><b>Создатель:</b> Дьяченко Алексей, 5 курс,
       мехмат МГУ, кафедра вычислительной математики.</p>
       <p><b>Научный руководитель:</b> Валединский Владимир Дмитриевич.</p>
       <p class="about-copy">© 2026 Дьяченко Алексей</p>
-      <button id="tourBtn" class="tour-start">Пройти тур</button>
+      <div class="about-actions">
+        <button id="tourBtn" class="tour-start">Пройти тур</button>
+        <button id="checkUpdates" class="update-check">Проверить обновления</button>
+      </div>
+      <p id="updateState" class="update-state" aria-live="polite"></p>
+    </div>
+  </div>
+</div>
+
+<div id="updateModal" class="modal hidden">
+  <div class="modal-card update-card">
+    <div class="modal-head">
+      <div>
+        <h2 id="updateTitle">Что нового</h2>
+        <div id="updateMeta" class="update-meta"></div>
+      </div>
+      <button id="updateClose" class="help-close" title="Закрыть">×</button>
+    </div>
+    <div class="modal-body update-body">
+      <div id="updateNotes" class="update-notes"></div>
+      <div class="update-actions">
+        <button id="updateDownload" class="update-download">Скачать обновление</button>
+        <button id="updateRelease" class="update-release">Страница релиза</button>
+      </div>
     </div>
   </div>
 </div>
@@ -350,10 +379,10 @@
   </div>
 </div>
 
-<script src="/js/core.js?v=1.0.0-31"></script>
-<script src="/js/viewer.js?v=1.0.0-31"></script>
-<script src="/js/live.js?v=1.0.0-31"></script>
-<script src="/js/tour.js?v=1.0.0-31"></script>
-<script src="/app.js?v=1.0.0-31"></script>
+<script src="/js/core.js?v={{APP_VERSION}}-{{APP_BUILD}}"></script>
+<script src="/js/viewer.js?v={{APP_VERSION}}-{{APP_BUILD}}"></script>
+<script src="/js/live.js?v={{APP_VERSION}}-{{APP_BUILD}}"></script>
+<script src="/js/tour.js?v={{APP_VERSION}}-{{APP_BUILD}}"></script>
+<script src="/app.js?v={{APP_VERSION}}-{{APP_BUILD}}"></script>
 </body>
 </html>

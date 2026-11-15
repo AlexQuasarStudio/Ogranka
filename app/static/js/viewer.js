@@ -2,6 +2,7 @@
 class Viewer {
   constructor(card, onPick, onCam) {
     this.card = card;
+    this.modelSel = card.querySelector(".vmodel");
     this.select = card.querySelector(".vsel");
     this.meta = card.querySelector(".vmeta");
     this.canvas = card.querySelector("canvas");
@@ -29,6 +30,7 @@ class Viewer {
     this.controls.addEventListener("change", () => this.onCam(this));
 
     this.mesh = null;
+    this.loadSeq = 0;
     this.faces = [];
     this.verts = [];
     this.triFace = [];
@@ -855,7 +857,7 @@ class Viewer {
 function makeCard() {
   const card = document.createElement("div");
   card.className = "viewer-card";
-  card.innerHTML = `<div class="viewer-head"><select class="vsel"></select><span class="vmeta meta"></span><button class="vdel" title="Убрать это окно">− окно</button><button class="vadd" title="Добавить окно в полноэкранную сетку">+ окно</button><button class="vmax" title="Развернуть или свернуть этот вьюпорт">⤢</button></div>
+  card.innerHTML = `<div class="viewer-head"><select class="vmodel" title="Модель в этом вьюпорте"></select><select class="vsel" title="Вариант обработки"></select><span class="vmeta meta"></span><button class="vdel" title="Убрать это окно">− окно</button><button class="vadd" title="Добавить окно в полноэкранную сетку">+ окно</button><button class="vmax" title="Развернуть или свернуть этот вьюпорт">⤢</button></div>
                     <div class="canvas-wrap"><canvas></canvas>
                       <div class="hud">
                         <div class="axis-gizmo"><canvas class="gizmo" title="3D-оси: клик по X, Y или Z плавно выравнивает камеру" aria-label="3D-оси X, Y, Z"></canvas></div>
@@ -966,7 +968,20 @@ function addViewer() {
   layoutViewers();
   updateViewButtons();
   updateDiff();
-  v.select.onchange = () => { setActiveViewer(v); loadViewer(v); };
+  v.select.onchange = () => {
+    v.select.title = v.select.selectedOptions[0]?.textContent || "Вариант обработки";
+    setActiveViewer(v);
+    loadViewer(v);
+  };
+  if (v.modelSel) {
+    v.modelSel.onchange = async () => {
+      v.modelIdx = +v.modelSel.value;
+      populateViewer(v, App.viewers.indexOf(v));
+      setActiveViewer(v);
+      if (typeof syncPrimaryFromViewer === "function") syncPrimaryFromViewer(v);
+      await loadViewer(v);
+    };
+  }
   return v;
 }
 
@@ -1002,28 +1017,46 @@ function updateViewButtons() {
 }
 
 function populateViewer(v, idx) {
-  const model = App.models[App.modelIdx];
+  if (!App.models.length) return;
+  let modelIdx = Number.isInteger(v.modelIdx) ? v.modelIdx : App.modelIdx;
+  if (modelIdx < 0 || modelIdx >= App.models.length) modelIdx = 0;
+  v.modelIdx = modelIdx;
+  const model = App.models[modelIdx];
   if (!model) return;
+  const labels = typeof modelLabels === "function" ? modelLabels() : App.models.map((m) => m.name);
+  if (v.modelSel) {
+    v.modelSel.innerHTML = App.models.map((m, i) => `<option value="${i}">${escapeHtml(labels[i])}</option>`).join("");
+    v.modelSel.value = String(modelIdx);
+    v.modelSel.title = labels[modelIdx] || "Модель в этом вьюпорте";
+  }
   const results = orderedResults(model.results);
-  v.select.innerHTML = results.map((r) => `<option value="${r.id}">${r.label}</option>`).join("");
+  if (!results.length) {
+    v.select.innerHTML = "";
+    return;
+  }
+  v.select.innerHTML = results.map((r) => `<option value="${r.id}">${escapeHtml(r.label)}</option>`).join("");
+  const setResult = (id) => {
+    v.select.value = id;
+    v.select.title = v.select.selectedOptions[0]?.textContent || "Вариант обработки";
+  };
   if (model.levels) {
-    const cand = results.filter((r) => r.mesh);
+    const cand = results.filter((r) => hasMesh(r));
     const pick = cand[Math.min(idx, cand.length - 1)] || cand[0];
-    v.select.value = (pick || results[0]).id;
+    setResult((pick || results[0]).id);
     return;
   }
   let pick = null;
   if (idx === 0) {
     pick = results.find((r) => r.id.endsWith(":ref"));
   } else if (idx === 1) {
-    const cand = results.filter((r) => r.mesh && !r.id.includes(":ref") && r.metrics && r.metrics.mse != null);
+    const cand = results.filter((r) => hasMesh(r) && !r.id.includes(":ref") && r.metrics && r.metrics.mse != null);
     cand.sort((a, b) => a.metrics.mse - b.metrics.mse);
     pick = cand[0];
   } else {
-    pick = results.filter((r) => r.mesh && !r.id.includes(":ref"))[idx - 1] ||
-           results.filter((r) => r.mesh)[0];
+    pick = results.filter((r) => hasMesh(r) && !r.id.includes(":ref"))[idx - 1] ||
+           results.filter((r) => hasMesh(r))[0];
   }
-  v.select.value = (pick || results[0]).id;
+  setResult((pick || results[0]).id);
 }
 
 async function loadViewer(v) {
@@ -1031,12 +1064,24 @@ async function loadViewer(v) {
   App.sel.ids = [];
   const id = v.select.value;
   if (!id) return;
-  const r = await meshOf(id);
-  v.setMesh(r.mesh, App.mode, !!v.mesh);
-  const m = r.metrics || {};
-  v.meta.innerHTML = `${badge(r.quality)} MSE ${fmt(m.mse)} · RMSE ${fmt(m.rmse)} · dmax ${fmt(m.dmax)} · ${r.time != null ? r.time + " с" : "—"}`;
-  updateDiff();
-  selectionText();
+  const seq = (v.loadSeq || 0) + 1;
+  v.loadSeq = seq;
+  try {
+    const r = await meshOf(id);
+    if (v.loadSeq !== seq) return;
+    v.setMesh(r.mesh, App.mode, !!v.mesh);
+    const m = r.metrics || {};
+    v.meta.innerHTML = `${badge(r.quality)} MSE ${fmt(m.mse)} · RMSE ${fmt(m.rmse)} · dmax ${fmt(m.dmax)} · ${r.time != null ? r.time + " с" : "—"}`;
+    updateDiff();
+    selectionText();
+  } catch (err) {
+    if (v.loadSeq !== seq) return;
+    v.setMesh(null, App.mode, false);
+    v.meta.textContent = "Не удалось загрузить вариант";
+    v.meta.title = err.message || "";
+    updateDiff();
+    selectionText();
+  }
 }
 
 async function loadAllViewers() {

@@ -91,7 +91,7 @@ async function loadResults(selectNew = false) {
   App.models = data.models || [];
   App.meshes = {};
   const labels = modelLabels();
-  $("modelSel").innerHTML = App.models.map((m, i) => `<option value="${i}">${labels[i]}</option>`).join("");
+  $("modelSel").innerHTML = App.models.map((m, i) => `<option value="${i}">${escapeHtml(labels[i])}</option>`).join("");
   let idx = -1;
   if (selectNew && App.runBaseCount != null) idx = App.runBaseCount;
   if (idx < 0 || idx >= App.models.length) {
@@ -110,12 +110,56 @@ async function renderModel() {
   const model = currentModel();
   if (!model) return;
   App.liveSource = sourceForModel(model);
-  App.viewers.forEach((v, i) => populateViewer(v, i));
+  App.viewers.forEach((v, i) => {
+    v.modelIdx = App.modelIdx;
+    populateViewer(v, i);
+  });
   renderTable(model.results);
   App.viewers.forEach((v) => { v.select.onchange = () => { setActiveViewer(v); loadViewer(v); }; });
   await loadAllViewers();
+  updateBatchInfo();
+}
+
+function updateBatchInfo() {
+  if (!App.models.length) {
+    $("batchInfo").textContent = "прогонов пока нет";
+    return;
+  }
   const total = App.lastElapsed ? ` · всего ${fmtDur(App.lastElapsed)}` : "";
-  $("batchInfo").textContent = `модель ${App.modelIdx + 1} из ${App.models.length}${total}`;
+  const v = activeViewer();
+  const active = App.viewers.length > 1 && v ? ` · окно ${App.viewers.indexOf(v) + 1}` : "";
+  $("batchInfo").textContent = `модель ${App.modelIdx + 1} из ${App.models.length}${active}${total}`;
+}
+
+function syncPrimaryFromViewer(v) {
+  if (!v || !App.models.length) return;
+  if (!Number.isInteger(v.modelIdx) || !App.models[v.modelIdx]) return;
+  App.modelIdx = v.modelIdx;
+  const model = App.models[App.modelIdx];
+  App.liveSource = sourceForModel(model);
+  const sel = $("modelSel");
+  if (sel) sel.value = String(App.modelIdx);
+  if ($("metricsTable")) renderTable(model.results);
+  updateBatchInfo();
+}
+
+async function setActiveViewerModel(idx) {
+  if (!App.models[idx]) return;
+  const v = activeViewer();
+  if (!v) return;
+  v.modelIdx = idx;
+  populateViewer(v, App.viewers.indexOf(v));
+  setActiveViewer(v);
+  syncPrimaryFromViewer(v);
+  await loadViewer(v);
+}
+
+async function cycleActiveModel(delta) {
+  if (App.models.length < 2) return;
+  const v = activeViewer();
+  const cur = v && Number.isInteger(v.modelIdx) ? v.modelIdx : App.modelIdx;
+  const next = (cur + delta + App.models.length) % App.models.length;
+  await setActiveViewerModel(next);
 }
 
 function renderTable(results) {
@@ -124,8 +168,8 @@ function renderTable(results) {
   orderedResults(results).forEach((r) => {
     const tr = document.createElement("tr");
     const m = r.metrics || {};
-    tr.className = r.mesh ? "" : "fail";
-    tr.innerHTML = `<td>${r.label}</td><td>${badge(r.quality)}</td><td>${fmt(m.mse)}</td>
+    tr.className = hasMesh(r) ? "" : "fail";
+    tr.innerHTML = `<td>${escapeHtml(r.label)}</td><td>${badge(r.quality)}</td><td>${fmt(m.mse)}</td>
       <td>${fmt(m.rmse)}</td><td>${fmt(m.dmax)}</td><td>${r.vertices ?? "—"}</td>
       <td>${r.faces ?? "—"}</td><td>${r.points ?? "—"}</td>
       <td>${r.time != null ? r.time + " с" : "—"}</td>`;
@@ -145,11 +189,11 @@ function renderBatch() {
   tb.innerHTML = "";
   const labels = modelLabels();
   App.models.forEach((model, i) => {
-    const cand = model.results.filter((r) => r.mesh && !r.id.includes(":ref") && r.metrics && r.metrics.mse != null);
+    const cand = model.results.filter((r) => hasMesh(r) && !r.id.includes(":ref") && r.metrics && r.metrics.mse != null);
     cand.sort((a, b) => a.metrics.mse - b.metrics.mse);
     const best = cand[0];
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${labels[i]}</td><td>${best ? best.label : "—"}</td>
+    tr.innerHTML = `<td>${escapeHtml(labels[i])}</td><td>${best ? escapeHtml(best.label) : "—"}</td>
       <td>${best ? fmt(best.metrics.mse) : "—"}</td><td>${best ? fmt(best.metrics.rmse) : "—"}</td>
       <td>${best ? fmt(best.metrics.dmax) : "—"}</td><td>${best ? badge(best.quality) : ""}</td>
       <td>${best && best.time != null ? best.time + " с" : "—"}</td>`;
@@ -428,6 +472,164 @@ function poll() {
   }, 500);
 }
 
+async function openExternal(url) {
+  if (!url) return;
+  try {
+    if (window.pywebview?.api?.open_url) {
+      await window.pywebview.api.open_url(url);
+      return;
+    }
+  } catch (error) {
+  }
+  window.open(url, "_blank", "noopener");
+}
+
+function renderReleaseInline(text) {
+  let html = escapeHtml(text);
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+    '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
+  );
+  return html;
+}
+
+function renderPatchNotes(text, truncated) {
+  const source = String(text || "").replace(/\r\n/g, "\n").trim();
+  if (!source) return '<p class="update-empty">В описании релиза пока нет подробностей.</p>';
+  const lines = source.split("\n");
+  let html = "";
+  let list = null;
+  let paragraph = [];
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    html += "<p>" + paragraph.map(renderReleaseInline).join("<br>") + "</p>";
+    paragraph = [];
+  };
+  const closeList = () => {
+    if (!list) return;
+    html += "</" + list + ">";
+    list = null;
+  };
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) {
+      flushParagraph();
+      closeList();
+      continue;
+    }
+    if (/^-{3,}$/.test(line)) {
+      flushParagraph();
+      closeList();
+      html += "<hr>";
+      continue;
+    }
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      closeList();
+      const tag = heading[1].length === 1 ? "h3" : "h4";
+      html += "<" + tag + ">" + renderReleaseInline(heading[2]) + "</" + tag + ">";
+      continue;
+    }
+    if (/^[-*+]\s+/.test(line)) {
+      flushParagraph();
+      if (list !== "ul") {
+        closeList();
+        html += "<ul>";
+        list = "ul";
+      }
+      html += "<li>" + renderReleaseInline(line.replace(/^[-*+]\s+/, "")) + "</li>";
+      continue;
+    }
+    if (/^\d+[.)]\s+/.test(line)) {
+      flushParagraph();
+      if (list !== "ol") {
+        closeList();
+        html += "<ol>";
+        list = "ol";
+      }
+      html += "<li>" + renderReleaseInline(line.replace(/^\d+[.)]\s+/, "")) + "</li>";
+      continue;
+    }
+    closeList();
+    paragraph.push(line);
+  }
+  flushParagraph();
+  closeList();
+  if (truncated) html += '<p class="update-truncated">Показаны первые 12 000 символов описания.</p>';
+  return html;
+}
+
+function formatReleaseDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "numeric", month: "long", year: "numeric",
+  }).format(date);
+}
+
+function showUpdateModal(info) {
+  if (!info || !info.available) return;
+  const version = info.version || info.tag || "";
+  $("updateTitle").textContent = version ? "Что нового в " + version : "Что нового";
+  const date = formatReleaseDate(info.published_at);
+  $("updateMeta").textContent = date ? "Опубликовано " + date : "Новая версия";
+  $("updateNotes").innerHTML = renderPatchNotes(info.notes, info.notes_truncated);
+  const download = $("updateDownload");
+  download.textContent = info.asset ? "Скачать обновление" : "Открыть страницу релиза";
+  download.disabled = !info.url;
+  download.title = info.asset || "Страница релиза";
+  const release = $("updateRelease");
+  release.classList.toggle("hidden", !info.release_url || info.release_url === info.url);
+  $("updateModal").classList.remove("hidden");
+}
+
+async function checkForUpdates(force = false) {
+  const button = $("updateBtn");
+  const state = $("updateState");
+  if (force && state) {
+    state.className = "update-state";
+    state.textContent = "Проверяю обновления…";
+  }
+  try {
+    const response = await fetch("/api/update" + (force ? "?force=1" : ""));
+    if (!response.ok) throw new Error("update unavailable");
+    const info = await response.json();
+    App.update = info;
+    if (button) {
+      if (info.available) {
+        button.textContent = "Обновление " + info.version;
+        button.title = "Что нового в " + info.version;
+        button.classList.remove("hidden");
+      } else {
+        button.classList.add("hidden");
+      }
+    }
+    if (force && state) {
+      if (info.available) {
+        state.className = "update-state good";
+        state.textContent = "Доступна версия " + info.version + ".";
+      } else if (info.checked) {
+        state.className = "update-state";
+        state.textContent = "Обновлений нет — установлена последняя версия (" + info.current + ").";
+      } else {
+        state.className = "update-state warn";
+        state.textContent = "Не удалось проверить обновления. Попробуйте позже.";
+      }
+    }
+    return info;
+  } catch (error) {
+    if (force && state) {
+      state.className = "update-state warn";
+      state.textContent = "Не удалось проверить обновления. Проверьте подключение.";
+    }
+    return null;
+  }
+}
+
 function init() {
   initSplash();
   addViewer();
@@ -449,7 +651,7 @@ function init() {
   $("dirInput").onchange = (e) => setFiles(e.target.files, true);
   $("levelsBtn").onclick = async () => {
     const src = currentLiveSource();
-    if (!src) { alert("Сначала выберите модель"); return; }
+    if (!src) { alert("У выбранной модели нет источника — выберите исходную модель"); return; }
     showProgress("6 уровней упрощения", "построение минимальных многогранников");
     try {
       const r = await fetch("/api/levels", {
@@ -459,9 +661,15 @@ function init() {
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "не удалось построить уровни");
       await loadResults();
-      const idx = App.models.findIndex((m) => m.name === j.name);
-      if (idx >= 0) { App.modelIdx = idx; $("modelSel").value = String(idx); await renderModel(); }
-      $("statusText").textContent = "6 уровней готовы";
+      let idx = App.models.findIndex((m) => m.id === j.id);
+      if (idx < 0 && j.uid) idx = App.models.findIndex((m) => m.uid === j.uid);
+      if (idx < 0) idx = App.models.findIndex((m) => m.name === j.name);
+      if (idx < 0) throw new Error("модель уровней не появилась в списке моделей");
+      App.modelIdx = idx;
+      $("modelSel").value = String(idx);
+      renderBatch();
+      await renderModel();
+      $("statusText").textContent = "6 уровней добавлены в список";
       hideProgress();
     } catch (e) {
       showProgressError(e.message);
@@ -557,13 +765,12 @@ function init() {
     $("batchTable").querySelector("tbody").innerHTML = "";
     $("metricsTable").querySelector("tbody").innerHTML = "";
     App.viewers.forEach((v) => { v.select.innerHTML = ""; v.meta.textContent = ""; v.setMesh(null, App.mode); });
-    $("batchInfo").textContent = "кеш очищен";
+    $("batchInfo").textContent = "кеш очищен · приветствие при следующем запуске";
     $("diffLine").textContent = "Сравнение: —";
     $("selectionInfo").textContent = "Выделение: —";
     resetTourSeen();
     App.liveSeq++;
     clearTimeout(App.liveTimer);
-    startTour(true);
   };
   $("pngBtn").onclick = async () => {
     const v = activeViewer();
@@ -609,11 +816,27 @@ function init() {
   $("helpBtn").onclick = () => { $("aboutModal").classList.add("hidden"); $("helpModal").classList.remove("hidden"); };
   $("aboutBtn").onclick = () => { $("helpModal").classList.add("hidden"); $("aboutModal").classList.remove("hidden"); };
   $("tourBtn").onclick = () => { $("aboutModal").classList.add("hidden"); startTour(true); };
+  $("checkUpdates").onclick = async () => {
+    const info = await checkForUpdates(true);
+    if (info && info.available) {
+      $("aboutModal").classList.add("hidden");
+      showUpdateModal(info);
+    }
+  };
+  $("updateBtn").onclick = () => showUpdateModal(App.update);
+  $("updateClose").onclick = () => $("updateModal").classList.add("hidden");
+  $("updateDownload").onclick = () => {
+    if (App.update && App.update.url) openExternal(App.update.url);
+  };
+  $("updateRelease").onclick = () => {
+    if (App.update && App.update.release_url) openExternal(App.update.release_url);
+  };
   $("progressClose").onclick = () => hideProgress();
   $("helpClose").onclick = () => $("helpModal").classList.add("hidden");
   $("aboutClose").onclick = () => $("aboutModal").classList.add("hidden");
   $("helpModal").onclick = (e) => { if (e.target.id === "helpModal") $("helpModal").classList.add("hidden"); };
   $("aboutModal").onclick = (e) => { if (e.target.id === "aboutModal") $("aboutModal").classList.add("hidden"); };
+  $("updateModal").onclick = (e) => { if (e.target.id === "updateModal") $("updateModal").classList.add("hidden"); };
   $("tourSkip").onclick = finishTour;
   $("tourPrev").onclick = () => { if (App.tourStep > 0) showTourStep(App.tourStep - 1); };
   $("tourNext").onclick = () => {
@@ -649,6 +872,11 @@ function init() {
     if (e.code === "BracketLeft" || e.code === "BracketRight") {
       e.preventDefault();
       cycleViewerResult(e.code === "BracketRight" ? 1 : -1);
+      return;
+    }
+    if (e.code === "Comma" || e.code === "Period") {
+      e.preventDefault();
+      cycleActiveModel(e.code === "Period" ? 1 : -1);
       return;
     }
     if (k === "r") { if (!$("runBtn").disabled) run(); }
@@ -704,6 +932,7 @@ function init() {
     if (tourSeen()) { markTourSeen(); return; }
     startWelcomeTour();
   }).catch(() => startWelcomeTour());
+  setTimeout(() => checkForUpdates(false), 1400);
 }
 
 window.addEventListener("DOMContentLoaded", init);

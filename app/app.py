@@ -10,7 +10,9 @@ import io
 import json
 import os
 import platform
+import re
 import shutil
+import ssl
 import sys
 import threading
 import time
@@ -18,19 +20,37 @@ import uuid
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlparse
+from urllib.request import Request, urlopen
 
 import numpy as np
 
 from core import pipeline
-from config import APP_TITLE
+from config import APP_BUILD, APP_REPO, APP_TITLE, APP_VERSION
 from live import clear_live, live_variant
 from platform_ui import console_print as _console_print
 from platform_ui import open_windows_window, setup_macos_about
 from sources import prepare_source, quality, scan_folder
 
+try:
+    import certifi
+except Exception:
+    certifi = None
+
+try:
+    SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where() if certifi else None)
+except Exception:
+    SSL_CONTEXT = ssl.create_default_context()
+
 
 class Api:
+    def open_url(self, url):
+        if not isinstance(url, str) or not url.startswith(("https://", "http://")):
+            return False
+        webbrowser.open(url)
+        return True
+
     def toggle_fullscreen(self):
         import webview
 
@@ -147,6 +167,10 @@ os.makedirs(RUNS, exist_ok=True)
 
 LOCK = threading.Lock()
 STATE = {"job": None, "models": None}
+UPDATE_LOCK = threading.Lock()
+UPDATE_CACHE = {"at": 0.0, "data": None}
+UPDATE_TTL = 900
+UPDATE_NOTES_LIMIT = 12000
 
 
 def load_latest():
@@ -449,7 +473,7 @@ def _run(sources, params, run_token, run_label):
                         out.append(
                             {
                                 "id": f"m{mi}:v{vi}c",
-                                "label": label + " · контуры",
+                                "label": label + " · контуры (лофт)",
                                 "kind": "loft",
                                 "mesh": {"v": lv.tolist(), "f": [list(f) for f in lf]},
                                 "metrics": lm,
@@ -521,6 +545,113 @@ def _prefix_result_ids(results, run_token):
     return results
 
 
+def _public_models():
+    models = []
+    for model in STATE["models"] or []:
+        pub = {k: v for k, v in model.items() if k != "results"}
+        pub["results"] = []
+        for r in model.get("results", []):
+            item = {k: v for k, v in r.items() if k != "mesh"}
+            item["has_mesh"] = bool(r.get("mesh"))
+            pub["results"].append(item)
+        models.append(pub)
+    return models
+
+
+def _version_key(value):
+    text = str(value or "").strip().lstrip("vV")
+    match = re.match(r"(\d+(?:\.\d+)*)", text)
+    if not match:
+        return ()
+    return tuple(int(part) for part in match.group(1).split("."))
+
+
+def _is_newer_version(latest, current):
+    latest_key = _version_key(latest)
+    current_key = _version_key(current)
+    return bool(latest_key) and latest_key > current_key
+
+
+def _release_download(release):
+    assets = release.get("assets") or []
+    system = platform.system().lower()
+    if system == "darwin":
+        extensions = (".dmg", ".pkg", ".zip")
+    elif system == "windows":
+        extensions = (".exe", ".msi", ".zip")
+    else:
+        extensions = (".appimage", ".tar.gz", ".zip")
+    for extension in extensions:
+        for asset in assets:
+            name = str(asset.get("name") or "")
+            if name.lower().endswith(extension):
+                return asset.get("browser_download_url"), name
+    return release.get("html_url"), None
+
+
+def _update_info(force=False):
+    now = time.time()
+    if not force:
+        with UPDATE_LOCK:
+            cached = UPDATE_CACHE["data"]
+            if cached is not None and now - UPDATE_CACHE["at"] < UPDATE_TTL:
+                return cached
+
+    url = f"https://api.github.com/repos/{APP_REPO}/releases/latest"
+    request = Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": f"Ogranka/{APP_VERSION}",
+        },
+    )
+    try:
+        with urlopen(request, timeout=6, context=SSL_CONTEXT) as response:
+            release = json.load(response)
+    except HTTPError as exc:
+        if exc.code == 404:
+            result = {"available": False, "current": APP_VERSION, "checked": True}
+        else:
+            result = {
+                "available": False,
+                "current": APP_VERSION,
+                "checked": False,
+                "error": f"github_http_{exc.code}",
+            }
+    except Exception:
+        result = {
+            "available": False,
+            "current": APP_VERSION,
+            "checked": False,
+            "error": "network",
+        }
+    else:
+        tag = str(release.get("tag_name") or release.get("name") or "").strip()
+        version = tag.lstrip("vV")
+        download, asset = _release_download(release)
+        notes = str(release.get("body") or "").strip()
+        notes_truncated = len(notes) > UPDATE_NOTES_LIMIT
+        result = {
+            "available": _is_newer_version(version, APP_VERSION),
+            "current": APP_VERSION,
+            "version": version,
+            "tag": tag,
+            "title": release.get("name") or tag,
+            "url": download or release.get("html_url"),
+            "release_url": release.get("html_url"),
+            "asset": asset,
+            "published_at": release.get("published_at"),
+            "notes": notes[:UPDATE_NOTES_LIMIT],
+            "notes_truncated": notes_truncated,
+            "checked": True,
+        }
+
+    with UPDATE_LOCK:
+        UPDATE_CACHE["at"] = now
+        UPDATE_CACHE["data"] = result
+    return result
+
+
 def _save(models, run_id=None):
     run_id = run_id or _new_run_token()
     path = os.path.join(RUNS, run_id)
@@ -561,8 +692,27 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _serve_index(self):
+        try:
+            with open(os.path.join(STATIC, "index.html"), encoding="utf-8") as f:
+                html = f.read()
+        except OSError:
+            return super().do_GET()
+        html = html.replace("{{APP_VERSION}}", APP_VERSION)
+        html = html.replace("{{APP_BUILD}}", APP_BUILD)
+        data = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def do_GET(self):
         u = urlparse(self.path)
+        if u.path in ("/", "/index.html"):
+            return self._serve_index()
+        if u.path == "/api/version":
+            return self._json({"version": APP_VERSION, "build": APP_BUILD})
         if u.path == "/api/welcome":
             return self._json({"seen": os.path.exists(WELCOME_FILE)})
         if u.path == "/api/status":
@@ -570,7 +720,10 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json(STATE["job"] or {"state": "idle"})
         if u.path == "/api/results":
             with LOCK:
-                return self._json({"models": STATE["models"] or []})
+                return self._json({"models": _public_models()})
+        if u.path == "/api/update":
+            force = parse_qs(u.query).get("force", ["0"])[0].lower() in ("1", "true", "yes")
+            return self._json(_update_info(force))
         if u.path == "/api/mesh":
             rid = parse_qs(u.query).get("id", [""])[0]
             with LOCK:
@@ -643,6 +796,8 @@ class Handler(SimpleHTTPRequestHandler):
                 if STATE["job"] and STATE["job"].get("state") == "running":
                     return self._json({"error": "уже выполняется"}, 409)
             try:
+                run_token = _new_run_token()
+                run_label = time.strftime("%H:%M:%S") + " · " + run_token[-4:]
                 v, faces, title = prepare_source(source)
                 alphas, layers = pipeline.build_sections(
                     v, pipeline.mesh_edges(faces), 60, 720
@@ -678,7 +833,7 @@ class Handler(SimpleHTTPRequestHandler):
                         raise ValueError("не удалось построить уровень упрощения")
                     results.append(
                         {
-                            "id": f"lv{i}",
+                            "id": f"{run_token}:lv{i}",
                             "label": f"оставлено {pct:g}% · {prev['vertices']}/{prev['faces']}",
                             "kind": "level",
                             "mesh": prev["mesh"],
@@ -690,12 +845,32 @@ class Handler(SimpleHTTPRequestHandler):
                             "time": round(sec, 2),
                         }
                     )
-                model = {"id": "levels", "name": f"{title} · 6 уровней", "levels": True, "results": results}
+                model = {
+                    "id": f"levels:{run_token}",
+                    "uid": f"{run_token}:levels",
+                    "run": run_token,
+                    "run_label": run_label,
+                    "name": f"{title} · 6 уровней",
+                    "levels": True,
+                    "source": source,
+                    "results": results,
+                }
                 with LOCK:
-                    models = [m for m in (STATE["models"] or []) if m.get("id") != "levels"]
+                    models = [
+                        m for m in (STATE["models"] or [])
+                        if not (
+                            str(m.get("id", "")).startswith("levels")
+                            and m.get("source") == source
+                        )
+                    ]
                     models.append(model)
                     STATE["models"] = models
-                return self._json({"ok": True, "name": model["name"]})
+                return self._json({
+                    "ok": True,
+                    "name": model["name"],
+                    "id": model["id"],
+                    "uid": model["uid"],
+                })
             except Exception as exc:
                 return self._json({"error": str(exc)}, 500)
         if u.path == "/api/live":

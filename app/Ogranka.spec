@@ -4,6 +4,10 @@ import glob
 import os
 import sys
 
+sys.path.insert(0, os.fspath(globals().get("SPECPATH") or os.getcwd()))
+
+from config import APP_BUILD, APP_VERSION
+
 import scipy
 
 _ext = ".pyd" if sys.platform == "win32" else ".so"
@@ -80,12 +84,13 @@ app = BUNDLE(
     name='Ogranka.app',
     icon='icon.icns',
     bundle_identifier='ru.msu.reconstruct-z.ogranka',
-    version='1.0.0',
+    version=APP_BUILD,
     info_plist={
         'CFBundleDisplayName': 'Огранка',
         'CFBundleName': 'Огранка',
-        'CFBundleGetInfoString': 'Огранка 1.0.0 — восстановление формы',
-        'CFBundleVersion': '1.0.0',
+        'CFBundleGetInfoString': f'Огранка {APP_VERSION} — восстановление формы',
+        'CFBundleShortVersionString': APP_VERSION,
+        'CFBundleVersion': APP_BUILD,
         'NSHumanReadableCopyright': '© 2026 Дьяченко Алексей',
     },
 )

@@ -1,6 +1,8 @@
 @echo off
 cd /d %~dp0
 python -m pip install -r requirements.txt pyinstaller
+python build_version.py
+if errorlevel 1 exit /b 1
 for /f "usebackq delims=" %%i in (`python -c "import pathlib, scipy; p=pathlib.Path(scipy.__file__).parent; print(next((p/'spatial').glob('_qhull*.pyd')))"`) do set "QHULL=%%i"
 for /f "usebackq delims=" %%i in (`python -c "import pathlib, scipy; p=pathlib.Path(scipy.__file__).parent; print(next((p/'_lib').glob('messagestream*.pyd')))"`) do set "MSG=%%i"
 for /f "usebackq delims=" %%i in (`python -c "import pathlib, scipy; p=pathlib.Path(scipy.__file__).parent; print(next((p/'linalg').glob('cython_lapack*.pyd')))"`) do set "LAPACK=%%i"
@@ -24,4 +26,4 @@ python -m PyInstaller --noconfirm --clean --onefile --windowed --name Ogranka ^
   --version-file version_info.txt ^
   --icon icon.ico app.py
 echo Готово: dist\Ogranka.exe
-pause
+if not defined CI pause
