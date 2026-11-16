@@ -73,6 +73,14 @@
   <div class="brand">Огранка <span class="version">{{APP_VERSION}}</span> <span class="build">сборка {{APP_BUILD}}</span> <span class="brand-sub">восстановление формы</span></div>
   <div class="header-right">
     <div id="statusText" class="status">Готов к запуску</div>
+    <div class="vshot header-shot">
+      <button id="shotBtn" class="vshot-main" title="Скриншот приложения (Shift+S)">Скриншот</button>
+      <button id="shotToggle" class="vshot-toggle" title="Что снимать" aria-label="Что снимать">▾</button>
+      <div id="shotMenu" class="vshot-menu">
+        <button type="button" data-shot-target="viewport">Вьюпорта<small>S</small></button>
+        <button type="button" data-shot-target="app">Приложения<small>Shift+S</small></button>
+      </div>
+    </div>
     <button id="historyBtn" class="history-btn" title="История изменений">История</button>
     <button id="updateBtn" class="update-btn hidden" title="Доступно обновление">Доступно обновление</button>
     <button id="aboutBtn" class="help-btn about-btn" title="О программе (I)">i</button>

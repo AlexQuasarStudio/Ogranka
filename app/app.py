@@ -70,6 +70,62 @@ class Api:
         except Exception:
             return {}
 
+    def capture_app(self):
+        if platform.system() != "Darwin":
+            return {"unsupported": True}
+        try:
+            import webview
+            from AppKit import NSBitmapImageRep, NSPNGFileType
+            from PyObjCTools import AppHelper
+            from WebKit import WKSnapshotConfiguration
+            from webview.platforms.cocoa import BrowserView
+
+            win = webview.windows[0] if webview.windows else None
+            if win is None:
+                return {"error": "нет окна"}
+            browser = BrowserView.instances.get(getattr(win, "uid", None))
+            if browser is None or browser.webview is None:
+                return {"error": "окно ещё не готово"}
+            result = {}
+            done = threading.Event()
+
+            def snapshot():
+                try:
+                    config = WKSnapshotConfiguration.alloc().init()
+                    try:
+                        config.setAfterScreenUpdates_(True)
+                    except Exception:
+                        pass
+
+                    def completion(image, error):
+                        try:
+                            if error is not None or image is None:
+                                result["error"] = "не удалось снять окно"
+                                return
+                            tiff = image.TIFFRepresentation()
+                            rep = NSBitmapImageRep.imageRepWithData_(tiff)
+                            png = rep.representationUsingType_properties_(NSPNGFileType, None)
+                            if png is None:
+                                result["error"] = "не удалось сохранить снимок"
+                                return
+                            result["data"] = "data:image/png;base64," + base64.b64encode(bytes(png)).decode("ascii")
+                        except Exception as exc:
+                            result["error"] = str(exc)
+                        finally:
+                            done.set()
+
+                    browser.webview.takeSnapshotWithConfiguration_completionHandler_(config, completion)
+                except Exception as exc:
+                    result["error"] = str(exc)
+                    done.set()
+
+            AppHelper.callAfter(snapshot)
+            if not done.wait(12):
+                return {"error": "окно не ответило"}
+            return result
+        except Exception as exc:
+            return {"error": str(exc)}
+
 
     def capture_screen(self):
         temp = ""

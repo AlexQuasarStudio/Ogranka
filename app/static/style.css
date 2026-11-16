@@ -672,10 +672,9 @@ body.progress-on .full-live { bottom: 104px; }
 .shot-layer .shot-tool { flex: 0 0 auto; }
 body.shot-open { overflow: hidden; }
 
-/* Screenshot split button in the viewport header */
-.viewer-card { overflow: visible; }
-.canvas-wrap { overflow: hidden; border-radius: 0 0 12px 12px; }
+/* Screenshot split button in the header */
 .vshot { position: relative; display: inline-flex; flex: 0 0 auto; }
+.header-shot { margin-right: 2px; }
 .vshot-main, .vshot-toggle {
   min-height: 27px; padding: 4px 9px; font-size: 11.5px; color: #a9bdd4;
   background: #1a2432; border: 1px solid #2d4058;

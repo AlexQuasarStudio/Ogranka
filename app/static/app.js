@@ -1547,10 +1547,30 @@ async function startAppShot() {
   if (typeof closeViewerShotMenus === "function") closeViewerShotMenus();
   $("statusText").textContent = "Готовлю скриншот приложения…";
   try {
+    const api = window.pywebview?.api;
+    const isMac = /Mac/i.test(navigator.platform || navigator.userAgent || "");
+    let native = null;
+    if (api?.capture_app) {
+      native = await api.capture_app();
+      if (native?.data) {
+        const image = await loadShotImage(native.data);
+        openShotEditor(image, {
+          title: "Скриншот приложения",
+          subtitle: "Окно Огранки",
+          name: "ogranka-app",
+        });
+        $("statusText").textContent = "Скриншот готов";
+        return;
+      }
+      if (native?.error) throw new Error(native.error);
+    }
+    if (isMac) {
+      throw new Error("Нативный захват окна недоступен.");
+    }
     let windowRect = null;
-    if (window.pywebview?.api?.window_rect) {
+    if (api?.window_rect) {
       try {
-        windowRect = await window.pywebview.api.window_rect();
+        windowRect = await api.window_rect();
       } catch (error) {
         windowRect = null;
       }
@@ -1870,6 +1890,25 @@ function init() {
   initSplash();
   initRestartToast();
   initShotEditor();
+  $("shotBtn").onclick = () => {
+    closeViewerShotMenus();
+    startAppShot();
+  };
+  $("shotToggle").onclick = (event) => {
+    event.stopPropagation();
+    const menu = $("shotMenu");
+    const open = !menu.classList.contains("open");
+    closeViewerShotMenus(menu);
+    menu.classList.toggle("open", open);
+  };
+  $("shotMenu").addEventListener("click", (event) => {
+    const item = event.target.closest("[data-shot-target]");
+    if (!item) return;
+    event.stopPropagation();
+    closeViewerShotMenus();
+    if (item.dataset.shotTarget === "app") startAppShot();
+    else startViewportShot(activeViewer());
+  });
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".vshot")) closeViewerShotMenus();
   });
