@@ -159,7 +159,7 @@ jobs:
           path: |
             Ogranka-linux-*-arm64.AppImage
             Ogranka-linux-*-arm64.AppImage.zsync
-            Ogranka-linux-*-arm64.delta.json
+            Ogranka-linux-*.AppImage.delta.json
           if-no-files-found: error
 
   publish:
