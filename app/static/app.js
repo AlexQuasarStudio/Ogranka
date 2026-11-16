@@ -627,7 +627,7 @@ function showUpdateModal(info) {
     ? "Скачать, установить и перезапустить приложение"
     : (info.asset || "Страница релиза");
   $("updateInstallHint").textContent = installable
-    ? "Приложение скачает обновление, проверит контрольную сумму, установит его и перезапустится."
+    ? "Приложение скачает обновление, установит его и перезапустится."
     : (info.install_hint || "Автоустановка недоступна. Скачайте обновление вручную.");
   if (App.updateInstallActive) setUpdateInstall(App.updateInstall);
   else setUpdateInstall(null);
@@ -968,6 +968,7 @@ async function installUpdate() {
 const Shot = {
   base: null, original: null, shapes: [], tool: "circle",
   start: null, preview: null, color: "#ff4d4f", width: 3,
+  stage: "crop", crop: null, zoom: 1, drag: null,
 };
 
 function shotHint(text) {
@@ -1011,16 +1012,124 @@ function shotDrawShape(ctx, shape) {
   ctx.restore();
 }
 
+function shotNormalizeCrop(rect) {
+  const maxW = Shot.base?.width || 1;
+  const maxH = Shot.base?.height || 1;
+  let left = Math.min(rect.x, rect.x + rect.w);
+  let top = Math.min(rect.y, rect.y + rect.h);
+  let right = Math.max(rect.x, rect.x + rect.w);
+  let bottom = Math.max(rect.y, rect.y + rect.h);
+  left = Math.max(0, Math.min(left, maxW));
+  top = Math.max(0, Math.min(top, maxH));
+  right = Math.max(0, Math.min(right, maxW));
+  bottom = Math.max(0, Math.min(bottom, maxH));
+  return { x: left, y: top, w: Math.max(0, right - left), h: Math.max(0, bottom - top) };
+}
+
+function shotDrawCropFrame(ctx, width, height) {
+  const crop = shotNormalizeCrop(Shot.crop || { x: 0, y: 0, w: width, h: height });
+  ctx.save();
+  ctx.fillStyle = "rgba(4, 8, 14, 0.64)";
+  ctx.beginPath();
+  ctx.rect(0, 0, width, height);
+  ctx.rect(crop.x, crop.y, crop.w, crop.h);
+  ctx.fill("evenodd");
+
+  ctx.strokeStyle = "#4f8cff";
+  ctx.lineWidth = Math.max(2, Math.round(Math.min(width, height) / 500));
+  ctx.strokeRect(crop.x, crop.y, crop.w, crop.h);
+
+  ctx.strokeStyle = "rgba(188, 215, 255, 0.38)";
+  ctx.lineWidth = 1;
+  for (let i = 1; i <= 2; i += 1) {
+    const x = crop.x + crop.w * i / 3;
+    const y = crop.y + crop.h * i / 3;
+    ctx.beginPath();
+    ctx.moveTo(x, crop.y);
+    ctx.lineTo(x, crop.y + crop.h);
+    ctx.moveTo(crop.x, y);
+    ctx.lineTo(crop.x + crop.w, y);
+    ctx.stroke();
+  }
+
+  const size = Math.max(9, Math.min(14, Math.round(Math.min(width, height) / 70)));
+  const points = [
+    [crop.x, crop.y], [crop.x + crop.w / 2, crop.y], [crop.x + crop.w, crop.y],
+    [crop.x, crop.y + crop.h / 2], [crop.x + crop.w, crop.y + crop.h / 2],
+    [crop.x, crop.y + crop.h], [crop.x + crop.w / 2, crop.y + crop.h], [crop.x + crop.w, crop.y + crop.h],
+  ];
+  ctx.fillStyle = "#e4efff";
+  ctx.strokeStyle = "#2f6fd0";
+  ctx.lineWidth = 1.5;
+  points.forEach(([x, y]) => {
+    ctx.fillRect(x - size / 2, y - size / 2, size, size);
+    ctx.strokeRect(x - size / 2, y - size / 2, size, size);
+  });
+
+  const label = `${Math.round(crop.w)} × ${Math.round(crop.h)}`;
+  ctx.font = "600 14px system-ui, sans-serif";
+  const textWidth = ctx.measureText(label).width;
+  let labelY = crop.y - 8;
+  if (labelY < 20) labelY = crop.y + 23;
+  const labelX = Math.min(width - textWidth - 18, Math.max(8, crop.x + 4));
+  ctx.fillStyle = "rgba(8, 14, 24, 0.82)";
+  ctx.fillRect(labelX - 6, labelY - 14, textWidth + 12, 20);
+  ctx.fillStyle = "#dce9ff";
+  ctx.textBaseline = "middle";
+  ctx.fillText(label, labelX, labelY);
+  ctx.restore();
+}
+
 function shotDraw() {
   const canvas = $("shotCanvas");
   if (!canvas || !Shot.base) return;
-  canvas.width = Shot.base.width || Shot.base.naturalWidth;
-  canvas.height = Shot.base.height || Shot.base.naturalHeight;
+  const width = Shot.base.width || Shot.base.naturalWidth;
+  const height = Shot.base.height || Shot.base.naturalHeight;
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(Shot.base, 0, 0);
+  if (Shot.stage === "crop") {
+    shotDrawCropFrame(ctx, canvas.width, canvas.height);
+    return;
+  }
   Shot.shapes.forEach((shape) => shotDrawShape(ctx, shape));
   if (Shot.preview) shotDrawShape(ctx, Shot.preview);
+}
+
+function shotSetZoom(value) {
+  const canvas = $("shotCanvas");
+  if (!canvas || !Shot.base) return;
+  const wrap = canvas.parentElement;
+  const oldWidth = canvas.getBoundingClientRect().width || 1;
+  const oldHeight = canvas.getBoundingClientRect().height || 1;
+  const ratioX = (wrap.scrollLeft + wrap.clientWidth / 2) / oldWidth;
+  const ratioY = (wrap.scrollTop + wrap.clientHeight / 2) / oldHeight;
+  Shot.zoom = Math.max(0.25, Math.min(4, value));
+  const fitWidth = Math.max(240, Math.min(canvas.width, (wrap.clientWidth || canvas.width) - 20));
+  canvas.style.width = `${Math.round(fitWidth * Shot.zoom)}px`;
+  canvas.style.maxWidth = "none";
+  const label = $("shotZoomValue");
+  if (label) label.textContent = `${Math.round(Shot.zoom * 100)}%`;
+  requestAnimationFrame(() => {
+    wrap.scrollLeft = ratioX * canvas.getBoundingClientRect().width - wrap.clientWidth / 2;
+    wrap.scrollTop = ratioY * canvas.getBoundingClientRect().height - wrap.clientHeight / 2;
+  });
+}
+
+function shotZoomBy(factor) {
+  shotSetZoom(Shot.zoom * factor);
+}
+
+function shotSetStage(stage) {
+  Shot.stage = stage;
+  $("shotCropTools").classList.toggle("hidden", stage !== "crop");
+  $("shotEditTools").classList.toggle("hidden", stage !== "edit");
+  shotHint(stage === "crop"
+    ? "Потяните за рамку или углы. «Всё окно» — без обрезки."
+    : "Выберите инструмент и выделите область. Колесо мыши — масштаб.");
+  requestAnimationFrame(() => shotSetZoom(Shot.zoom));
 }
 
 function shotPoint(event) {
@@ -1032,21 +1141,97 @@ function shotPoint(event) {
   };
 }
 
-function shotCrop(rect) {
-  const left = Math.max(0, Math.min(rect.start.x, rect.end.x));
-  const top = Math.max(0, Math.min(rect.start.y, rect.end.y));
-  const width = Math.min(Shot.base.width - left, Math.abs(rect.end.x - rect.start.x));
-  const height = Math.min(Shot.base.height - top, Math.abs(rect.end.y - rect.start.y));
-  if (width < 8 || height < 8) return;
+function shotApplyCrop() {
+  if (!Shot.base) return;
+  const crop = shotNormalizeCrop(Shot.crop || { x: 0, y: 0, w: Shot.base.width, h: Shot.base.height });
+  if (crop.w < 8 || crop.h < 8) {
+    shotHint("Слишком маленькая область: выделите кроп заново.");
+    return;
+  }
   const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  canvas.getContext("2d").drawImage(Shot.base, left, top, width, height, 0, 0, width, height);
+  canvas.width = Math.max(1, Math.round(crop.w));
+  canvas.height = Math.max(1, Math.round(crop.h));
+  canvas.getContext("2d").drawImage(
+    Shot.base, crop.x, crop.y, crop.w, crop.h, 0, 0, canvas.width, canvas.height,
+  );
   Shot.base = canvas;
+  Shot.original = canvas;
   Shot.shapes = [];
   Shot.preview = null;
+  Shot.start = null;
+  Shot.drag = null;
+  Shot.crop = null;
+  Shot.zoom = 1;
+  shotSetStage("edit");
   shotDraw();
-  shotHint("Обрезано. Продолжайте аннотировать или сохраните PNG.");
+}
+
+function shotUseFull() {
+  if (!Shot.base) return;
+  Shot.crop = { x: 0, y: 0, w: Shot.base.width, h: Shot.base.height };
+  shotDraw();
+  shotApplyCrop();
+}
+
+function shotCropHandleAt(point) {
+  if (!Shot.base) return "";
+  const canvas = $("shotCanvas");
+  const crop = shotNormalizeCrop(Shot.crop || { x: 0, y: 0, w: Shot.base.width, h: Shot.base.height });
+  const tolerance = Math.max(10, 16 * canvas.width / Math.max(1, canvas.getBoundingClientRect().width));
+  const midX = crop.x + crop.w / 2;
+  const midY = crop.y + crop.h / 2;
+  const handles = [
+    ["nw", crop.x, crop.y], ["n", midX, crop.y], ["ne", crop.x + crop.w, crop.y],
+    ["w", crop.x, midY], ["e", crop.x + crop.w, midY],
+    ["sw", crop.x, crop.y + crop.h], ["s", midX, crop.y + crop.h], ["se", crop.x + crop.w, crop.y + crop.h],
+  ];
+  for (const [name, x, y] of handles) {
+    if (Math.abs(point.x - x) <= tolerance && Math.abs(point.y - y) <= tolerance) return name;
+  }
+  return "";
+}
+
+function shotUpdateCrop(point) {
+  const drag = Shot.drag;
+  if (!drag) return;
+  if (drag.mode === "new") {
+    const left = Math.min(drag.start.x, point.x);
+    const top = Math.min(drag.start.y, point.y);
+    Shot.crop = shotNormalizeCrop({
+      x: left, y: top, w: Math.abs(point.x - drag.start.x), h: Math.abs(point.y - drag.start.y),
+    });
+    return;
+  }
+  const start = drag.crop;
+  if (drag.mode === "move") {
+    const dx = point.x - drag.start.x;
+    const dy = point.y - drag.start.y;
+    const x = Math.max(0, Math.min(start.x + dx, Shot.base.width - start.w));
+    const y = Math.max(0, Math.min(start.y + dy, Shot.base.height - start.h));
+    Shot.crop = { x, y, w: start.w, h: start.h };
+    return;
+  }
+  let left = start.x;
+  let top = start.y;
+  let right = start.x + start.w;
+  let bottom = start.y + start.h;
+  if (drag.handle.includes("w")) left = point.x;
+  if (drag.handle.includes("e")) right = point.x;
+  if (drag.handle.includes("n")) top = point.y;
+  if (drag.handle.includes("s")) bottom = point.y;
+  left = Math.max(0, Math.min(left, Shot.base.width));
+  right = Math.max(0, Math.min(right, Shot.base.width));
+  top = Math.max(0, Math.min(top, Shot.base.height));
+  bottom = Math.max(0, Math.min(bottom, Shot.base.height));
+  if (right - left < 8) {
+    if (drag.handle.includes("w")) left = Math.max(0, right - 8);
+    else right = Math.min(Shot.base.width, left + 8);
+  }
+  if (bottom - top < 8) {
+    if (drag.handle.includes("n")) top = Math.max(0, bottom - 8);
+    else bottom = Math.min(Shot.base.height, top + 8);
+  }
+  Shot.crop = { x: left, y: top, w: right - left, h: bottom - top };
 }
 
 async function shotCapture() {
@@ -1084,8 +1269,13 @@ async function shotCapture() {
       Shot.original = image;
       Shot.shapes = [];
       Shot.preview = null;
+      Shot.start = null;
+      Shot.drag = null;
+      Shot.crop = { x: 0, y: 0, w: image.naturalWidth || image.width, h: image.naturalHeight || image.height };
+      Shot.zoom = 1;
+      shotSetStage("crop");
       shotDraw();
-      shotHint("Выберите инструмент и выделите область.");
+      requestAnimationFrame(() => shotSetZoom(1));
       resolve();
     };
     image.onerror = reject;
@@ -1105,6 +1295,10 @@ async function openShot() {
 async function saveShot() {
   const canvas = $("shotCanvas");
   if (!canvas || !Shot.base) return;
+  if (Shot.stage !== "edit") {
+    shotHint("Сначала примените кроп или нажмите «Всё окно».");
+    return;
+  }
   const dataUrl = canvas.toDataURL("image/png");
   const name = "ogranka-shot-" + Date.now() + ".png";
   try {
@@ -1148,10 +1342,36 @@ function initShotEditor() {
   };
   $("shotNew").onclick = () => openShot();
   $("shotSave").onclick = () => saveShot();
+  $("shotCropApply").onclick = () => shotApplyCrop();
+  $("shotCropAll").onclick = () => shotUseFull();
+  $("shotZoomOut").onclick = () => shotZoomBy(1 / 1.15);
+  $("shotZoomIn").onclick = () => shotZoomBy(1.15);
   const canvas = $("shotCanvas");
+  canvas.addEventListener("wheel", (event) => {
+    if (!Shot.base) return;
+    event.preventDefault();
+    shotZoomBy(event.deltaY < 0 ? 1.12 : 1 / 1.12);
+  }, { passive: false });
   canvas.onpointerdown = (event) => {
     if (!Shot.base) return;
     const point = shotPoint(event);
+    if (Shot.stage === "crop") {
+      const crop = shotNormalizeCrop(Shot.crop || { x: 0, y: 0, w: Shot.base.width, h: Shot.base.height });
+      const handle = shotCropHandleAt(point);
+      const isFull = crop.w >= Shot.base.width - 1 && crop.h >= Shot.base.height - 1;
+      if (handle) {
+        Shot.drag = { mode: "resize", handle, start: point, crop };
+      } else if (!isFull && point.x >= crop.x && point.x <= crop.x + crop.w
+        && point.y >= crop.y && point.y <= crop.y + crop.h) {
+        Shot.drag = { mode: "move", start: point, crop };
+      } else {
+        Shot.crop = { x: point.x, y: point.y, w: 0, h: 0 };
+        Shot.drag = { mode: "new", start: point };
+      }
+      canvas.setPointerCapture(event.pointerId);
+      shotDraw();
+      return;
+    }
     if (Shot.tool === "text") {
       const text = window.prompt("Текст на скриншоте:");
       if (text) {
@@ -1166,22 +1386,43 @@ function initShotEditor() {
     shotDraw();
   };
   canvas.onpointermove = (event) => {
+    if (!Shot.base) return;
+    if (Shot.stage === "crop") {
+      if (!Shot.drag) return;
+      shotUpdateCrop(shotPoint(event));
+      shotDraw();
+      return;
+    }
     if (!Shot.start) return;
     Shot.preview.end = shotPoint(event);
     shotDraw();
   };
   canvas.onpointerup = (event) => {
+    if (!Shot.base) return;
+    if (Shot.stage === "crop") {
+      if (!Shot.drag) return;
+      const crop = shotNormalizeCrop(Shot.crop || { x: 0, y: 0, w: Shot.base.width, h: Shot.base.height });
+      if (crop.w < 8 || crop.h < 8) {
+        Shot.crop = { x: 0, y: 0, w: Shot.base.width, h: Shot.base.height };
+      }
+      Shot.drag = null;
+      shotDraw();
+      return;
+    }
     if (!Shot.start) return;
     const shape = Shot.preview;
     Shot.start = null;
     Shot.preview = null;
     if (shape) {
-      if (Shot.tool === "crop") shotCrop(shape);
-      else {
-        Shot.shapes.push(shape);
-        shotDraw();
-      }
+      Shot.shapes.push(shape);
+      shotDraw();
     }
+  };
+  canvas.onpointercancel = () => {
+    Shot.start = null;
+    Shot.preview = null;
+    Shot.drag = null;
+    shotDraw();
   };
 }
 

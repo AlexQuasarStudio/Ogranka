@@ -209,10 +209,10 @@ def _download_delta(info, archive, context):
     if not old_path:
         _set_state("downloading", 0.02, "Старая версия не найдена — качаю полный файл.")
         return False
-    _set_state("downloading", 0.02, "Читаю дельта-манифест…")
+    _set_state("downloading", 0.02, "Читаю данные обновления…")
     manifest = json.loads(_fetch_text(manifest_url))
     if str(manifest.get("asset") or "") != asset_name:
-        raise RuntimeError("Дельта-манифест относится к другому файлу.")
+        raise RuntimeError("Данные обновления относятся к другому файлу.")
 
     def fetch(offset, length):
         return _fetch_range(asset_url, offset, length)
@@ -221,17 +221,11 @@ def _download_delta(info, archive, context):
         fraction = min(1.0, done / total) if total else 0.0
         _set_state(
             progress=0.02 + 0.84 * fraction,
-            detail=f"Дельта-обновление… {round(fraction * 100)}%",
+            detail=f"Загружаю обновление… {round(fraction * 100)}%",
         )
 
     stats = delta.reconstruct(old_path, manifest, fetch, archive, progress=progress)
-    _set_state(
-        detail=(
-            "Дельта собрана: "
-            f"скачано {stats['downloaded']} Б, "
-            f"переиспользовано {stats['reused']} Б."
-        )
-    )
+    _set_state(detail="Обновление загружено.")
     return True
 
 
@@ -243,7 +237,7 @@ def reason_text(reason):
             "Переместите его в «Программы» и повторите."
         ),
         "asset": "В релизе нет подходящего файла для этой системы.",
-        "checksum": "В релизе нет контрольной суммы для проверки файла.",
+        "checksum": "В релизе нет данных для проверки файла.",
         "permissions": "Нет прав на запись в папку приложения. Скачайте обновление вручную.",
     }.get(reason, "Автоустановка недоступна.")
 
@@ -332,18 +326,18 @@ def _checksum_for(info, archive_name):
 
 
 def _verify(path, info):
-    _set_state("verifying", 0.92, "Проверяю контрольную сумму…")
+    _set_state("verifying", 0.92, "Проверяю обновление…")
     name = str(info.get("asset_name") or os.path.basename(path))
     expected = _checksum_for(info, name)
     if not expected:
-        raise RuntimeError("Не удалось найти контрольную сумму обновления.")
+        raise RuntimeError("Не удалось получить данные для проверки обновления.")
     actual = _sha256(path)
     if not hmac.compare_digest(actual, expected):
-        raise RuntimeError("Контрольная сумма обновления не совпала.")
+        raise RuntimeError("Файл обновления повреждён.")
     size = info.get("asset_size")
     if size and os.path.getsize(path) != int(size):
-        raise RuntimeError("Размер скачанного файла не совпал с ожидаемым.")
-    _set_state("installing", 0.96, "Контрольная сумма проверена.")
+        raise RuntimeError("Файл обновления повреждён.")
+    _set_state("installing", 0.96, "Обновление проверено.")
 
 
 def _safe_extract_tar(archive, destination):
@@ -588,7 +582,7 @@ def _install(info):
                 _set_state(
                     "downloading",
                     0.02,
-                    "Дельта не удалась — качаю полный файл.",
+                    "Не удалось докачать обновление — загружаю полный файл.",
                 )
         if not used_delta:
             _download(info["asset_url"], archive, 0.02, 0.88)

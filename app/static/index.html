@@ -443,24 +443,36 @@
     <div class="modal-head">
       <div>
         <h2>Скриншот</h2>
-        <div class="update-meta">Круг, линия, стрелка, текст, обрезка</div>
+        <div class="update-meta">Сначала область, затем пометки</div>
       </div>
       <button id="shotClose" class="help-close" title="Закрыть">×</button>
     </div>
     <div class="modal-body">
-      <div class="shot-toolbar">
+      <div id="shotCropTools" class="shot-toolbar">
+        <span class="shot-step">1. Область</span>
+        <button id="shotCropAll">Всё окно</button>
+        <button id="shotCropApply" class="feedback-send">Применить кроп</button>
+      </div>
+      <div id="shotEditTools" class="shot-toolbar hidden">
+        <span class="shot-step">2. Пометки</span>
         <button class="shot-tool active" data-shot-tool="circle">Круг</button>
         <button class="shot-tool" data-shot-tool="line">Линия</button>
         <button class="shot-tool" data-shot-tool="arrow">Стрелка</button>
         <button class="shot-tool" data-shot-tool="text">Текст</button>
-        <button class="shot-tool" data-shot-tool="crop">Обрезать</button>
         <input id="shotColor" type="color" value="#ff4d4f" title="Цвет">
         <input id="shotWidth" type="range" min="1" max="12" value="3" title="Толщина">
         <button id="shotUndo">Отменить</button>
         <button id="shotNew">Новый скриншот</button>
         <button id="shotSave" class="feedback-send">Сохранить PNG</button>
       </div>
-      <p id="shotHint" class="feedback-hint">Выберите инструмент и выделите область на скриншоте.</p>
+      <div class="shot-toolbar shot-zoom-bar">
+        <span class="shot-zoom-label">Масштаб</span>
+        <button id="shotZoomOut" title="Уменьшить">−</button>
+        <span id="shotZoomValue">100%</span>
+        <button id="shotZoomIn" title="Увеличить">+</button>
+        <span class="shot-zoom-hint">Колесо мыши — масштаб</span>
+      </div>
+      <p id="shotHint" class="feedback-hint">Выберите область кропа или нажмите «Всё окно».</p>
       <div class="shot-canvas-wrap">
         <canvas id="shotCanvas"></canvas>
       </div>
