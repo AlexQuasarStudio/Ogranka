@@ -1,6 +1,7 @@
 """Скачивание, проверка и установка обновления с перезапуском приложения."""
 import hashlib
 import hmac
+import json
 import os
 import platform
 import plistlib
@@ -16,6 +17,7 @@ import threading
 import time
 from urllib.request import Request, urlopen
 
+import delta
 from config import APP_BUILD, APP_VERSION
 
 try:
@@ -55,6 +57,18 @@ def status():
         return dict(_STATE)
 
 
+def appimage_path():
+    path = os.environ.get("APPIMAGE") or ""
+    if not path:
+        return ""
+    path = os.path.realpath(path)
+    return path if os.path.isfile(path) else ""
+
+
+def is_appimage():
+    return bool(getattr(sys, "frozen", False) and appimage_path())
+
+
 def _platform_context():
     if not getattr(sys, "frozen", False):
         return None
@@ -81,6 +95,15 @@ def _platform_context():
             "parent": os.path.dirname(exe),
             "ext": ".exe",
         }
+    image = appimage_path()
+    if image:
+        return {
+            "kind": "appimage",
+            "exe": image,
+            "target": image,
+            "parent": os.path.dirname(image),
+            "ext": ".AppImage",
+        }
     return {
         "kind": "linux",
         "exe": exe,
@@ -97,13 +120,119 @@ def can_install(asset_name, has_checksum=True):
     if context.get("reason"):
         return False, context["reason"]
     name = str(asset_name or "").lower()
-    if not name or not name.endswith(context["ext"]):
+    extension = str(context["ext"] or "").lower()
+    if not name or not name.endswith(extension):
         return False, "asset"
     if not has_checksum:
         return False, "checksum"
     if not os.access(context["parent"], os.W_OK):
         return False, "permissions"
     return True, ""
+
+
+def _cache_dir():
+    override = os.environ.get("OGRANKA_DATA")
+    if override:
+        root = override
+    else:
+        home = os.path.expanduser("~")
+        if platform.system() == "Darwin":
+            root = os.path.join(home, "Library", "Application Support", "ShapePipeline")
+        elif platform.system() == "Windows":
+            root = os.path.join(os.environ.get("APPDATA", home), "ShapePipeline")
+        else:
+            root = os.path.join(home, ".local", "share", "shape-pipeline")
+    path = os.path.join(root, "update-cache")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _cache_path(context):
+    names = {"mac": "macos.zip", "linux": "linux.tar.gz"}
+    name = names.get(context["kind"])
+    return os.path.join(_cache_dir(), name) if name else ""
+
+
+def _old_asset(context):
+    if context["kind"] in ("appimage", "windows"):
+        exe = context.get("exe")
+        return exe if exe and os.path.isfile(exe) else ""
+    path = _cache_path(context)
+    return path if path and os.path.isfile(path) else ""
+
+
+def _cache_asset(archive, context):
+    path = _cache_path(context)
+    if not path:
+        return
+    temp = ""
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        temp = path + ".tmp"
+        shutil.copy2(archive, temp)
+        os.replace(temp, path)
+    except Exception:
+        if temp:
+            try:
+                os.remove(temp)
+            except Exception:
+                pass
+
+
+def _fetch_range(url, start, length):
+    end = start + length - 1
+    request = Request(
+        url,
+        headers={
+            "User-Agent": f"Ogranka/{APP_VERSION}",
+            "Accept": "application/octet-stream",
+            "Range": f"bytes={start}-{end}",
+        },
+    )
+    with urlopen(request, timeout=60, context=SSL_CONTEXT) as response:
+        status = getattr(response, "status", 206)
+        if status != 206:
+            raise RuntimeError("Сервер не поддерживает докачку фрагментов.")
+        payload = response.read()
+    if len(payload) != length:
+        raise RuntimeError("Сервер вернул неполный фрагмент обновления.")
+    return payload
+
+
+def _download_delta(info, archive, context):
+    manifest_url = str(info.get("delta_url") or "")
+    asset_url = str(info.get("asset_url") or "")
+    asset_name = str(info.get("asset_name") or "")
+    if not manifest_url or not asset_url:
+        return False
+    old_path = _old_asset(context)
+    if not old_path:
+        _set_state("downloading", 0.02, "Старая версия не найдена — качаю полный файл.")
+        return False
+    _set_state("downloading", 0.02, "Читаю дельта-манифест…")
+    manifest = json.loads(_fetch_text(manifest_url))
+    if str(manifest.get("asset") or "") != asset_name:
+        raise RuntimeError("Дельта-манифест относится к другому файлу.")
+
+    def fetch(offset, length):
+        return _fetch_range(asset_url, offset, length)
+
+    def progress(done, total):
+        fraction = min(1.0, done / total) if total else 0.0
+        _set_state(
+            progress=0.02 + 0.84 * fraction,
+            detail=f"Дельта-обновление… {round(fraction * 100)}%",
+        )
+
+    stats = delta.reconstruct(old_path, manifest, fetch, archive, progress=progress)
+    _set_state(
+        detail=(
+            "Дельта собрана: "
+            f"скачано {stats['downloaded']} Б, "
+            f"переиспользовано {stats['reused']} Б."
+        )
+    )
+    return True
 
 
 def reason_text(reason):
@@ -399,6 +528,49 @@ rm -rf "$backup" {shlex.quote(temp)}
     )
 
 
+def _install_appimage(archive, info):
+    context = _platform_context()
+    target = context["target"]
+    temp = os.path.dirname(archive)
+    helper = os.path.join(temp, "install.sh")
+    script = f"""#!/bin/sh
+set -u
+pid={os.getpid()}
+target={shlex.quote(target)}
+new={shlex.quote(archive)}
+backup="$target.old.$$"
+while kill -0 "$pid" 2>/dev/null; do sleep 1; done
+if mv "$target" "$backup" 2>/dev/null; then
+  if cp -f "$new" "$target" 2>/dev/null; then
+    chmod +x "$target" 2>/dev/null || true
+  else
+    rm -f "$target"
+    mv "$backup" "$target" 2>/dev/null || true
+  fi
+else
+  cp -f "$new" "$target" 2>/dev/null || true
+  chmod +x "$target" 2>/dev/null || true
+fi
+if [ -x "$target" ]; then
+  nohup "$target" "$@" >/dev/null 2>&1 &
+fi
+sleep 2
+rm -f "$backup"
+rm -rf {shlex.quote(temp)}
+"""
+    with open(helper, "w", encoding="utf-8") as fh:
+        fh.write(script)
+    os.chmod(helper, 0o755)
+    subprocess.Popen(
+        ["/bin/sh", helper, *_launch_args()],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+        close_fds=True,
+    )
+
+
 def _install(info):
     global _ACTIVE
     temp = ""
@@ -406,13 +578,28 @@ def _install(info):
         temp = tempfile.mkdtemp(prefix="ogranka-update-")
         name = str(info.get("asset_name") or "update.bin")
         archive = os.path.join(temp, os.path.basename(name))
-        _download(info["asset_url"], archive, 0.02, 0.88)
-        _verify(archive, info)
         context = _platform_context()
+        used_delta = False
+        if info.get("delta_url"):
+            try:
+                used_delta = _download_delta(info, archive, context)
+            except Exception:
+                used_delta = False
+                _set_state(
+                    "downloading",
+                    0.02,
+                    "Дельта не удалась — качаю полный файл.",
+                )
+        if not used_delta:
+            _download(info["asset_url"], archive, 0.02, 0.88)
+        _verify(archive, info)
+        _cache_asset(archive, context)
         if context["kind"] == "mac":
             _install_mac(archive, info)
         elif context["kind"] == "windows":
             _install_windows(archive, info)
+        elif context["kind"] == "appimage":
+            _install_appimage(archive, info)
         else:
             _install_linux(archive, info)
         _set_state(

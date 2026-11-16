@@ -52,6 +52,19 @@ class UpdaterTest(unittest.TestCase):
                         ok, reason = updater.can_install("Ogranka-macos-1.0.1.zip", True)
         self.assertTrue(ok, reason)
 
+    def test_can_install_accepts_running_appimage(self):
+        with tempfile.TemporaryDirectory() as root:
+            image = os.path.join(root, "Ogranka-linux-1.0.1.AppImage")
+            open(image, "wb").close()
+            with patch.object(updater.sys, "frozen", True, create=True):
+                with patch.object(updater.sys, "executable", image):
+                    with patch.object(updater.platform, "system", return_value="Linux"):
+                        with patch.dict(os.environ, {"APPIMAGE": image}):
+                            ok, reason = updater.can_install(
+                                "Ogranka-linux-1.0.1.AppImage", True
+                            )
+        self.assertTrue(ok, reason)
+
     def test_verify_checksum_and_size(self):
         with tempfile.TemporaryDirectory() as root:
             path = os.path.join(root, "Ogranka-macos-1.0.1.zip")

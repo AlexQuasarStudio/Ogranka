@@ -691,6 +691,8 @@ def _release_asset(release):
         extensions = (".zip", ".dmg", ".pkg")
     elif system == "windows":
         extensions = (".exe", ".msi", ".zip")
+    elif updater.is_appimage():
+        extensions = (".appimage",)
     else:
         extensions = (".tar.gz", ".appimage", ".zip")
     for extension in extensions:
@@ -720,6 +722,16 @@ def _release_download(release):
     if asset:
         return asset.get("browser_download_url"), asset.get("name")
     return release.get("html_url"), None
+
+
+def _delta_asset(release, asset_name):
+    if not asset_name:
+        return None
+    target = asset_name + ".delta.json"
+    for asset in release.get("assets") or []:
+        if str(asset.get("name") or "") == target:
+            return asset
+    return None
 
 
 def _update_info(force=False):
@@ -767,6 +779,9 @@ def _update_info(force=False):
         asset_name = str((asset_info or {}).get("name") or "")
         asset_sha256 = _asset_sha256(asset_info)
         checksums_url = _checksums_url(release)
+        delta_info = _delta_asset(release, asset_name)
+        delta_url = str((delta_info or {}).get("browser_download_url") or "")
+        delta_name = str((delta_info or {}).get("name") or "")
         installable, install_reason = updater.can_install(
             asset_name, bool(asset_sha256 or checksums_url)
         )
@@ -796,6 +811,8 @@ def _update_info(force=False):
             "asset_name": asset_name,
             "asset_size": int((asset_info or {}).get("size") or 0),
             "asset_sha256": asset_sha256,
+            "delta_url": delta_url,
+            "delta_name": delta_name,
             "checksums_url": checksums_url,
             "installable": installable,
             "install_reason": install_reason,

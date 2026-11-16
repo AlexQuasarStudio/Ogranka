@@ -52,11 +52,15 @@ jobs:
         run: app\build_windows.bat
       - name: Package exe
         shell: pwsh
-        run: Copy-Item app\dist\Ogranka.exe "Ogranka-windows-$env:VERSION.exe"
+        run: |
+          Copy-Item app\dist\Ogranka.exe "Ogranka-windows-$env:VERSION.exe"
+          python app/build_delta.py "Ogranka-windows-$env:VERSION.exe"
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: Ogranka-windows-*.exe
+          path: |
+            Ogranka-windows-*.exe
+            Ogranka-windows-*.exe.delta.json
           if-no-files-found: error
 
   linux:
@@ -74,6 +78,8 @@ jobs:
           cache-dependency-path: app/requirements.txt
       - name: Install dependencies
         run: python -m pip install -r app/requirements.txt pyinstaller
+      - name: Install AppImage tools
+        run: sudo apt-get update && sudo apt-get install -y zsync
       - name: Build Linux archive
         run: bash app/build_linux.sh
       - uses: actions/upload-artifact@v4
@@ -82,6 +88,8 @@ jobs:
           path: |
             Ogranka-linux-*.tar.gz
             Ogranka-linux-*.AppImage
+            Ogranka-linux-*.AppImage.zsync
+            Ogranka-linux-*.delta.json
           if-no-files-found: error
 
   publish:
@@ -100,7 +108,7 @@ jobs:
       - name: Create checksums
         run: |
           cd assets
-          sha256sum Ogranka-windows-*.exe Ogranka-linux-*.tar.gz Ogranka-linux-*.AppImage > SHA256SUMS.txt
+          sha256sum Ogranka-windows-*.exe Ogranka-linux-*.tar.gz Ogranka-linux-*.AppImage Ogranka-linux-*.AppImage.zsync Ogranka-*.delta.json > SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.verify.outputs.version }}
@@ -110,6 +118,8 @@ jobs:
             assets/Ogranka-windows-*.exe
             assets/Ogranka-linux-*.tar.gz
             assets/Ogranka-linux-*.AppImage
+            assets/Ogranka-linux-*.AppImage.zsync
+            assets/Ogranka-*.delta.json
             assets/SHA256SUMS.txt
           overwrite_files: true
           make_latest: true

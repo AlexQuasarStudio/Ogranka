@@ -69,6 +69,11 @@ class UpdateTest(unittest.TestCase):
                     "size": 123,
                 },
                 {
+                    "name": "Ogranka-macos-1.0.2.zip.delta.json",
+                    "browser_download_url": "https://example.com/Ogranka-macos-1.0.2.zip.delta.json",
+                    "size": 456,
+                },
+                {
                     "name": "SHA256SUMS.txt",
                     "browser_download_url": "https://example.com/SHA256SUMS.txt",
                 },
@@ -80,10 +85,33 @@ class UpdateTest(unittest.TestCase):
         self.assertEqual(info["asset_name"], "Ogranka-macos-1.0.2.zip")
         self.assertEqual(info["asset_sha256"], digest)
         self.assertEqual(info["asset_size"], 123)
+        self.assertEqual(
+            info["delta_url"],
+            "https://example.com/Ogranka-macos-1.0.2.zip.delta.json",
+        )
+        self.assertEqual(info["delta_name"], "Ogranka-macos-1.0.2.zip.delta.json")
         self.assertEqual(info["checksums_url"], "https://example.com/SHA256SUMS.txt")
         self.assertFalse(info["installable"])
         self.assertEqual(info["install_reason"], "dev")
         self.assertEqual(info["update_kind"], "version")
+
+    def test_release_asset_prefers_appimage_when_running_appimage(self):
+        release = {
+            "assets": [
+                {
+                    "name": "Ogranka-linux-1.0.2.tar.gz",
+                    "browser_download_url": "https://example.com/Ogranka-linux-1.0.2.tar.gz",
+                },
+                {
+                    "name": "Ogranka-linux-1.0.2.AppImage",
+                    "browser_download_url": "https://example.com/Ogranka-linux-1.0.2.AppImage",
+                },
+            ]
+        }
+        with patch("app.platform.system", return_value="Linux"):
+            with patch("app.updater.is_appimage", return_value=True):
+                asset = app._release_asset(release)
+        self.assertEqual(asset["name"], "Ogranka-linux-1.0.2.AppImage")
 
     def test_same_version_newer_build_is_a_build_update(self):
         payload = {

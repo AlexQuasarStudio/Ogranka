@@ -22,6 +22,7 @@ tar -czf "$ROOT/../Ogranka-linux-${VERSION}.tar.gz" -C "$PACKAGE" .
 
 APPDIR="$ROOT/dist_linux/AppDir"
 APPIMAGE="$ROOT/../Ogranka-linux-${VERSION}.AppImage"
+UPDATE_URL="https://github.com/AlexQuasarStudio/Ogranka/releases/download/v${VERSION}/Ogranka-linux-${VERSION}.AppImage.zsync"
 APPIMAGETOOL="$ROOT/dist_linux/appimagetool-x86_64.AppImage"
 if [ ! -x "$APPIMAGETOOL" ]; then
   curl -fL --retry 3 -o "$APPIMAGETOOL" \
@@ -42,6 +43,13 @@ cp ogranka.desktop "$APPDIR/usr/share/applications/ogranka.desktop"
 cp AppRun "$APPDIR/AppRun"
 chmod +x "$APPDIR/AppRun"
 ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 \
-  "$APPIMAGETOOL" "$APPDIR" "$APPIMAGE"
+  "$APPIMAGETOOL" -u "zsync|$UPDATE_URL" "$APPDIR" "$APPIMAGE"
 chmod +x "$APPIMAGE"
-echo "Готово: Ogranka-linux-${VERSION}.tar.gz и Ogranka-linux-${VERSION}.AppImage (сборка ${BUILD})"
+if command -v zsyncmake >/dev/null 2>&1; then
+  zsyncmake -u "$UPDATE_URL" -o "$APPIMAGE.zsync" "$APPIMAGE"
+else
+  echo "zsyncmake не найден: установите пакет zsync" >&2
+  exit 1
+fi
+python3 build_delta.py "$ROOT/../Ogranka-linux-${VERSION}.tar.gz" "$APPIMAGE"
+echo "Готово: Ogranka-linux-${VERSION}.tar.gz, Ogranka-linux-${VERSION}.AppImage, .AppImage.zsync и .delta.json (сборка ${BUILD})"
