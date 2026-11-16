@@ -95,23 +95,29 @@ class UpdateTest(unittest.TestCase):
         self.assertEqual(info["install_reason"], "dev")
         self.assertEqual(info["update_kind"], "version")
 
-    def test_release_asset_prefers_appimage_when_running_appimage(self):
+    def test_release_asset_prefers_architecture_for_appimage(self):
         release = {
             "assets": [
-                {
-                    "name": "Ogranka-linux-1.0.2.tar.gz",
-                    "browser_download_url": "https://example.com/Ogranka-linux-1.0.2.tar.gz",
-                },
                 {
                     "name": "Ogranka-linux-1.0.2.AppImage",
                     "browser_download_url": "https://example.com/Ogranka-linux-1.0.2.AppImage",
                 },
+                {
+                    "name": "Ogranka-linux-1.0.2-arm64.AppImage",
+                    "browser_download_url": "https://example.com/Ogranka-linux-1.0.2-arm64.AppImage",
+                },
             ]
         }
         with patch("app.platform.system", return_value="Linux"):
-            with patch("app.updater.is_appimage", return_value=True):
-                asset = app._release_asset(release)
+            with patch("app.platform.machine", return_value="x86_64"):
+                with patch("app.updater.is_appimage", return_value=True):
+                    asset = app._release_asset(release)
         self.assertEqual(asset["name"], "Ogranka-linux-1.0.2.AppImage")
+        with patch("app.platform.system", return_value="Linux"):
+            with patch("app.platform.machine", return_value="aarch64"):
+                with patch("app.updater.is_appimage", return_value=True):
+                    asset = app._release_asset(release)
+        self.assertEqual(asset["name"], "Ogranka-linux-1.0.2-arm64.AppImage")
 
     def test_same_version_newer_build_is_a_build_update(self):
         payload = {

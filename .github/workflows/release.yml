@@ -134,8 +134,36 @@ jobs:
             Ogranka-linux-*.delta.json
           if-no-files-found: error
 
+  linux-arm64:
+    needs: verify
+    runs-on: ubuntu-22.04-arm
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      OGRANKA_BUILD: ${{ needs.verify.outputs.build }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: app/requirements.txt
+      - name: Install dependencies
+        run: python -m pip install -r app/requirements.txt pyinstaller
+      - name: Install AppImage tools
+        run: sudo apt-get update && sudo apt-get install -y zsync
+      - name: Build Linux ARM64 archive
+        run: bash app/build_linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-arm64
+          path: |
+            Ogranka-linux-*-arm64.AppImage
+            Ogranka-linux-*-arm64.AppImage.zsync
+            Ogranka-linux-*-arm64.delta.json
+          if-no-files-found: error
+
   publish:
-    needs: [verify, macos, windows, linux]
+    needs: [verify, macos, windows, linux, linux-arm64]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

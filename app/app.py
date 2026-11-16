@@ -757,10 +757,17 @@ def _release_asset(release):
         extensions = (".zip", ".dmg", ".pkg")
     elif system == "windows":
         extensions = (".exe", ".msi", ".zip")
-    elif updater.is_appimage():
-        extensions = (".appimage",)
-    else:
-        extensions = (".appimage",)
+    elif updater.is_appimage() or system == "linux":
+        arm = platform.machine().lower() in ("aarch64", "arm64")
+        for asset in assets:
+            name = str(asset.get("name") or "")
+            lower = name.lower()
+            if not lower.endswith(".appimage"):
+                continue
+            is_arm = "arm64" in lower or "aarch64" in lower
+            if is_arm == arm:
+                return asset
+        return None
     for extension in extensions:
         for asset in assets:
             name = str(asset.get("name") or "")
