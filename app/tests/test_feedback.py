@@ -24,6 +24,14 @@ class FeedbackTest(unittest.TestCase):
                 self.assertIsNotNone(updated)
                 self.assertEqual(app._feedback_items()[0]["status"], "done")
 
+    def test_feedback_can_be_deleted(self):
+        with tempfile.TemporaryDirectory() as root:
+            with patch.object(app, "FEEDBACK_FILE", os.path.join(root, "feedback.json")):
+                item = app._add_feedback({"message": "Удалить меня"})
+                self.assertTrue(app._delete_feedback(item["id"]))
+                self.assertEqual(app._feedback_items(), [])
+                self.assertFalse(app._delete_feedback(item["id"]))
+
     def test_empty_feedback_is_rejected(self):
         with tempfile.TemporaryDirectory() as root:
             with patch.object(app, "FEEDBACK_FILE", os.path.join(root, "feedback.json")):

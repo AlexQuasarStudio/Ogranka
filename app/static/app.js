@@ -750,9 +750,11 @@ function renderFeedback(items) {
       </div>
       ${who ? `<div class="feedback-item-meta">${who}</div>` : ""}
       <p class="feedback-item-text">${escapeHtml(item.message || "")}</p>
-      <label class="feedback-item-status">Статус
+      <div class="feedback-item-status">
+        <span>Статус</span>
         <select class="feedback-status-select" data-id="${escapeHtml(item.id || "")}">${statusOptions}</select>
-      </label>
+        <button class="feedback-delete" data-id="${escapeHtml(item.id || "")}" title="Удалить запрос">Удалить</button>
+      </div>
     </article>`;
   }).join("");
 }
@@ -846,6 +848,22 @@ async function updateFeedbackStatus(id, status) {
   } catch (error) {
     setFeedbackStatus(String(error.message || error), true);
     await loadFeedback();
+  }
+}
+
+async function deleteFeedback(id) {
+  try {
+    const response = await fetch("/api/feedback/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || "Не удалось удалить запрос.");
+    setFeedbackStatus("Запрос удалён.");
+    await loadFeedback();
+  } catch (error) {
+    setFeedbackStatus(String(error.message || error), true);
   }
 }
 
@@ -1186,6 +1204,11 @@ function init() {
     if (select && select.dataset.id) {
       updateFeedbackStatus(select.dataset.id, select.value);
     }
+  });
+  $("feedbackList").addEventListener("click", (e) => {
+    const button = e.target.closest(".feedback-delete");
+    if (!button || !button.dataset.id) return;
+    if (window.confirm("Удалить запрос?")) deleteFeedback(button.dataset.id);
   });
   $("feedbackCopy").onclick = async () => {
     const data = composeFeedback();

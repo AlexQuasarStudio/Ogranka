@@ -270,6 +270,16 @@ def _set_feedback_status(feedback_id, status):
     return found
 
 
+def _delete_feedback(feedback_id):
+    with FEEDBACK_LOCK:
+        items = _read_feedback_file()
+        remaining = [item for item in items if item.get("id") != feedback_id]
+        if len(remaining) == len(items):
+            return False
+        _write_feedback_file(remaining)
+    return True
+
+
 def _stage(text, progress, detail="", eta=None, **extra):
     with LOCK:
         job = STATE["job"]
@@ -430,7 +440,7 @@ def _run(sources, params, run_token, run_label):
                 if noise_model == "edges":
                     label += " · рёбра"
                 elif noise_model == "normal":
-                    label += " · нормали"
+                    label += " · экспериментальный"
 
                 vstage(vi, 0.03, "подготовка варианта", label)
                 t_var = time.time()
@@ -1008,6 +1018,17 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json({"ok": True, "item": item})
             except ValueError as exc:
                 return self._json({"error": str(exc)}, 400)
+            except Exception as exc:
+                return self._json({"error": str(exc)}, 500)
+        if u.path == "/api/feedback/delete":
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            if length > 8 * 1024:
+                return self._json({"error": "слишком большой запрос"}, 413)
+            try:
+                body = json.loads(self.rfile.read(length) or b"{}")
+                if not _delete_feedback(str(body.get("id") or "")):
+                    return self._json({"error": "запрос не найден"}, 404)
+                return self._json({"ok": True})
             except Exception as exc:
                 return self._json({"error": str(exc)}, 500)
         if u.path == "/api/welcome":
