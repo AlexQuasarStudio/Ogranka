@@ -613,19 +613,97 @@ body.progress-on .full-live { bottom: 104px; }
 .github-issue-meta { margin-top: 4px; color: #71839a; font-size: 11px; }
 .github-issue-labels { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
 .issue-label { padding: 2px 7px; border-radius: 999px; color: #0b1017; font-size: 10.5px; font-weight: 700; line-height: 1.35; }
-.shot-card { width: min(1100px, 96vw); }
-.shot-toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 6px 0 10px; }
-.shot-toolbar.hidden { display: none; }
-.shot-step { color: #71839a; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; margin-right: 2px; }
-.shot-tool, .shot-toolbar button:not(.feedback-send) {
-  padding: 6px 9px; color: #9fb4ce; background: #182231; border: 1px solid #2b3b52;
-  border-radius: 8px; font-size: 12px;
+.shot-layer {
+  position: fixed; inset: 0; z-index: 120; display: flex; flex-direction: column;
+  background: #05080d; opacity: 1; visibility: visible;
+  transition: opacity .2s ease, visibility 0s linear 0s;
 }
-.shot-tool.active { color: #dce9ff; background: #253b5d; border-color: #4f8cff; }
-#shotColor { width: 36px; height: 30px; padding: 2px; border: 1px solid #2b3b52; border-radius: 7px; background: #182231; }
-#shotWidth { width: 86px; accent-color: #4f8cff; }
-.shot-zoom-bar { margin-top: -4px; color: #8da1b8; font-size: 12px; }
-#shotZoomValue { min-width: 44px; text-align: center; color: #dce9ff; font-variant-numeric: tabular-nums; }
-.shot-zoom-hint { margin-left: 4px; color: #61758c; font-size: 11px; }
-.shot-canvas-wrap { display: block; max-height: 64vh; overflow: auto; background: #080c12; border: 1px solid #232a35; border-radius: 10px; padding: 8px; }
-#shotCanvas { display: block; max-width: none; margin: 0 auto; height: auto; cursor: crosshair; touch-action: none; background: #0b1017; }
+.shot-layer.hidden { opacity: 0; visibility: hidden; pointer-events: none; transition-delay: 0s, .2s; }
+.shot-stage {
+  flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center;
+  overflow: auto; padding: 22px 22px 142px; background: radial-gradient(circle at 50% 35%, #121a27, #05080d 68%);
+}
+#shotCanvas {
+  display: block; flex: 0 0 auto; background: #0b1017;
+  box-shadow: 0 24px 90px rgba(0,0,0,.58), 0 0 0 1px rgba(124,164,220,.18);
+  cursor: crosshair; touch-action: none; border-radius: 3px;
+}
+.shot-panel {
+  position: absolute; left: 50%; bottom: 16px; z-index: 2;
+  width: min(1180px, calc(100vw - 32px)); padding: 11px 14px 10px;
+  background: rgba(18, 26, 38, .94); border: 1px solid rgba(95, 131, 178, .42);
+  border-radius: 16px; box-shadow: 0 22px 70px rgba(0,0,0,.55);
+  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+  transform: translateX(-50%);
+  animation: shot-panel-in .26s cubic-bezier(.16,1,.3,1) both;
+}
+@keyframes shot-panel-in { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.shot-panel-head { display: flex; align-items: baseline; gap: 9px; margin-bottom: 8px; }
+.shot-panel-head #shotTitle { color: #e8f1fc; font-size: 13px; font-weight: 700; }
+.shot-panel-head #shotSubtitle { color: #7f93aa; font-size: 11.5px; }
+.shot-panel-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.shot-panel-row.hidden { display: none; }
+.shot-kicker { margin-right: 2px; color: #6d829a; font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase; }
+.shot-panel button, .shot-tool {
+  min-height: 30px; padding: 5px 10px; color: #a9bdd4; background: #1a2432;
+  border: 1px solid #2d4058; border-radius: 8px; font-size: 12px;
+}
+.shot-panel button:hover, .shot-tool:hover { color: #edf5ff; border-color: #42638b; }
+.shot-tool.active { color: #eaf3ff; background: #244366; border-color: #4f8cff; }
+.shot-panel .shot-primary {
+  color: #f4f9ff; background: #2a62c9; border-color: #4f8cff; font-weight: 650;
+}
+.shot-panel .shot-primary:hover { background: #3573e0; }
+.shot-divider { width: 1px; height: 22px; margin: 0 3px; background: #2a3a50; }
+.shot-colors { display: flex; align-items: center; gap: 4px; }
+.shot-swatch {
+  width: 19px; height: 19px; min-height: 19px !important; padding: 0 !important;
+  border-radius: 50% !important; border: 2px solid transparent !important;
+  background: var(--swatch) !important; box-shadow: 0 0 0 1px rgba(0,0,0,.35);
+}
+.shot-swatch.active { border-color: #eaf2ff !important; box-shadow: 0 0 0 2px #4f8cff, 0 0 0 1px #0b111a; }
+#shotColor { width: 30px; height: 30px; padding: 2px; border: 1px solid #2d4058; border-radius: 8px; background: #1a2432; }
+#shotWidth { width: 78px; accent-color: #4f8cff; }
+.shot-panel-foot { display: flex; align-items: center; gap: 7px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(72,100,136,.28); }
+.shot-zoom-label { color: #6d829a; font-size: 11px; }
+#shotZoomValue { min-width: 42px; color: #dce9ff; font-size: 11.5px; text-align: center; font-variant-numeric: tabular-nums; }
+.shot-hint { flex: 1 1 280px; color: #8297af; font-size: 11.5px; line-height: 1.4; }
+.shot-close { margin-left: auto; }
+.shot-layer .shot-tool { flex: 0 0 auto; }
+body.shot-open { overflow: hidden; }
+
+/* Screenshot split button in the viewport header */
+.viewer-card { overflow: visible; }
+.canvas-wrap { overflow: hidden; border-radius: 0 0 12px 12px; }
+.vshot { position: relative; display: inline-flex; flex: 0 0 auto; }
+.vshot-main, .vshot-toggle {
+  min-height: 27px; padding: 4px 9px; font-size: 11.5px; color: #a9bdd4;
+  background: #1a2432; border: 1px solid #2d4058;
+}
+.vshot-main { border-radius: 8px 0 0 8px; border-right: 0; }
+.vshot-toggle { border-radius: 0 8px 8px 0; padding-inline: 6px; }
+.vshot-main:hover, .vshot-toggle:hover { color: #eaf3ff; border-color: #42638b; }
+.vshot-menu {
+  position: absolute; top: calc(100% + 7px); right: 0; z-index: 40; width: 174px;
+  padding: 5px; background: #151f2c; border: 1px solid #30445d; border-radius: 10px;
+  box-shadow: 0 16px 42px rgba(0,0,0,.52);
+  opacity: 0; visibility: hidden; transform: translateY(-6px) scale(.98); transform-origin: top right;
+  transition: opacity .16s ease, transform .2s cubic-bezier(.16,1,.3,1), visibility 0s linear .16s;
+}
+.vshot-menu.open {
+  opacity: 1; visibility: visible; transform: translateY(0) scale(1);
+  transition-delay: 0s;
+}
+.vshot-menu button {
+  display: block; width: 100%; padding: 8px 9px; text-align: left;
+  color: #c9d8ea; background: transparent; border: 0; border-radius: 7px; font-size: 12px;
+}
+.vshot-menu button:hover { color: #fff; background: #22334a; }
+.vshot-menu small { display: block; margin-top: 1px; color: #758aa2; font-size: 10.5px; }
+.update-toast { border-color: #3b5a83; }
+.update-toast-mark { color: #bcd7ff; background: #203b61; border-color: #365b8a; }
+.corner-toast-action {
+  margin-left: auto; padding: 5px 9px; flex: 0 0 auto;
+  color: #dcecff; background: #244366; border: 1px solid #3e6396; border-radius: 7px; font-size: 11px;
+}
+.corner-toast-action:hover { background: #2c5079; }

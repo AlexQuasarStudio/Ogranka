@@ -192,10 +192,10 @@ def _fetch_range(url, start, length):
     with urlopen(request, timeout=60, context=SSL_CONTEXT) as response:
         status = getattr(response, "status", 206)
         if status != 206:
-            raise RuntimeError("Сервер не поддерживает докачку фрагментов.")
+            raise RuntimeError("Сервер не поддерживает загрузку обновления.")
         payload = response.read()
     if len(payload) != length:
-        raise RuntimeError("Сервер вернул неполный фрагмент обновления.")
+        raise RuntimeError("Сервер вернул неполное обновление.")
     return payload
 
 
@@ -207,9 +207,9 @@ def _download_delta(info, archive, context):
         return False
     old_path = _old_asset(context)
     if not old_path:
-        _set_state("downloading", 0.02, "Старая версия не найдена — качаю полный файл.")
+        _set_state("downloading", 0.02, "Загружаю обновление…")
         return False
-    _set_state("downloading", 0.02, "Читаю данные обновления…")
+    _set_state("downloading", 0.02, "Загружаю обновление…")
     manifest = json.loads(_fetch_text(manifest_url))
     if str(manifest.get("asset") or "") != asset_name:
         raise RuntimeError("Данные обновления относятся к другому файлу.")
@@ -237,7 +237,7 @@ def reason_text(reason):
             "Переместите его в «Программы» и повторите."
         ),
         "asset": "В релизе нет подходящего файла для этой системы.",
-        "checksum": "В релизе нет данных для проверки файла.",
+        "checksum": "Не удалось проверить обновление. Скачайте его вручную.",
         "permissions": "Нет прав на запись в папку приложения. Скачайте обновление вручную.",
     }.get(reason, "Автоустановка недоступна.")
 
@@ -330,14 +330,14 @@ def _verify(path, info):
     name = str(info.get("asset_name") or os.path.basename(path))
     expected = _checksum_for(info, name)
     if not expected:
-        raise RuntimeError("Не удалось получить данные для проверки обновления.")
+        raise RuntimeError("Не удалось проверить обновление.")
     actual = _sha256(path)
     if not hmac.compare_digest(actual, expected):
-        raise RuntimeError("Файл обновления повреждён.")
+        raise RuntimeError("Обновление повреждено.")
     size = info.get("asset_size")
     if size and os.path.getsize(path) != int(size):
-        raise RuntimeError("Файл обновления повреждён.")
-    _set_state("installing", 0.96, "Обновление проверено.")
+        raise RuntimeError("Обновление повреждено.")
+    _set_state("installing", 0.96, "Устанавливаю обновление…")
 
 
 def _safe_extract_tar(archive, destination):
@@ -582,7 +582,7 @@ def _install(info):
                 _set_state(
                     "downloading",
                     0.02,
-                    "Не удалось докачать обновление — загружаю полный файл.",
+                    "Продолжаю загрузку обновления.",
                 )
         if not used_delta:
             _download(info["asset_url"], archive, 0.02, 0.88)

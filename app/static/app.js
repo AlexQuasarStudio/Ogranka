@@ -757,34 +757,17 @@ function githubIssueUrl(data) {
   return url.toString();
 }
 
-async function openGithub(url) {
-  if (window.pywebview?.api?.open_github) {
-    try {
-      const opened = await window.pywebview.api.open_github(url);
-      if (opened) return true;
-    } catch (error) {
-      /* fallback ниже */
-    }
-  }
-  window.open(url, "_blank", "noopener");
-  return false;
-}
-
 async function submitFeedback() {
   const data = composeFeedback();
   if (data.message.length < 3) {
     setFeedbackStatus("Напишите сообщение — хотя бы пару слов.", true);
     return;
   }
-  const button = $("feedbackSend");
+  const button = $("feedbackOpenBrowser");
   button.disabled = true;
   try {
-    const opened = await openGithub(githubIssueUrl(data));
-    setFeedbackStatus(
-      opened
-        ? "Окно GitHub открыто. Проверьте текст и приложите файлы."
-        : "GitHub открыт в браузере: встроенное окно недоступно."
-    );
+    await openExternal(githubIssueUrl(data));
+    setFeedbackStatus("GitHub открыт в браузере. Проверьте текст и приложите файлы.");
     $("feedbackText").value = "";
   } catch (error) {
     setFeedbackStatus(String(error.message || error), true);
@@ -853,6 +836,21 @@ async function loadGithubIssues(force = false) {
   }
 }
 
+function hideUpdateToast() {
+  $("updateToast").classList.add("hidden");
+}
+
+function showUpdateToast(info) {
+  if (!info || !info.available) {
+    hideUpdateToast();
+    return;
+  }
+  const version = info.version || info.current || "";
+  const build = info.build ? " · сборка " + info.build : "";
+  $("updateToastText").textContent = version + build + ". Откройте, чтобы установить.";
+  $("updateToast").classList.remove("hidden");
+}
+
 async function checkForUpdates(force = false) {
   const button = $("updateBtn");
   const state = $("updateState");
@@ -874,6 +872,8 @@ async function checkForUpdates(force = false) {
         button.classList.add("hidden");
       }
     }
+    if (info.available) showUpdateToast(info);
+    else hideUpdateToast();
     if (force && state) {
       if (info.available) {
         state.className = "update-state good";
@@ -966,9 +966,10 @@ async function installUpdate() {
 }
 
 const Shot = {
-  base: null, original: null, shapes: [], tool: "circle",
-  start: null, preview: null, color: "#ff4d4f", width: 3,
+  base: null, original: null, shapes: [], selected: null, tool: "select",
   stage: "crop", crop: null, zoom: 1, drag: null,
+  start: null, preview: null, color: "#ff4d4f", width: 3,
+  name: "ogranka-shot", title: "Скриншот", subtitle: "",
 };
 
 function shotHint(text) {
@@ -976,18 +977,53 @@ function shotHint(text) {
   if (hint) hint.textContent = text;
 }
 
+function shotShapeBounds(shape) {
+  if (!shape) return null;
+  if (shape.tool === "text") {
+    return {
+      x: shape.start.x, y: shape.start.y,
+      w: Math.max(1, shape.w || 1), h: Math.max(1, shape.h || 1),
+    };
+  }
+  const x = Math.min(shape.start.x, shape.end.x);
+  const y = Math.min(shape.start.y, shape.end.y);
+  return {
+    x, y,
+    w: Math.max(1, Math.abs(shape.end.x - shape.start.x)),
+    h: Math.max(1, Math.abs(shape.end.y - shape.start.y)),
+  };
+}
+
+function shotShapeCenter(shape) {
+  const b = shotShapeBounds(shape);
+  return { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+}
+
+function shotRotatePoint(point, center, angle) {
+  if (!angle) return { x: point.x, y: point.y };
+  const dx = point.x - center.x;
+  const dy = point.y - center.y;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return { x: center.x + dx * cos - dy * sin, y: center.y + dx * sin + dy * cos };
+}
+
 function shotDrawShape(ctx, shape) {
   const { tool, start, end, color, width, text } = shape;
+  const b = shotShapeBounds(shape);
+  const center = shotShapeCenter(shape);
   ctx.save();
+  ctx.translate(center.x, center.y);
+  ctx.rotate(shape.rotation || 0);
+  ctx.translate(-center.x, -center.y);
   ctx.strokeStyle = color;
   ctx.fillStyle = color;
-  ctx.lineWidth = width;
+  ctx.lineWidth = Math.max(1, width || 1);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   if (tool === "circle") {
     ctx.beginPath();
-    ctx.ellipse((start.x + end.x) / 2, (start.y + end.y) / 2,
-      Math.abs(end.x - start.x) / 2, Math.abs(end.y - start.y) / 2, 0, 0, Math.PI * 2);
+    ctx.ellipse(b.x + b.w / 2, b.y + b.h / 2, b.w / 2, b.h / 2, 0, 0, Math.PI * 2);
     ctx.stroke();
   } else if (tool === "line" || tool === "arrow") {
     ctx.beginPath();
@@ -1005,25 +1041,11 @@ function shotDrawShape(ctx, shape) {
       ctx.stroke();
     }
   } else if (tool === "text" && text) {
-    ctx.font = `${Math.max(18, width * 7)}px system-ui, sans-serif`;
+    ctx.font = `${Math.max(10, shape.fontSize || 18)}px system-ui, sans-serif`;
     ctx.textBaseline = "top";
     ctx.fillText(text, start.x, start.y);
   }
   ctx.restore();
-}
-
-function shotNormalizeCrop(rect) {
-  const maxW = Shot.base?.width || 1;
-  const maxH = Shot.base?.height || 1;
-  let left = Math.min(rect.x, rect.x + rect.w);
-  let top = Math.min(rect.y, rect.y + rect.h);
-  let right = Math.max(rect.x, rect.x + rect.w);
-  let bottom = Math.max(rect.y, rect.y + rect.h);
-  left = Math.max(0, Math.min(left, maxW));
-  top = Math.max(0, Math.min(top, maxH));
-  right = Math.max(0, Math.min(right, maxW));
-  bottom = Math.max(0, Math.min(bottom, maxH));
-  return { x: left, y: top, w: Math.max(0, right - left), h: Math.max(0, bottom - top) };
 }
 
 function shotDrawCropFrame(ctx, width, height) {
@@ -1080,6 +1102,49 @@ function shotDrawCropFrame(ctx, width, height) {
   ctx.restore();
 }
 
+function shotDrawSelection(ctx) {
+  const shape = Shot.selected;
+  if (!shape) return;
+  const b = shotShapeBounds(shape);
+  const center = shotShapeCenter(shape);
+  const size = Math.max(8, Math.min(12, Math.round(Math.min(b.w, b.h) / 5)));
+  ctx.save();
+  ctx.translate(center.x, center.y);
+  ctx.rotate(shape.rotation || 0);
+  ctx.translate(-center.x, -center.y);
+  ctx.strokeStyle = "#65a3ff";
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([5, 4]);
+  ctx.strokeRect(b.x, b.y, b.w, b.h);
+  ctx.setLineDash([]);
+  const points = [
+    [b.x, b.y], [b.x + b.w / 2, b.y], [b.x + b.w, b.y],
+    [b.x, b.y + b.h / 2], [b.x + b.w, b.y + b.h / 2],
+    [b.x, b.y + b.h], [b.x + b.w / 2, b.y + b.h], [b.x + b.w, b.y + b.h],
+  ];
+  ctx.fillStyle = "#f4f9ff";
+  ctx.strokeStyle = "#2f6fd0";
+  ctx.lineWidth = 1.5;
+  points.forEach(([x, y]) => {
+    ctx.fillRect(x - size / 2, y - size / 2, size, size);
+    ctx.strokeRect(x - size / 2, y - size / 2, size, size);
+  });
+  const rotY = b.y - 28;
+  ctx.beginPath();
+  ctx.moveTo(center.x, b.y);
+  ctx.lineTo(center.x, rotY);
+  ctx.strokeStyle = "#65a3ff";
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(center.x, rotY, 6, 0, Math.PI * 2);
+  ctx.fillStyle = "#4f8cff";
+  ctx.fill();
+  ctx.strokeStyle = "#dce9ff";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.restore();
+}
+
 function shotDraw() {
   const canvas = $("shotCanvas");
   if (!canvas || !Shot.base) return;
@@ -1096,25 +1161,30 @@ function shotDraw() {
   }
   Shot.shapes.forEach((shape) => shotDrawShape(ctx, shape));
   if (Shot.preview) shotDrawShape(ctx, Shot.preview);
+  shotDrawSelection(ctx);
 }
 
 function shotSetZoom(value) {
   const canvas = $("shotCanvas");
   if (!canvas || !Shot.base) return;
-  const wrap = canvas.parentElement;
+  const stage = $("shotStage");
   const oldWidth = canvas.getBoundingClientRect().width || 1;
   const oldHeight = canvas.getBoundingClientRect().height || 1;
-  const ratioX = (wrap.scrollLeft + wrap.clientWidth / 2) / oldWidth;
-  const ratioY = (wrap.scrollTop + wrap.clientHeight / 2) / oldHeight;
+  const ratioX = (stage.scrollLeft + stage.clientWidth / 2) / oldWidth;
+  const ratioY = (stage.scrollTop + stage.clientHeight / 2) / oldHeight;
+  const availW = Math.max(220, stage.clientWidth - 44);
+  const panelHeight = $("shotPanel")?.offsetHeight || 142;
+  const availH = Math.max(180, stage.clientHeight - panelHeight - 34);
+  const fit = Math.min(canvas.width, availW, availH * canvas.width / Math.max(1, canvas.height));
   Shot.zoom = Math.max(0.25, Math.min(4, value));
-  const fitWidth = Math.max(240, Math.min(canvas.width, (wrap.clientWidth || canvas.width) - 20));
-  canvas.style.width = `${Math.round(fitWidth * Shot.zoom)}px`;
+  canvas.style.width = `${Math.max(80, Math.round(fit * Shot.zoom))}px`;
+  canvas.style.height = "auto";
   canvas.style.maxWidth = "none";
   const label = $("shotZoomValue");
   if (label) label.textContent = `${Math.round(Shot.zoom * 100)}%`;
   requestAnimationFrame(() => {
-    wrap.scrollLeft = ratioX * canvas.getBoundingClientRect().width - wrap.clientWidth / 2;
-    wrap.scrollTop = ratioY * canvas.getBoundingClientRect().height - wrap.clientHeight / 2;
+    stage.scrollLeft = ratioX * canvas.getBoundingClientRect().width - stage.clientWidth / 2;
+    stage.scrollTop = ratioY * canvas.getBoundingClientRect().height - stage.clientHeight / 2;
   });
 }
 
@@ -1122,13 +1192,31 @@ function shotZoomBy(factor) {
   shotSetZoom(Shot.zoom * factor);
 }
 
+function shotSetTool(tool) {
+  Shot.tool = tool;
+  document.querySelectorAll(".shot-tool").forEach((button) => {
+    button.classList.toggle("active", button.dataset.shotTool === tool);
+  });
+  if (tool !== "select") {
+    Shot.selected = null;
+    shotDraw();
+  }
+  const canvas = $("shotCanvas");
+  if (canvas) canvas.style.cursor = tool === "select" ? "default" : "crosshair";
+}
+
 function shotSetStage(stage) {
   Shot.stage = stage;
   $("shotCropTools").classList.toggle("hidden", stage !== "crop");
   $("shotEditTools").classList.toggle("hidden", stage !== "edit");
+  const subtitle = $("shotSubtitle");
+  if (subtitle) subtitle.textContent = stage === "crop" ? "Выберите область" : "Пометки: выбор, ресайз, поворот";
   shotHint(stage === "crop"
     ? "Потяните за рамку или углы. «Всё окно» — без обрезки."
-    : "Выберите инструмент и выделите область. Колесо мыши — масштаб.");
+    : "Кликните по пометке, чтобы выбрать. Enter — сохранить, Esc — закрыть.");
+  if (stage === "edit") shotSetTool("select");
+  const canvas = $("shotCanvas");
+  if (canvas) canvas.style.cursor = stage === "crop" ? "crosshair" : "default";
   requestAnimationFrame(() => shotSetZoom(Shot.zoom));
 }
 
@@ -1139,6 +1227,20 @@ function shotPoint(event) {
     x: (event.clientX - rect.left) * canvas.width / rect.width,
     y: (event.clientY - rect.top) * canvas.height / rect.height,
   };
+}
+
+function shotNormalizeCrop(rect) {
+  const maxW = Shot.base?.width || 1;
+  const maxH = Shot.base?.height || 1;
+  let left = Math.min(rect.x, rect.x + rect.w);
+  let top = Math.min(rect.y, rect.y + rect.h);
+  let right = Math.max(rect.x, rect.x + rect.w);
+  let bottom = Math.max(rect.y, rect.y + rect.h);
+  left = Math.max(0, Math.min(left, maxW));
+  top = Math.max(0, Math.min(top, maxH));
+  right = Math.max(0, Math.min(right, maxW));
+  bottom = Math.max(0, Math.min(bottom, maxH));
+  return { x: left, y: top, w: Math.max(0, right - left), h: Math.max(0, bottom - top) };
 }
 
 function shotApplyCrop() {
@@ -1157,6 +1259,7 @@ function shotApplyCrop() {
   Shot.base = canvas;
   Shot.original = canvas;
   Shot.shapes = [];
+  Shot.selected = null;
   Shot.preview = null;
   Shot.start = null;
   Shot.drag = null;
@@ -1169,14 +1272,13 @@ function shotApplyCrop() {
 function shotUseFull() {
   if (!Shot.base) return;
   Shot.crop = { x: 0, y: 0, w: Shot.base.width, h: Shot.base.height };
-  shotDraw();
   shotApplyCrop();
 }
 
 function shotCropHandleAt(point) {
   if (!Shot.base) return "";
-  const canvas = $("shotCanvas");
   const crop = shotNormalizeCrop(Shot.crop || { x: 0, y: 0, w: Shot.base.width, h: Shot.base.height });
+  const canvas = $("shotCanvas");
   const tolerance = Math.max(10, 16 * canvas.width / Math.max(1, canvas.getBoundingClientRect().width));
   const midX = crop.x + crop.w / 2;
   const midY = crop.y + crop.h / 2;
@@ -1194,7 +1296,7 @@ function shotCropHandleAt(point) {
 function shotUpdateCrop(point) {
   const drag = Shot.drag;
   if (!drag) return;
-  if (drag.mode === "new") {
+  if (drag.mode === "crop-new") {
     const left = Math.min(drag.start.x, point.x);
     const top = Math.min(drag.start.y, point.y);
     Shot.crop = shotNormalizeCrop({
@@ -1203,7 +1305,7 @@ function shotUpdateCrop(point) {
     return;
   }
   const start = drag.crop;
-  if (drag.mode === "move") {
+  if (drag.mode === "crop-move") {
     const dx = point.x - drag.start.x;
     const dy = point.y - drag.start.y;
     const x = Math.max(0, Math.min(start.x + dx, Shot.base.width - start.w));
@@ -1234,15 +1336,163 @@ function shotUpdateCrop(point) {
   Shot.crop = { x: left, y: top, w: right - left, h: bottom - top };
 }
 
-async function shotCapture() {
-  shotHint("Делаю скриншот…");
-  let dataUrl = "";
+function shotShapeHandleAt(point) {
+  const shape = Shot.selected;
+  if (!shape) return "";
+  const b = shotShapeBounds(shape);
+  const center = shotShapeCenter(shape);
+  const local = shotRotatePoint(point, center, -(shape.rotation || 0));
+  const canvas = $("shotCanvas");
+  const tolerance = Math.max(9, 14 * canvas.width / Math.max(1, canvas.getBoundingClientRect().width));
+  const handles = [
+    ["nw", b.x, b.y], ["n", b.x + b.w / 2, b.y], ["ne", b.x + b.w, b.y],
+    ["w", b.x, b.y + b.h / 2], ["e", b.x + b.w, b.y + b.h / 2],
+    ["sw", b.x, b.y + b.h], ["s", b.x + b.w / 2, b.y + b.h], ["se", b.x + b.w, b.y + b.h],
+    ["rot", b.x + b.w / 2, b.y - 28],
+  ];
+  for (const [name, x, y] of handles) {
+    if (Math.abs(local.x - x) <= tolerance && Math.abs(local.y - y) <= tolerance) return name;
+  }
+  return "";
+}
+
+function shotHitShape(point) {
+  for (let i = Shot.shapes.length - 1; i >= 0; i -= 1) {
+    const shape = Shot.shapes[i];
+    const b = shotShapeBounds(shape);
+    const center = shotShapeCenter(shape);
+    const local = shotRotatePoint(point, center, -(shape.rotation || 0));
+    if (local.x >= b.x - 5 && local.x <= b.x + b.w + 5
+      && local.y >= b.y - 5 && local.y <= b.y + b.h + 5) {
+      return shape;
+    }
+  }
+  return null;
+}
+
+function shotResizeShape(point) {
+  const drag = Shot.drag;
+  const shape = drag.shape;
+  const old = drag.bounds;
+  const center = drag.center;
+  const local = shotRotatePoint(point, center, -(shape.rotation || 0));
+  let left = old.x;
+  let top = old.y;
+  let right = old.x + old.w;
+  let bottom = old.y + old.h;
+  if (drag.handle.includes("w")) left = local.x;
+  if (drag.handle.includes("e")) right = local.x;
+  if (drag.handle.includes("n")) top = local.y;
+  if (drag.handle.includes("s")) bottom = local.y;
+  if (right - left < 8) {
+    if (drag.handle.includes("w")) left = right - 8;
+    else right = left + 8;
+  }
+  if (bottom - top < 8) {
+    if (drag.handle.includes("n")) top = bottom - 8;
+    else bottom = top + 8;
+  }
+  const newW = right - left;
+  const newH = bottom - top;
+  const sx = old.w ? newW / old.w : 1;
+  const sy = old.h ? newH / old.h : 1;
+  const map = (p) => ({ x: left + (p.x - old.x) * sx, y: top + (p.y - old.y) * sy });
+  if (shape.tool === "text") {
+    shape.start = { x: left, y: top };
+    shape.w = newW;
+    shape.h = newH;
+    shape.fontSize = Math.max(10, (drag.fontSize || 18) * (old.h ? newH / old.h : 1));
+  } else {
+    shape.start = map(shape.start);
+    shape.end = map(shape.end);
+  }
+}
+
+function shotUpdateShapeDrag(point, event) {
+  const drag = Shot.drag;
+  if (!drag || !drag.shape) return;
+  const shape = drag.shape;
+  if (drag.mode === "shape-move") {
+    const dx = point.x - drag.start.x;
+    const dy = point.y - drag.start.y;
+    shape.start = { x: drag.startShape.start.x + dx, y: drag.startShape.start.y + dy };
+    if (shape.tool === "text") {
+      shape.w = drag.startShape.w;
+      shape.h = drag.startShape.h;
+    } else {
+      shape.end = { x: drag.startShape.end.x + dx, y: drag.startShape.end.y + dy };
+    }
+    return;
+  }
+  if (drag.mode === "shape-rotate") {
+    const center = shotShapeCenter(shape);
+    const angle = Math.atan2(point.y - center.y, point.x - center.x);
+    let rotation = drag.rotation + angle - drag.startAngle;
+    if (event.shiftKey) rotation = Math.round(rotation / (Math.PI / 12)) * (Math.PI / 12);
+    shape.rotation = rotation;
+    return;
+  }
+  if (drag.mode === "shape-resize") shotResizeShape(point);
+}
+
+function shotDeleteSelected() {
+  if (!Shot.selected) {
+    shotHint("Сначала выберите пометку.");
+    return;
+  }
+  Shot.shapes = Shot.shapes.filter((shape) => shape !== Shot.selected);
+  Shot.selected = null;
+  shotDraw();
+}
+
+function shotApplyColor(color) {
+  Shot.color = color;
+  const picker = $("shotColor");
+  if (picker) picker.value = color;
+  document.querySelectorAll(".shot-swatch").forEach((swatch) => {
+    swatch.classList.toggle("active", swatch.dataset.shotColor.toLowerCase() === color.toLowerCase());
+  });
+  if (Shot.selected) {
+    Shot.selected.color = color;
+    shotDraw();
+  }
+}
+
+function shotCreateText(point) {
+  const text = window.prompt("Текст на скриншоте:");
+  if (!text) return;
+  const fontSize = Math.max(18, Shot.width * 7);
+  const canvas = $("shotCanvas");
+  const ctx = canvas.getContext("2d");
+  ctx.font = `${fontSize}px system-ui, sans-serif`;
+  const width = Math.max(24, ctx.measureText(text).width);
+  const height = fontSize * 1.25;
+  const shape = {
+    tool: "text", start: point, end: point, w: width, h: height,
+    fontSize, color: Shot.color, width: Shot.width, text, rotation: 0,
+  };
+  Shot.shapes.push(shape);
+  Shot.selected = shape;
+  shotSetTool("select");
+  shotDraw();
+}
+
+function loadShotImage(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = src;
+  });
+}
+
+async function shotScreenData() {
   if (window.pywebview?.api?.capture_screen) {
     const result = await window.pywebview.api.capture_screen();
-    if (result?.data) dataUrl = result.data;
-    else if (result?.error) throw new Error(result.error);
+    if (result?.data) return result.data;
+    if (result?.error) throw new Error(result.error);
   }
-  if (!dataUrl && navigator.mediaDevices?.getDisplayMedia) {
+  if (navigator.mediaDevices?.getDisplayMedia) {
     const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
     try {
       const video = document.createElement("video");
@@ -1256,94 +1506,187 @@ async function shotCapture() {
       canvas.width = video.videoWidth || 1280;
       canvas.height = video.videoHeight || 720;
       canvas.getContext("2d").drawImage(video, 0, 0);
-      dataUrl = canvas.toDataURL("image/png");
+      return canvas.toDataURL("image/png");
     } finally {
       stream.getTracks().forEach((track) => track.stop());
     }
   }
-  if (!dataUrl) throw new Error("Захват экрана недоступен.");
-  await new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => {
-      Shot.base = image;
-      Shot.original = image;
-      Shot.shapes = [];
-      Shot.preview = null;
-      Shot.start = null;
-      Shot.drag = null;
-      Shot.crop = { x: 0, y: 0, w: image.naturalWidth || image.width, h: image.naturalHeight || image.height };
-      Shot.zoom = 1;
-      shotSetStage("crop");
-      shotDraw();
-      requestAnimationFrame(() => shotSetZoom(1));
-      resolve();
-    };
-    image.onerror = reject;
-    image.src = dataUrl;
-  });
+  throw new Error("Захват экрана недоступен.");
 }
 
-async function openShot() {
-  $("shotModal").classList.remove("hidden");
-  try {
-    await shotCapture();
-  } catch (error) {
-    shotHint("Не удалось сделать скриншот: " + String(error.message || error));
+function shotAppRect(image, rect = null) {
+  const dpr = window.devicePixelRatio || 1;
+  let x;
+  let y;
+  let w;
+  let h;
+  if (rect && Number(rect.width) > 0 && Number(rect.height) > 0) {
+    x = Math.round(Number(rect.x) * dpr);
+    y = Math.round(Number(rect.y) * dpr);
+    w = Math.round(Number(rect.width) * dpr);
+    h = Math.round(Number(rect.height) * dpr);
+  } else {
+    const screenX = Number(window.screenX ?? window.screenLeft ?? 0) || 0;
+    const screenY = Number(window.screenY ?? window.screenTop ?? 0) || 0;
+    const chrome = Math.max(0, (window.outerHeight || window.innerHeight) - window.innerHeight);
+    x = Math.round(screenX * dpr);
+    y = Math.round((screenY + chrome) * dpr);
+    w = Math.round(window.innerWidth * dpr);
+    h = Math.round(window.innerHeight * dpr);
   }
+  if (w < 100 || h < 100 || x < 0 || y < 0 || x >= image.naturalWidth || y >= image.naturalHeight) {
+    return { x: 0, y: 0, w: image.naturalWidth, h: image.naturalHeight };
+  }
+  w = Math.min(w, image.naturalWidth - x);
+  h = Math.min(h, image.naturalHeight - y);
+  return { x, y, w, h };
+}
+
+async function startAppShot() {
+  if (!$("shotLayer").classList.contains("hidden")) return;
+  if (typeof closeViewerShotMenus === "function") closeViewerShotMenus();
+  $("statusText").textContent = "Готовлю скриншот приложения…";
+  try {
+    let windowRect = null;
+    if (window.pywebview?.api?.window_rect) {
+      try {
+        windowRect = await window.pywebview.api.window_rect();
+      } catch (error) {
+        windowRect = null;
+      }
+    }
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const image = await loadShotImage(await shotScreenData());
+    const rect = shotAppRect(image, windowRect);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(rect.w));
+    canvas.height = Math.max(1, Math.round(rect.h));
+    canvas.getContext("2d").drawImage(
+      image, rect.x, rect.y, rect.w, rect.h, 0, 0, canvas.width, canvas.height,
+    );
+    openShotEditor(canvas, {
+      title: "Скриншот приложения",
+      subtitle: "Окно Огранки",
+      name: "ogranka-app",
+    });
+    $("statusText").textContent = "Скриншот готов";
+  } catch (error) {
+    $("statusText").textContent = "Не удалось сделать скриншот";
+    alert("Не удалось сделать скриншот: " + String(error.message || error));
+  }
+}
+
+async function startViewportShot(viewer = activeViewer()) {
+  if (!$("shotLayer").classList.contains("hidden")) return;
+  if (!viewer || !viewer.renderer) return;
+  if (typeof closeViewerShotMenus === "function") closeViewerShotMenus();
+  setActiveViewer(viewer);
+  $("statusText").textContent = "Готовлю скриншот вьюпорта…";
+  try {
+    if (typeof viewer.render === "function") viewer.render();
+    const image = await loadShotImage(viewer.renderer.domElement.toDataURL("image/png"));
+    openShotEditor(image, {
+      title: "Скриншот вьюпорта",
+      subtitle: "3D-область",
+      name: exportBase(viewer),
+    });
+    $("statusText").textContent = "Скриншот готов";
+  } catch (error) {
+    $("statusText").textContent = "Не удалось сделать скриншот";
+    alert("Не удалось сделать скриншот: " + String(error.message || error));
+  }
+}
+
+function openShotEditor(image, meta = {}) {
+  Shot.base = image;
+  Shot.original = image;
+  Shot.shapes = [];
+  Shot.selected = null;
+  Shot.preview = null;
+  Shot.start = null;
+  Shot.drag = null;
+  Shot.zoom = 1;
+  Shot.crop = { x: 0, y: 0, w: image.naturalWidth || image.width, h: image.naturalHeight || image.height };
+  Shot.name = meta.name || "ogranka-shot";
+  Shot.title = meta.title || "Скриншот";
+  $("shotTitle").textContent = Shot.title;
+  $("shotLayer").classList.remove("hidden");
+  document.body.classList.add("shot-open");
+  shotSetStage("crop");
+  shotDraw();
+  requestAnimationFrame(() => shotSetZoom(1));
+}
+
+function closeShot() {
+  $("shotLayer").classList.add("hidden");
+  document.body.classList.remove("shot-open");
+  Shot.drag = null;
+  Shot.start = null;
+  Shot.preview = null;
 }
 
 async function saveShot() {
   const canvas = $("shotCanvas");
   if (!canvas || !Shot.base) return;
-  if (Shot.stage !== "edit") {
-    shotHint("Сначала примените кроп или нажмите «Всё окно».");
-    return;
+  if (Shot.stage === "crop") {
+    shotApplyCrop();
+    if (Shot.stage === "crop") return;
   }
   const dataUrl = canvas.toDataURL("image/png");
-  const name = "ogranka-shot-" + Date.now() + ".png";
+  const name = Shot.name + "-" + Date.now() + ".png";
+  shotHint("Сохраняю…");
   try {
     if (window.pywebview?.api?.save_png) {
       const result = await window.pywebview.api.save_png(dataUrl, name);
       if (result?.path) {
-        shotHint("Сохранено: " + result.path);
+        $("statusText").textContent = "PNG сохранён";
+        $("statusText").title = result.path;
+        closeShot();
         return;
       }
-      if (result?.cancelled) return;
+      if (result?.cancelled) {
+        shotHint("Сохранение отменено.");
+        return;
+      }
+      if (result?.error) throw new Error(result.error);
     }
     const link = document.createElement("a");
     link.href = dataUrl;
     link.download = name;
     link.click();
-    shotHint("PNG сохранён.");
+    $("statusText").textContent = "PNG скачан в загрузки";
+    closeShot();
   } catch (error) {
     shotHint("Не удалось сохранить PNG: " + String(error.message || error));
   }
 }
 
 function initShotEditor() {
-  $("shotBtn").onclick = () => openShot();
-  $("shotClose").onclick = () => $("shotModal").classList.add("hidden");
-  $("shotModal").onclick = (event) => {
-    if (event.target.id === "shotModal") $("shotModal").classList.add("hidden");
-  };
-  document.querySelectorAll(".shot-tool").forEach((button) => {
-    button.onclick = () => {
-      document.querySelectorAll(".shot-tool").forEach((item) => item.classList.remove("active"));
-      button.classList.add("active");
-      Shot.tool = button.dataset.shotTool;
-    };
+  $("shotClose").onclick = () => closeShot();
+  $("shotColor").oninput = () => shotApplyColor($("shotColor").value);
+  document.querySelectorAll(".shot-swatch").forEach((swatch) => {
+    swatch.onclick = () => shotApplyColor(swatch.dataset.shotColor);
   });
-  $("shotColor").oninput = () => { Shot.color = $("shotColor").value; };
-  $("shotWidth").oninput = () => { Shot.width = Number($("shotWidth").value) || 3; };
+  document.querySelectorAll(".shot-tool").forEach((button) => {
+    button.onclick = () => shotSetTool(button.dataset.shotTool);
+  });
+  $("shotWidth").oninput = () => {
+    Shot.width = Number($("shotWidth").value) || 3;
+    if (Shot.selected) {
+      Shot.selected.width = Shot.width;
+      shotDraw();
+    }
+  };
   $("shotUndo").onclick = () => {
     Shot.shapes.pop();
+    Shot.selected = null;
     Shot.preview = null;
     shotDraw();
   };
-  $("shotNew").onclick = () => openShot();
+  $("shotDelete").onclick = () => shotDeleteSelected();
   $("shotSave").onclick = () => saveShot();
-  $("shotCropApply").onclick = () => shotApplyCrop();
   $("shotCropAll").onclick = () => shotUseFull();
+  $("shotCropApply").onclick = () => shotApplyCrop();
   $("shotZoomOut").onclick = () => shotZoomBy(1 / 1.15);
   $("shotZoomIn").onclick = () => shotZoomBy(1.15);
   const canvas = $("shotCanvas");
@@ -1360,42 +1703,83 @@ function initShotEditor() {
       const handle = shotCropHandleAt(point);
       const isFull = crop.w >= Shot.base.width - 1 && crop.h >= Shot.base.height - 1;
       if (handle) {
-        Shot.drag = { mode: "resize", handle, start: point, crop };
+        Shot.drag = { mode: "crop-resize", handle, start: point, crop };
       } else if (!isFull && point.x >= crop.x && point.x <= crop.x + crop.w
         && point.y >= crop.y && point.y <= crop.y + crop.h) {
-        Shot.drag = { mode: "move", start: point, crop };
+        Shot.drag = { mode: "crop-move", start: point, crop };
       } else {
         Shot.crop = { x: point.x, y: point.y, w: 0, h: 0 };
-        Shot.drag = { mode: "new", start: point };
+        Shot.drag = { mode: "crop-new", start: point };
       }
       canvas.setPointerCapture(event.pointerId);
       shotDraw();
       return;
     }
-    if (Shot.tool === "text") {
-      const text = window.prompt("Текст на скриншоте:");
-      if (text) {
-        Shot.shapes.push({ tool: "text", start: point, end: point, color: Shot.color, width: Shot.width, text });
-        shotDraw();
+    if (Shot.tool === "select") {
+      const handle = shotShapeHandleAt(point);
+      if (handle && Shot.selected) {
+        const shape = Shot.selected;
+        const center = shotShapeCenter(shape);
+        Shot.drag = handle === "rot"
+          ? { mode: "shape-rotate", shape, start: point, rotation: shape.rotation || 0, startAngle: Math.atan2(point.y - center.y, point.x - center.x) }
+          : { mode: "shape-resize", shape, handle, bounds: shotShapeBounds(shape), center, fontSize: shape.fontSize };
+        canvas.setPointerCapture(event.pointerId);
+        return;
       }
+      const shape = shotHitShape(point);
+      if (shape) {
+        Shot.selected = shape;
+        Shot.drag = {
+          mode: "shape-move", shape, start: point,
+          startShape: {
+            start: { ...shape.start },
+            end: shape.end ? { ...shape.end } : { ...shape.start },
+            w: shape.w, h: shape.h, rotation: shape.rotation || 0,
+          },
+        };
+        canvas.setPointerCapture(event.pointerId);
+        shotDraw();
+        return;
+      }
+      Shot.selected = null;
+      shotDraw();
+      return;
+    }
+    if (Shot.tool === "text") {
+      shotCreateText(point);
       return;
     }
     Shot.start = point;
-    Shot.preview = { tool: Shot.tool, start: point, end: point, color: Shot.color, width: Shot.width };
+    Shot.preview = {
+      tool: Shot.tool, start: point, end: point,
+      color: Shot.color, width: Shot.width, rotation: 0,
+    };
+    Shot.drag = { mode: "shape-draw" };
     canvas.setPointerCapture(event.pointerId);
     shotDraw();
   };
   canvas.onpointermove = (event) => {
     if (!Shot.base) return;
+    const point = shotPoint(event);
     if (Shot.stage === "crop") {
-      if (!Shot.drag) return;
-      shotUpdateCrop(shotPoint(event));
+      if (!Shot.drag || !Shot.drag.mode.startsWith("crop-")) return;
+      shotUpdateCrop(point);
       shotDraw();
       return;
     }
-    if (!Shot.start) return;
-    Shot.preview.end = shotPoint(event);
-    shotDraw();
+    if (Shot.drag?.mode === "shape-draw" && Shot.preview) {
+      Shot.preview.end = point;
+      shotDraw();
+      return;
+    }
+    if (Shot.drag?.shape) {
+      shotUpdateShapeDrag(point, event);
+      shotDraw();
+      return;
+    }
+    if (Shot.tool === "select") {
+      canvas.style.cursor = shotShapeHandleAt(point) ? "nwse-resize" : "default";
+    }
   };
   canvas.onpointerup = (event) => {
     if (!Shot.base) return;
@@ -1409,14 +1793,21 @@ function initShotEditor() {
       shotDraw();
       return;
     }
-    if (!Shot.start) return;
-    const shape = Shot.preview;
-    Shot.start = null;
-    Shot.preview = null;
-    if (shape) {
-      Shot.shapes.push(shape);
+    if (Shot.drag?.mode === "shape-draw" && Shot.preview) {
+      const shape = Shot.preview;
+      const b = shotShapeBounds(shape);
+      Shot.preview = null;
+      Shot.drag = null;
+      if (b.w > 3 || b.h > 3) {
+        Shot.shapes.push(shape);
+        Shot.selected = shape;
+        shotSetTool("select");
+      }
       shotDraw();
+      return;
     }
+    Shot.drag = null;
+    shotDraw();
   };
   canvas.onpointercancel = () => {
     Shot.start = null;
@@ -1424,6 +1815,31 @@ function initShotEditor() {
     Shot.drag = null;
     shotDraw();
   };
+  document.addEventListener("keydown", (event) => {
+    if ($("shotLayer").classList.contains("hidden")) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeShot();
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      saveShot();
+      return;
+    }
+    if ((event.key === "Backspace" || event.key === "Delete") && Shot.selected) {
+      event.preventDefault();
+      shotDeleteSelected();
+      return;
+    }
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+      event.preventDefault();
+      Shot.shapes.pop();
+      Shot.selected = null;
+      shotDraw();
+    }
+  });
+  shotSetTool("select");
 }
 
 function initRestartToast() {
@@ -1454,6 +1870,9 @@ function init() {
   initSplash();
   initRestartToast();
   initShotEditor();
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".vshot")) closeViewerShotMenus();
+  });
   addViewer();
   addViewer();
   layoutViewers();
@@ -1605,25 +2024,6 @@ function init() {
     App.liveSeq++;
     clearTimeout(App.liveTimer);
   };
-  $("pngBtn").onclick = async () => {
-    const v = activeViewer();
-    if (!v || !v.renderer) return;
-    const name = exportBase(v) + ".png";
-    const dataUrl = v.renderer.domElement.toDataURL("image/png");
-    if (window.pywebview && window.pywebview.api && window.pywebview.api.save_png) {
-      const res = await window.pywebview.api.save_png(dataUrl, name);
-      if (res && res.path) {
-        $("statusText").textContent = "PNG сохранён";
-        $("statusText").title = res.path;
-        return;
-      }
-      if (res && res.cancelled) return;
-      if (res && res.error) { alert("Не удалось сохранить PNG: " + res.error); return; }
-    }
-    downloadDataUrl(name, dataUrl);
-    $("statusText").textContent = "PNG скачан в загрузки";
-  };
-
   $("csvLink").onclick = async (e) => {
     e.preventDefault();
     try {
@@ -1669,7 +2069,7 @@ function init() {
   };
   $("feedbackClose").onclick = () => $("feedbackModal").classList.add("hidden");
   $("feedbackModal").onclick = (e) => { if (e.target.id === "feedbackModal") $("feedbackModal").classList.add("hidden"); };
-  $("feedbackSend").onclick = () => submitFeedback();
+  $("feedbackOpenBrowser").onclick = () => submitFeedback();
   document.querySelectorAll(".feedback-tab").forEach((button) => {
     button.onclick = () => switchFeedbackTab(button.dataset.feedbackTab);
   });
@@ -1678,7 +2078,7 @@ function init() {
     const link = e.target.closest("[data-github-url]");
     if (!link || !link.dataset.githubUrl) return;
     e.preventDefault();
-    openGithub(link.dataset.githubUrl);
+    openExternal(link.dataset.githubUrl);
   });
   $("feedbackCopy").onclick = async () => {
     const data = composeFeedback();
@@ -1698,6 +2098,8 @@ function init() {
     if (button && button.dataset.url) openExternal(button.dataset.url);
   });
   $("updateBtn").onclick = () => showUpdateModal(App.update);
+  $("updateToastOpen").onclick = () => showUpdateModal(App.update);
+  $("updateToastClose").onclick = () => hideUpdateToast();
   $("updateClose").onclick = () => $("updateModal").classList.add("hidden");
   $("updateDownload").onclick = () => {
     if (App.update && App.update.installable) {
@@ -1730,6 +2132,7 @@ function init() {
 
   document.addEventListener("keydown", (e) => {
     const tag = (e.target.tagName || "").toLowerCase();
+    if (!$("shotLayer").classList.contains("hidden")) return;
     if (tag === "input" || tag === "select" || tag === "textarea" || e.target.isContentEditable) return;
     if (!$("tour").classList.contains("hidden")) {
       if (e.key === "Escape") finishTour();
@@ -1772,7 +2175,8 @@ function init() {
     else if (k === "p") { const c = $("orthoSel"); c.checked = !c.checked; c.dispatchEvent(new Event("change")); }
     else if (k === "g") { $("resetBtn").click(); }
     else if (k === "o") { $("objBtn").click(); }
-    else if (k === "s") { $("pngBtn").click(); }
+    else if (e.shiftKey && k === "s") { startAppShot(); }
+    else if (k === "s") { startViewportShot(activeViewer()); }
     else if (e.key === "?" || k === "h") { $("aboutModal").classList.add("hidden"); $("helpModal").classList.toggle("hidden"); }
     else if (k === "i") { $("helpModal").classList.add("hidden"); $("aboutModal").classList.toggle("hidden"); }
     else if (e.key === "+" || e.key === "=") { $("addView").click(); }

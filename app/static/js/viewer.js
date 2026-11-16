@@ -926,7 +926,7 @@ class Viewer {
 function makeCard() {
   const card = document.createElement("div");
   card.className = "viewer-card";
-  card.innerHTML = `<div class="viewer-head"><select class="vmodel" title="Модель в этом вьюпорте"></select><select class="vsel" title="Вариант обработки"></select><span class="vmeta meta"></span><button class="vdel" title="Убрать это окно">− окно</button><button class="vadd" title="Добавить окно в полноэкранную сетку">+ окно</button><button class="vmax" title="Развернуть или свернуть этот вьюпорт">⤢</button></div>
+  card.innerHTML = `<div class="viewer-head"><select class="vmodel" title="Модель в этом вьюпорте"></select><select class="vsel" title="Вариант обработки"></select><span class="vmeta meta"></span><div class="vshot"><button class="vshot-main" title="Скриншот вьюпорта (S)">Скриншот</button><button class="vshot-toggle" title="Что снимать" aria-label="Что снимать">▾</button><div class="vshot-menu"><button type="button" data-shot-target="viewport">Вьюпорта<small>S</small></button><button type="button" data-shot-target="app">Приложения<small>Shift+S</small></button></div></div><button class="vdel" title="Убрать это окно">− окно</button><button class="vadd" title="Добавить окно в полноэкранную сетку">+ окно</button><button class="vmax" title="Развернуть или свернуть этот вьюпорт">⤢</button></div>
                     <div class="canvas-wrap"><canvas></canvas>
                       <div class="hud">
                         <div class="axis-gizmo"><canvas class="gizmo" title="3D-оси: клик по X, Y или Z плавно выравнивает камеру" aria-label="3D-оси X, Y, Z"></canvas></div>
@@ -935,6 +935,20 @@ function makeCard() {
                     </div>`;
   $("viewers").appendChild(card);
   return card;
+}
+
+function closeViewerShotMenus(except = null) {
+  document.querySelectorAll(".vshot-menu.open").forEach((menu) => {
+    if (menu !== except) menu.classList.remove("open");
+  });
+}
+
+function toggleViewerShotMenu(card) {
+  const menu = card.querySelector(".vshot-menu");
+  if (!menu) return;
+  const open = !menu.classList.contains("open");
+  closeViewerShotMenus(menu);
+  menu.classList.toggle("open", open);
 }
 
 function ensureSplitV() {
@@ -1025,6 +1039,23 @@ function addViewer() {
   card.querySelector(".vmax").onclick = () => toggleSolo(v);
   card.querySelector(".vadd").onclick = () => addViewer();
   card.querySelector(".vdel").onclick = () => removeViewer(v);
+  card.querySelector(".vshot-main").onclick = (event) => {
+    event.stopPropagation();
+    closeViewerShotMenus();
+    startViewportShot(v);
+  };
+  card.querySelector(".vshot-toggle").onclick = (event) => {
+    event.stopPropagation();
+    toggleViewerShotMenu(card);
+  };
+  card.querySelector(".vshot-menu").addEventListener("click", (event) => {
+    const item = event.target.closest("[data-shot-target]");
+    if (!item) return;
+    event.stopPropagation();
+    closeViewerShotMenus();
+    if (item.dataset.shotTarget === "app") startAppShot();
+    else startViewportShot(v);
+  });
   card.addEventListener("pointerdown", () => setActiveViewer(v));
   App.viewers.push(v);
   if (App.fullscreen) {

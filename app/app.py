@@ -54,24 +54,22 @@ class Api:
         webbrowser.open(url)
         return True
 
-    def open_github(self, url):
-        if not isinstance(url, str) or not url.startswith("https://github.com/"):
-            return False
+    def window_rect(self):
         try:
             import webview
 
-            webview.create_window(
-                "GitHub — Огранка",
-                url,
-                width=1120,
-                height=840,
-                min_size=(720, 520),
-            )
-            return True
-        except Exception as exc:
-            _console_print("Не удалось открыть GitHub в приложении:", exc)
-            webbrowser.open(url)
-            return False
+            win = webview.windows[0] if webview.windows else None
+            if win is None:
+                return {}
+            return {
+                "x": int(getattr(win, "x", 0) or 0),
+                "y": int(getattr(win, "y", 0) or 0),
+                "width": int(getattr(win, "width", 0) or 0),
+                "height": int(getattr(win, "height", 0) or 0),
+            }
+        except Exception:
+            return {}
+
 
     def capture_screen(self):
         temp = ""

@@ -73,7 +73,6 @@
   <div class="brand">Огранка <span class="version">{{APP_VERSION}}</span> <span class="build">сборка {{APP_BUILD}}</span> <span class="brand-sub">восстановление формы</span></div>
   <div class="header-right">
     <div id="statusText" class="status">Готов к запуску</div>
-    <button id="shotBtn" class="history-btn" title="Скриншот с аннотациями">Скриншот</button>
     <button id="historyBtn" class="history-btn" title="История изменений">История</button>
     <button id="updateBtn" class="update-btn hidden" title="Доступно обновление">Доступно обновление</button>
     <button id="aboutBtn" class="help-btn about-btn" title="О программе (I)">i</button>
@@ -181,7 +180,6 @@
       <label class="check"><input type="checkbox" id="orthoSel" title="Ортогональный вид (P)"> ортогональный вид</label>
       <button id="resetBtn" title="Сбросить вид (G)">Сбросить вид</button>
       <button id="objBtn" title="Скачать OBJ (O)">Скачать OBJ</button>
-      <button id="pngBtn" title="Скриншот (S)">Скриншот</button>
       <button id="clearCache" title="Удалить сохранённые результаты и загруженные файлы">Очистить кеш</button>
       <a id="csvLink" href="/api/export.csv">CSV метрик</a>
     </div>
@@ -308,7 +306,8 @@
       или убрать окно, <b>V</b> — грани → вершины → рёбра → сечения,
       <b>L</b> — только выделенное, <b>P</b> — ортогональный вид,
       <b>C</b> — общая камера, <b>A</b> — выделить всё, <b>Alt+A</b> — снять,
-      <b>G</b> — сбросить вид, <b>O</b> — скачать OBJ, <b>S</b> — скриншот,
+      <b>G</b> — сбросить вид, <b>O</b> — скачать OBJ, <b>S</b> — скриншот вьюпорта,
+      <b>Shift+S</b> — скриншот приложения,
       <b>,</b> и <b>.</b> — предыдущая и следующая модель в активном вьюпорте,
       <b>[</b> и <b>]</b> — вариант обработки в нём, <b>?</b> — справка,
       <b>I</b> — о программе.
@@ -418,9 +417,9 @@
         <label class="feedback-field">Сообщение
           <textarea id="feedbackText" rows="6" maxlength="8000" placeholder="Что случилось или что стоит улучшить?"></textarea>
         </label>
-        <p class="feedback-hint">Откроется окно GitHub внутри приложения. Там можно приложить файлы и скриншоты.</p>
+        <p class="feedback-hint">Откроется GitHub в браузере, где вы уже авторизованы. Текст подставится автоматически; там можно приложить файлы и скриншоты.</p>
         <div class="feedback-actions">
-          <button id="feedbackSend" class="feedback-send">Открыть GitHub</button>
+          <button id="feedbackOpenBrowser" class="feedback-send">Открыть в браузере</button>
           <button id="feedbackCopy">Скопировать текст</button>
         </div>
         <p id="feedbackStatus" class="feedback-status" aria-live="polite"></p>
@@ -438,44 +437,49 @@
   </div>
 </div>
 
-<div id="shotModal" class="modal hidden">
-  <div class="modal-card shot-card">
-    <div class="modal-head">
-      <div>
-        <h2>Скриншот</h2>
-        <div class="update-meta">Сначала область, затем пометки</div>
-      </div>
-      <button id="shotClose" class="help-close" title="Закрыть">×</button>
+<div id="shotLayer" class="shot-layer hidden" role="dialog" aria-modal="true" aria-label="Скриншот">
+  <div id="shotStage" class="shot-stage">
+    <canvas id="shotCanvas"></canvas>
+  </div>
+  <div id="shotPanel" class="shot-panel">
+    <div class="shot-panel-head">
+      <span id="shotTitle">Скриншот</span>
+      <span id="shotSubtitle">Сначала область, затем пометки</span>
     </div>
-    <div class="modal-body">
-      <div id="shotCropTools" class="shot-toolbar">
-        <span class="shot-step">1. Область</span>
-        <button id="shotCropAll">Всё окно</button>
-        <button id="shotCropApply" class="feedback-send">Применить кроп</button>
+    <div id="shotCropTools" class="shot-panel-row">
+      <span class="shot-kicker">Область</span>
+      <button id="shotCropAll">Всё окно</button>
+      <button id="shotCropApply" class="shot-primary">Применить кроп</button>
+    </div>
+    <div id="shotEditTools" class="shot-panel-row hidden">
+      <span class="shot-kicker">Пометки</span>
+      <button class="shot-tool active" data-shot-tool="select" title="Выбор и перемещение">Выбор</button>
+      <button class="shot-tool" data-shot-tool="circle">Круг</button>
+      <button class="shot-tool" data-shot-tool="line">Линия</button>
+      <button class="shot-tool" data-shot-tool="arrow">Стрелка</button>
+      <button class="shot-tool" data-shot-tool="text">Текст</button>
+      <span class="shot-divider"></span>
+      <div class="shot-colors" aria-label="Цвет">
+        <button class="shot-swatch active" data-shot-color="#ff4d4f" style="--swatch:#ff4d4f" title="Красный"></button>
+        <button class="shot-swatch" data-shot-color="#ffd166" style="--swatch:#ffd166" title="Жёлтый"></button>
+        <button class="shot-swatch" data-shot-color="#4ade80" style="--swatch:#4ade80" title="Зелёный"></button>
+        <button class="shot-swatch" data-shot-color="#38bdf8" style="--swatch:#38bdf8" title="Голубой"></button>
+        <button class="shot-swatch" data-shot-color="#a78bfa" style="--swatch:#a78bfa" title="Фиолетовый"></button>
+        <button class="shot-swatch" data-shot-color="#ffffff" style="--swatch:#ffffff" title="Белый"></button>
       </div>
-      <div id="shotEditTools" class="shot-toolbar hidden">
-        <span class="shot-step">2. Пометки</span>
-        <button class="shot-tool active" data-shot-tool="circle">Круг</button>
-        <button class="shot-tool" data-shot-tool="line">Линия</button>
-        <button class="shot-tool" data-shot-tool="arrow">Стрелка</button>
-        <button class="shot-tool" data-shot-tool="text">Текст</button>
-        <input id="shotColor" type="color" value="#ff4d4f" title="Цвет">
-        <input id="shotWidth" type="range" min="1" max="12" value="3" title="Толщина">
-        <button id="shotUndo">Отменить</button>
-        <button id="shotNew">Новый скриншот</button>
-        <button id="shotSave" class="feedback-send">Сохранить PNG</button>
-      </div>
-      <div class="shot-toolbar shot-zoom-bar">
-        <span class="shot-zoom-label">Масштаб</span>
-        <button id="shotZoomOut" title="Уменьшить">−</button>
-        <span id="shotZoomValue">100%</span>
-        <button id="shotZoomIn" title="Увеличить">+</button>
-        <span class="shot-zoom-hint">Колесо мыши — масштаб</span>
-      </div>
-      <p id="shotHint" class="feedback-hint">Выберите область кропа или нажмите «Всё окно».</p>
-      <div class="shot-canvas-wrap">
-        <canvas id="shotCanvas"></canvas>
-      </div>
+      <input id="shotColor" type="color" value="#ff4d4f" title="Свой цвет">
+      <input id="shotWidth" type="range" min="1" max="14" value="3" title="Толщина">
+      <button id="shotUndo" title="Отменить последнюю пометку">Отменить</button>
+      <button id="shotDelete" title="Удалить выбранную пометку">Удалить</button>
+      <button id="shotSave" class="shot-primary">Сохранить</button>
+    </div>
+    <div class="shot-panel-foot">
+      <span class="shot-zoom-label">Масштаб</span>
+      <button id="shotZoomOut" title="Уменьшить">−</button>
+      <span id="shotZoomValue">100%</span>
+      <button id="shotZoomIn" title="Увеличить">+</button>
+      <span id="shotHint" class="shot-hint">Выберите область кропа или нажмите «Всё окно».</span>
+      <button id="shotClose" class="shot-close" title="Закрыть (Esc)">Закрыть</button>
     </div>
   </div>
 </div>
@@ -487,6 +491,16 @@
     <span id="restartToastText"></span>
   </div>
   <button id="restartToastClose" class="corner-toast-close" title="Закрыть">×</button>
+</div>
+
+<div id="updateToast" class="corner-toast update-toast hidden" role="status" aria-live="polite">
+  <div class="corner-toast-mark update-toast-mark" aria-hidden="true">↓</div>
+  <div class="corner-toast-copy">
+    <strong>Доступно обновление</strong>
+    <span id="updateToastText"></span>
+  </div>
+  <button id="updateToastOpen" class="corner-toast-action">Открыть</button>
+  <button id="updateToastClose" class="corner-toast-close" title="Закрыть">×</button>
 </div>
 
 <div id="tour" class="tour hidden">
