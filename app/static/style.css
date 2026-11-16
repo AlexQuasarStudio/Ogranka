@@ -191,6 +191,22 @@ th, td { white-space: nowrap; }
 .update-empty, .update-truncated { color: #7f90a6; }
 .update-install-state { min-height: 18px; margin-top: 8px; color: #9fb0c6; font-size: 12.5px; line-height: 1.4; }
 .update-install-state.error { color: #ffb347; }
+.update-install-state.busy::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 8px;
+  vertical-align: -2px;
+  border: 2px solid rgba(143, 211, 165, .24);
+  border-top-color: #8fd3a5;
+  border-radius: 50%;
+  animation: update-spin .8s linear infinite;
+}
+@keyframes update-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .update-install-state.busy::before { animation-duration: 1.8s; }
+}
 .update-progress {
   height: 6px; margin-top: 8px; overflow: hidden;
   background: #232a35; border-radius: 999px;
@@ -673,15 +689,19 @@ body.progress-on .full-live { bottom: 104px; }
 body.shot-open { overflow: hidden; }
 
 /* Screenshot split button in the header */
-.vshot { position: relative; display: inline-flex; flex: 0 0 auto; }
+.vshot {
+  position: relative; display: inline-flex; flex: 0 0 auto;
+  border: 1px solid #2d4058; border-radius: 8px; background: #1a2432;
+}
 .header-shot { margin-right: 2px; }
 .vshot-main, .vshot-toggle {
   min-height: 27px; padding: 4px 9px; font-size: 11.5px; color: #a9bdd4;
-  background: #1a2432; border: 1px solid #2d4058;
+  background: transparent; border: 0;
 }
-.vshot-main { border-radius: 8px 0 0 8px; border-right: 0; }
+.vshot-main { border-radius: 8px 0 0 8px; }
 .vshot-toggle { border-radius: 0 8px 8px 0; padding-inline: 6px; }
-.vshot-main:hover, .vshot-toggle:hover { color: #eaf3ff; border-color: #42638b; }
+.vshot:hover { border-color: #42638b; }
+.vshot-main:hover, .vshot-toggle:hover { color: #eaf3ff; }
 .vshot-menu {
   position: absolute; top: calc(100% + 7px); right: 0; z-index: 40; width: 174px;
   padding: 5px; background: #151f2c; border: 1px solid #30445d; border-radius: 10px;

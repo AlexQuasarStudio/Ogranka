@@ -593,6 +593,8 @@ function setUpdateInstall(state) {
   bar.classList.toggle("hidden", !active);
   fill.style.width = Math.round(progress * 100) + "%";
   text.classList.toggle("error", current.state === "error");
+  text.classList.toggle("busy", active);
+  text.setAttribute("aria-busy", String(active));
   if (current.state === "error") {
     text.textContent = current.error || "Не удалось установить обновление.";
   } else if (current.detail) {
@@ -985,6 +987,13 @@ function shotShapeBounds(shape) {
       w: Math.max(1, shape.w || 1), h: Math.max(1, shape.h || 1),
     };
   }
+  if (shape.tool === "marker" && shape.points && shape.points.length) {
+    const xs = shape.points.map((point) => point.x);
+    const ys = shape.points.map((point) => point.y);
+    const left = Math.min(...xs);
+    const top = Math.min(...ys);
+    return { x: left, y: top, w: Math.max(1, Math.max(...xs) - left), h: Math.max(1, Math.max(...ys) - top) };
+  }
   const x = Math.min(shape.start.x, shape.end.x);
   const y = Math.min(shape.start.y, shape.end.y);
   return {
@@ -1006,6 +1015,30 @@ function shotRotatePoint(point, center, angle) {
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);
   return { x: center.x + dx * cos - dy * sin, y: center.y + dx * sin + dy * cos };
+}
+
+function shotRotateVector(vector, angle) {
+  if (!angle) return { x: vector.x, y: vector.y };
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return { x: vector.x * cos - vector.y * sin, y: vector.x * sin + vector.y * cos };
+}
+
+function shotCursorForHandle(handle, rotation = 0) {
+  if (handle === "rot") return "grab";
+  const base = { e: 0, se: 45, s: 90, sw: 135, w: 180, nw: 225, n: 270, ne: 315 };
+  const angle = ((base[handle] || 0) + rotation * 180 / Math.PI + 360) % 360;
+  return ["ew-resize", "nwse-resize", "ns-resize", "nesw-resize"][Math.round(angle / 45) % 4];
+}
+
+function shotCursorAt(point) {
+  if (Shot.tool === "hand") return "grab";
+  if (Shot.tool !== "select") return "crosshair";
+  const handle = shotShapeHandleAt(point);
+  if (handle) {
+    return handle === "rot" ? "grab" : shotCursorForHandle(handle, Shot.selected?.rotation || 0);
+  }
+  return shotHitShape(point) ? "move" : "default";
 }
 
 function shotDrawShape(ctx, shape) {
@@ -1044,6 +1077,13 @@ function shotDrawShape(ctx, shape) {
     ctx.font = `${Math.max(10, shape.fontSize || 18)}px system-ui, sans-serif`;
     ctx.textBaseline = "top";
     ctx.fillText(text, start.x, start.y);
+  } else if (tool === "marker" && shape.points && shape.points.length) {
+    ctx.globalAlpha = 0.58;
+    ctx.lineWidth = Math.max(6, width * 2.5);
+    ctx.beginPath();
+    ctx.moveTo(shape.points[0].x, shape.points[0].y);
+    shape.points.slice(1).forEach((point) => ctx.lineTo(point.x, point.y));
+    ctx.stroke();
   }
   ctx.restore();
 }
@@ -1202,7 +1242,7 @@ function shotSetTool(tool) {
     shotDraw();
   }
   const canvas = $("shotCanvas");
-  if (canvas) canvas.style.cursor = tool === "select" ? "default" : "crosshair";
+  if (canvas) canvas.style.cursor = tool === "hand" ? "grab" : tool === "select" ? "default" : "crosshair";
 }
 
 function shotSetStage(stage) {
@@ -1375,15 +1415,17 @@ function shotResizeShape(point) {
   const shape = drag.shape;
   const old = drag.bounds;
   const center = drag.center;
-  const local = shotRotatePoint(point, center, -(shape.rotation || 0));
+  const rotation = shape.rotation || 0;
+  const local = shotRotatePoint(point, center, -rotation);
+  const target = { x: local.x - drag.offset.x, y: local.y - drag.offset.y };
   let left = old.x;
   let top = old.y;
   let right = old.x + old.w;
   let bottom = old.y + old.h;
-  if (drag.handle.includes("w")) left = local.x;
-  if (drag.handle.includes("e")) right = local.x;
-  if (drag.handle.includes("n")) top = local.y;
-  if (drag.handle.includes("s")) bottom = local.y;
+  if (drag.handle.includes("w")) left = target.x;
+  if (drag.handle.includes("e")) right = target.x;
+  if (drag.handle.includes("n")) top = target.y;
+  if (drag.handle.includes("s")) bottom = target.y;
   if (right - left < 8) {
     if (drag.handle.includes("w")) left = right - 8;
     else right = left + 8;
@@ -1394,14 +1436,36 @@ function shotResizeShape(point) {
   }
   const newW = right - left;
   const newH = bottom - top;
+  const newCenter = { x: left + newW / 2, y: top + newH / 2 };
+  const anchorLocal = {
+    x: drag.handle.includes("w") ? old.x + old.w : old.x,
+    y: drag.handle.includes("n") ? old.y + old.h : old.y,
+  };
+  const anchorVector = shotRotateVector({
+    x: anchorLocal.x - newCenter.x,
+    y: anchorLocal.y - newCenter.y,
+  }, rotation);
+  const newCenterWorld = {
+    x: drag.anchorWorld.x - anchorVector.x,
+    y: drag.anchorWorld.y - anchorVector.y,
+  };
+  const shift = {
+    x: newCenterWorld.x - newCenter.x,
+    y: newCenterWorld.y - newCenter.y,
+  };
   const sx = old.w ? newW / old.w : 1;
   const sy = old.h ? newH / old.h : 1;
-  const map = (p) => ({ x: left + (p.x - old.x) * sx, y: top + (p.y - old.y) * sy });
+  const map = (p) => ({
+    x: left + (p.x - old.x) * sx + shift.x,
+    y: top + (p.y - old.y) * sy + shift.y,
+  });
   if (shape.tool === "text") {
-    shape.start = { x: left, y: top };
+    shape.start = { x: left + shift.x, y: top + shift.y };
     shape.w = newW;
     shape.h = newH;
     shape.fontSize = Math.max(10, (drag.fontSize || 18) * (old.h ? newH / old.h : 1));
+  } else if (shape.tool === "marker") {
+    shape.points = shape.points.map(map);
   } else {
     shape.start = map(shape.start);
     shape.end = map(shape.end);
@@ -1419,6 +1483,8 @@ function shotUpdateShapeDrag(point, event) {
     if (shape.tool === "text") {
       shape.w = drag.startShape.w;
       shape.h = drag.startShape.h;
+    } else if (shape.tool === "marker") {
+      shape.points = drag.startShape.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
     } else {
       shape.end = { x: drag.startShape.end.x + dx, y: drag.startShape.end.y + dy };
     }
@@ -1735,14 +1801,49 @@ function initShotEditor() {
       shotDraw();
       return;
     }
+    if (Shot.tool === "hand") {
+      const stage = $("shotStage");
+      Shot.drag = {
+        mode: "pan",
+        start: { x: event.clientX, y: event.clientY },
+        left: stage.scrollLeft,
+        top: stage.scrollTop,
+      };
+      canvas.style.cursor = "grabbing";
+      canvas.setPointerCapture(event.pointerId);
+      return;
+    }
     if (Shot.tool === "select") {
       const handle = shotShapeHandleAt(point);
       if (handle && Shot.selected) {
         const shape = Shot.selected;
         const center = shotShapeCenter(shape);
-        Shot.drag = handle === "rot"
-          ? { mode: "shape-rotate", shape, start: point, rotation: shape.rotation || 0, startAngle: Math.atan2(point.y - center.y, point.x - center.x) }
-          : { mode: "shape-resize", shape, handle, bounds: shotShapeBounds(shape), center, fontSize: shape.fontSize };
+        if (handle === "rot") {
+          Shot.drag = {
+            mode: "shape-rotate", shape, start: point,
+            rotation: shape.rotation || 0,
+            startAngle: Math.atan2(point.y - center.y, point.x - center.x),
+          };
+          canvas.style.cursor = "grabbing";
+        } else {
+          const bounds = shotShapeBounds(shape);
+          const local = shotRotatePoint(point, center, -(shape.rotation || 0));
+          const handleX = handle.includes("w") ? bounds.x
+            : handle.includes("e") ? bounds.x + bounds.w : bounds.x + bounds.w / 2;
+          const handleY = handle.includes("n") ? bounds.y
+            : handle.includes("s") ? bounds.y + bounds.h : bounds.y + bounds.h / 2;
+          const anchorLocal = {
+            x: handle.includes("w") ? bounds.x + bounds.w : bounds.x,
+            y: handle.includes("n") ? bounds.y + bounds.h : bounds.y,
+          };
+          Shot.drag = {
+            mode: "shape-resize", shape, handle, bounds, center,
+            fontSize: shape.fontSize,
+            offset: { x: local.x - handleX, y: local.y - handleY },
+            anchorWorld: shotRotatePoint(anchorLocal, center, shape.rotation || 0),
+          };
+          canvas.style.cursor = shotCursorForHandle(handle, shape.rotation || 0);
+        }
         canvas.setPointerCapture(event.pointerId);
         return;
       }
@@ -1754,14 +1855,17 @@ function initShotEditor() {
           startShape: {
             start: { ...shape.start },
             end: shape.end ? { ...shape.end } : { ...shape.start },
+            points: shape.points ? shape.points.map((p) => ({ ...p })) : null,
             w: shape.w, h: shape.h, rotation: shape.rotation || 0,
           },
         };
+        canvas.style.cursor = "grabbing";
         canvas.setPointerCapture(event.pointerId);
         shotDraw();
         return;
       }
       Shot.selected = null;
+      canvas.style.cursor = "default";
       shotDraw();
       return;
     }
@@ -1772,6 +1876,7 @@ function initShotEditor() {
     Shot.start = point;
     Shot.preview = {
       tool: Shot.tool, start: point, end: point,
+      points: Shot.tool === "marker" ? [{ ...point }] : null,
       color: Shot.color, width: Shot.width, rotation: 0,
     };
     Shot.drag = { mode: "shape-draw" };
@@ -1788,18 +1893,35 @@ function initShotEditor() {
       return;
     }
     if (Shot.drag?.mode === "shape-draw" && Shot.preview) {
-      Shot.preview.end = point;
+      if (Shot.preview.tool === "marker") {
+        const points = Shot.preview.points;
+        const last = points[points.length - 1];
+        if (!last || Math.hypot(point.x - last.x, point.y - last.y) > 1.2) {
+          points.push({ ...point });
+        }
+      } else {
+        Shot.preview.end = point;
+      }
       shotDraw();
       return;
     }
+    if (Shot.drag?.mode === "pan") {
+      const stage = $("shotStage");
+      stage.scrollLeft = Shot.drag.left - (event.clientX - Shot.drag.start.x);
+      stage.scrollTop = Shot.drag.top - (event.clientY - Shot.drag.start.y);
+      return;
+    }
     if (Shot.drag?.shape) {
+      if (Shot.drag.mode === "shape-resize") {
+        canvas.style.cursor = shotCursorForHandle(Shot.drag.handle, Shot.drag.shape.rotation || 0);
+      } else {
+        canvas.style.cursor = "grabbing";
+      }
       shotUpdateShapeDrag(point, event);
       shotDraw();
       return;
     }
-    if (Shot.tool === "select") {
-      canvas.style.cursor = shotShapeHandleAt(point) ? "nwse-resize" : "default";
-    }
+    canvas.style.cursor = shotCursorAt(point);
   };
   canvas.onpointerup = (event) => {
     if (!Shot.base) return;
@@ -1811,6 +1933,11 @@ function initShotEditor() {
       }
       Shot.drag = null;
       shotDraw();
+      return;
+    }
+    if (Shot.drag?.mode === "pan") {
+      Shot.drag = null;
+      canvas.style.cursor = "grab";
       return;
     }
     if (Shot.drag?.mode === "shape-draw" && Shot.preview) {
@@ -1827,12 +1954,14 @@ function initShotEditor() {
       return;
     }
     Shot.drag = null;
+    canvas.style.cursor = shotCursorAt(shotPoint(event));
     shotDraw();
   };
   canvas.onpointercancel = () => {
     Shot.start = null;
     Shot.preview = null;
     Shot.drag = null;
+    canvas.style.cursor = shotCursorAt(shotPoint({ clientX: 0, clientY: 0 }));
     shotDraw();
   };
   document.addEventListener("keydown", (event) => {
@@ -2137,7 +2266,10 @@ function init() {
     if (button && button.dataset.url) openExternal(button.dataset.url);
   });
   $("updateBtn").onclick = () => showUpdateModal(App.update);
-  $("updateToastOpen").onclick = () => showUpdateModal(App.update);
+  $("updateToastOpen").onclick = () => {
+    hideUpdateToast();
+    showUpdateModal(App.update);
+  };
   $("updateToastClose").onclick = () => hideUpdateToast();
   $("updateClose").onclick = () => $("updateModal").classList.add("hidden");
   $("updateDownload").onclick = () => {
