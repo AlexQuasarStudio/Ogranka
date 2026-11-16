@@ -10,14 +10,14 @@ from delta import write_manifest
 
 def main(argv):
     if len(argv) < 2:
-        print("Использование: build_delta.py <asset> [asset ...]", file=sys.stderr)
+        print("Usage: build_delta.py <asset> [asset ...]", file=sys.stderr)
         return 2
     for asset in argv[1:]:
         if not os.path.isfile(asset):
-            print(f"Нет файла: {asset}", file=sys.stderr)
+            print(f"Missing file: {asset}", file=sys.stderr)
             return 1
         out = write_manifest(asset)
-        print(f"Дельта-манифест: {out}")
+        print(f"Delta manifest: {out}")
     return 0
 
 
