@@ -13,7 +13,9 @@ import platform
 import re
 import shutil
 import ssl
+import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -51,6 +53,91 @@ class Api:
             return False
         webbrowser.open(url)
         return True
+
+    def open_github(self, url):
+        if not isinstance(url, str) or not url.startswith("https://github.com/"):
+            return False
+        try:
+            import webview
+
+            webview.create_window(
+                "GitHub — Огранка",
+                url,
+                width=1120,
+                height=840,
+                min_size=(720, 520),
+            )
+            return True
+        except Exception as exc:
+            _console_print("Не удалось открыть GitHub в приложении:", exc)
+            webbrowser.open(url)
+            return False
+
+    def capture_screen(self):
+        temp = ""
+        try:
+            fd, temp = tempfile.mkstemp(prefix="ogranka-shot-", suffix=".png")
+            os.close(fd)
+            system = platform.system()
+            if system == "Darwin":
+                subprocess.run(
+                    ["screencapture", "-x", "-t", "png", temp],
+                    check=True,
+                    timeout=30,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            elif system == "Windows":
+                script = (
+                    "Add-Type -AssemblyName System.Windows.Forms;"
+                    "Add-Type -AssemblyName System.Drawing;"
+                    "$b=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds;"
+                    "$img=New-Object System.Drawing.Bitmap $b.Width,$b.Height;"
+                    "$g=[System.Drawing.Graphics]::FromImage($img);"
+                    "$g.CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size);"
+                    f"$img.Save('{temp}',[System.Drawing.Imaging.ImageFormat]::Png);"
+                    "$g.Dispose();$img.Dispose()"
+                )
+                subprocess.run(
+                    ["powershell.exe", "-NoProfile", "-Command", script],
+                    check=True,
+                    timeout=30,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            else:
+                commands = (
+                    ("gnome-screenshot", ["gnome-screenshot", "-f", temp]),
+                    ("spectacle", ["spectacle", "-b", "-n", "-o", temp]),
+                    ("grim", ["grim", temp]),
+                    ("import", ["import", "-window", "root", temp]),
+                )
+                for command, args in commands:
+                    if not shutil.which(command):
+                        continue
+                    subprocess.run(
+                        args,
+                        check=True,
+                        timeout=30,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    break
+                else:
+                    raise RuntimeError("Не найден инструмент для скриншота.")
+            with open(temp, "rb") as fh:
+                data = fh.read()
+            if not data:
+                raise RuntimeError("Скриншот получился пустым.")
+            return {"data": "data:image/png;base64," + base64.b64encode(data).decode("ascii")}
+        except Exception as exc:
+            return {"error": str(exc)}
+        finally:
+            if temp:
+                try:
+                    os.remove(temp)
+                except Exception:
+                    pass
 
     def toggle_fullscreen(self):
         import webview
@@ -163,13 +250,10 @@ DATA = _data_dir()
 UPLOADS = os.path.join(DATA, "uploads")
 RUNS = os.path.join(DATA, "runs")
 WELCOME_FILE = os.path.join(DATA, "welcome_seen")
-FEEDBACK_FILE = os.path.join(DATA, "feedback.json")
-FEEDBACK_STATUSES = ("in_progress", "questions", "done")
 os.makedirs(UPLOADS, exist_ok=True)
 os.makedirs(RUNS, exist_ok=True)
 
 LOCK = threading.Lock()
-FEEDBACK_LOCK = threading.Lock()
 STATE = {"job": None, "models": None}
 UPDATE_LOCK = threading.Lock()
 UPDATE_CACHE = {"at": 0.0, "data": None}
@@ -179,6 +263,10 @@ CHANGELOG_LOCK = threading.Lock()
 CHANGELOG_CACHE = {"at": 0.0, "data": None}
 CHANGELOG_TTL = 900
 CHANGELOG_LIMIT = 20
+ISSUES_LOCK = threading.Lock()
+ISSUES_CACHE = {"at": 0.0, "data": None}
+ISSUES_TTL = 300
+ISSUES_LIMIT = 50
 
 
 def load_all_models():
@@ -202,82 +290,6 @@ def load_all_models():
         if isinstance(batch, list):
             models.extend(batch)
     return models or None
-
-
-def _read_feedback_file():
-    try:
-        with open(FEEDBACK_FILE, encoding="utf-8") as f:
-            items = json.load(f)
-    except FileNotFoundError:
-        return []
-    except Exception:
-        return []
-    return items if isinstance(items, list) else []
-
-
-def _write_feedback_file(items):
-    tmp = FEEDBACK_FILE + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(items, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, FEEDBACK_FILE)
-
-
-def _feedback_items():
-    with FEEDBACK_LOCK:
-        items = _read_feedback_file()
-    return list(reversed(items))
-
-
-def _add_feedback(payload):
-    message = str(payload.get("message") or "").strip()
-    if len(message) < 3:
-        raise ValueError("Сообщение слишком короткое.")
-    item = {
-        "id": time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6],
-        "type": str(payload.get("type") or "Другое").strip()[:40],
-        "name": str(payload.get("name") or "").strip()[:120],
-        "contact": str(payload.get("contact") or "").strip()[:200],
-        "message": message[:8000],
-        "status": "in_progress",
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "version": APP_VERSION,
-        "build": APP_BUILD,
-        "os": platform.system(),
-    }
-    with FEEDBACK_LOCK:
-        items = _read_feedback_file()
-        items.append(item)
-        _write_feedback_file(items)
-    return item
-
-
-def _set_feedback_status(feedback_id, status):
-    if status not in FEEDBACK_STATUSES:
-        raise ValueError("Неизвестный статус.")
-    with FEEDBACK_LOCK:
-        items = _read_feedback_file()
-        found = None
-        for item in items:
-            if item.get("id") == feedback_id:
-                item["status"] = status
-                item["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-                found = item
-                break
-        if found is None:
-            return None
-        _write_feedback_file(items)
-    return found
-
-
-def _delete_feedback(feedback_id):
-    with FEEDBACK_LOCK:
-        items = _read_feedback_file()
-        remaining = [item for item in items if item.get("id") != feedback_id]
-        if len(remaining) == len(items):
-            return False
-        _write_feedback_file(remaining)
-    return True
 
 
 def _stage(text, progress, detail="", eta=None, **extra):
@@ -694,7 +706,7 @@ def _release_asset(release):
     elif updater.is_appimage():
         extensions = (".appimage",)
     else:
-        extensions = (".tar.gz", ".appimage", ".zip")
+        extensions = (".appimage",)
     for extension in extensions:
         for asset in assets:
             name = str(asset.get("name") or "")
@@ -902,6 +914,68 @@ def _changelog_info(force=False):
     return result
 
 
+def _github_issues(force=False):
+    now = time.time()
+    if not force:
+        with ISSUES_LOCK:
+            cached = ISSUES_CACHE["data"]
+            if cached is not None and now - ISSUES_CACHE["at"] < ISSUES_TTL:
+                return cached
+
+    url = f"https://api.github.com/repos/{APP_REPO}/issues?state=all&per_page={ISSUES_LIMIT}&sort=updated&direction=desc"
+    request = Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": f"Ogranka/{APP_VERSION}",
+        },
+    )
+    try:
+        with urlopen(request, timeout=8, context=SSL_CONTEXT) as response:
+            issues = json.load(response)
+    except HTTPError as exc:
+        result = {"checked": False, "issues": [], "error": f"github_http_{exc.code}"}
+    except Exception:
+        result = {"checked": False, "issues": [], "error": "network"}
+    else:
+        if not isinstance(issues, list):
+            result = {"checked": False, "issues": [], "error": "invalid_response"}
+        else:
+            items = []
+            for issue in issues:
+                if not isinstance(issue, dict) or issue.get("pull_request"):
+                    continue
+                labels = []
+                for label in issue.get("labels") or []:
+                    if not isinstance(label, dict):
+                        continue
+                    labels.append(
+                        {
+                            "name": str(label.get("name") or ""),
+                            "color": str(label.get("color") or "586069"),
+                        }
+                    )
+                items.append(
+                    {
+                        "number": issue.get("number"),
+                        "title": str(issue.get("title") or ""),
+                        "state": str(issue.get("state") or ""),
+                        "url": str(issue.get("html_url") or ""),
+                        "comments": int(issue.get("comments") or 0),
+                        "created_at": issue.get("created_at"),
+                        "updated_at": issue.get("updated_at"),
+                        "user": str((issue.get("user") or {}).get("login") or ""),
+                        "labels": labels,
+                    }
+                )
+            result = {"checked": True, "issues": items}
+
+    with ISSUES_LOCK:
+        ISSUES_CACHE["at"] = now
+        ISSUES_CACHE["data"] = result
+    return result
+
+
 def _save(models, run_id=None):
     run_id = run_id or _new_run_token()
     path = os.path.join(RUNS, run_id)
@@ -979,8 +1053,9 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(_update_info(force))
         if u.path == "/api/update/status":
             return self._json(updater.status())
-        if u.path == "/api/feedback":
-            return self._json({"items": _feedback_items()})
+        if u.path == "/api/github/issues":
+            force = parse_qs(u.query).get("force", ["0"])[0].lower() in ("1", "true", "yes")
+            return self._json(_github_issues(force))
         if u.path == "/api/mesh":
             rid = parse_qs(u.query).get("id", [""])[0]
             with LOCK:
@@ -1009,43 +1084,6 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json({"ok": True, **updater.start_install(info)})
             except RuntimeError as exc:
                 return self._json({"error": str(exc)}, 409)
-            except Exception as exc:
-                return self._json({"error": str(exc)}, 500)
-        if u.path == "/api/feedback":
-            length = int(self.headers.get("Content-Length", 0) or 0)
-            if length > 64 * 1024:
-                return self._json({"error": "слишком большой запрос"}, 413)
-            try:
-                body = json.loads(self.rfile.read(length) or b"{}")
-                item = _add_feedback(body)
-                return self._json({"ok": True, "item": item})
-            except ValueError as exc:
-                return self._json({"error": str(exc)}, 400)
-            except Exception as exc:
-                return self._json({"error": str(exc)}, 500)
-        if u.path == "/api/feedback/status":
-            length = int(self.headers.get("Content-Length", 0) or 0)
-            if length > 8 * 1024:
-                return self._json({"error": "слишком большой запрос"}, 413)
-            try:
-                body = json.loads(self.rfile.read(length) or b"{}")
-                item = _set_feedback_status(str(body.get("id") or ""), str(body.get("status") or ""))
-                if item is None:
-                    return self._json({"error": "запрос не найден"}, 404)
-                return self._json({"ok": True, "item": item})
-            except ValueError as exc:
-                return self._json({"error": str(exc)}, 400)
-            except Exception as exc:
-                return self._json({"error": str(exc)}, 500)
-        if u.path == "/api/feedback/delete":
-            length = int(self.headers.get("Content-Length", 0) or 0)
-            if length > 8 * 1024:
-                return self._json({"error": "слишком большой запрос"}, 413)
-            try:
-                body = json.loads(self.rfile.read(length) or b"{}")
-                if not _delete_feedback(str(body.get("id") or "")):
-                    return self._json({"error": "запрос не найден"}, 404)
-                return self._json({"ok": True})
             except Exception as exc:
                 return self._json({"error": str(exc)}, 500)
         if u.path == "/api/welcome":

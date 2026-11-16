@@ -1,5 +1,6 @@
 /* Application orchestration: results, progress, run and init. */
 let splashDone = false;
+const GITHUB_REPO = "AlexQuasarStudio/Ogranka";
 
 function finishSplash() {
   const splash = $("splash");
@@ -578,11 +579,7 @@ function isBuildUpdate(info) {
 }
 
 function updateHeadline(info) {
-  if (!info) return "Доступно обновление";
-  if (isBuildUpdate(info)) {
-    return "Доступна новая сборка" + (info.build ? " " + info.build : "");
-  }
-  return "Доступна новая версия" + (info.version ? " " + info.version : "");
+  return "Доступно обновление";
 }
 
 function setUpdateInstall(state) {
@@ -697,12 +694,6 @@ function showChangelog(force = false) {
   return loadChangelog(force);
 }
 
-const FEEDBACK_STATUS_LABELS = {
-  in_progress: "в процессе",
-  questions: "есть вопросы",
-  done: "выполнено",
-};
-
 function composeFeedback() {
   const type = $("feedbackType").value || "Другое";
   const name = $("feedbackName").value.trim();
@@ -727,51 +718,6 @@ function formatFeedbackDate(value) {
   }).format(date);
 }
 
-function renderFeedback(items) {
-  const list = $("feedbackList");
-  const count = $("feedbackCount");
-  const rows = Array.isArray(items) ? items : [];
-  count.textContent = rows.length ? rows.length + " шт." : "";
-  if (!rows.length) {
-    list.innerHTML = '<p class="feedback-empty">Запросов пока нет.</p>';
-    return;
-  }
-  const options = Object.entries(FEEDBACK_STATUS_LABELS).map(([value, label]) =>
-    `<option value="${value}">${label}</option>`
-  ).join("");
-  list.innerHTML = rows.map((item) => {
-    const status = FEEDBACK_STATUS_LABELS[item.status] ? item.status : "in_progress";
-    const statusOptions = options.replace(`value="${status}"`, `value="${status}" selected`);
-    const who = [item.name, item.contact].filter(Boolean).map(escapeHtml).join(" · ");
-    return `<article class="feedback-item">
-      <div class="feedback-item-head">
-        <span class="feedback-item-type">${escapeHtml(item.type || "Другое")}</span>
-        <span class="feedback-item-date">${formatFeedbackDate(item.created_at)}</span>
-      </div>
-      ${who ? `<div class="feedback-item-meta">${who}</div>` : ""}
-      <p class="feedback-item-text">${escapeHtml(item.message || "")}</p>
-      <div class="feedback-item-status">
-        <span>Статус</span>
-        <select class="feedback-status-select" data-id="${escapeHtml(item.id || "")}">${statusOptions}</select>
-        <button class="feedback-delete" data-id="${escapeHtml(item.id || "")}" title="Удалить запрос">Удалить</button>
-      </div>
-    </article>`;
-  }).join("");
-}
-
-async function loadFeedback() {
-  const list = $("feedbackList");
-  try {
-    const response = await fetch("/api/feedback", { cache: "no-store" });
-    if (!response.ok) throw new Error("feedback unavailable");
-    const data = await response.json();
-    renderFeedback(data.items || []);
-  } catch (error) {
-    list.innerHTML = '<p class="feedback-empty">Не удалось загрузить запросы.</p>';
-    $("feedbackCount").textContent = "";
-  }
-}
-
 function setFeedbackStatus(text, isError = false) {
   const status = $("feedbackStatus");
   status.textContent = text;
@@ -784,7 +730,7 @@ function showFeedback() {
   $("aboutModal").classList.add("hidden");
   $("feedbackModal").classList.remove("hidden");
   setFeedbackStatus("");
-  loadFeedback();
+  switchFeedbackTab("send");
   $("feedbackText").focus();
 }
 
@@ -803,6 +749,27 @@ async function copyFeedback(text) {
   area.remove();
 }
 
+function githubIssueUrl(data) {
+  const url = new URL("https://github.com/" + GITHUB_REPO + "/issues/new");
+  url.searchParams.set("title", data.title);
+  url.searchParams.set("body", data.body);
+  url.searchParams.set("labels", "feedback");
+  return url.toString();
+}
+
+async function openGithub(url) {
+  if (window.pywebview?.api?.open_github) {
+    try {
+      const opened = await window.pywebview.api.open_github(url);
+      if (opened) return true;
+    } catch (error) {
+      /* fallback ниже */
+    }
+  }
+  window.open(url, "_blank", "noopener");
+  return false;
+}
+
 async function submitFeedback() {
   const data = composeFeedback();
   if (data.message.length < 3) {
@@ -812,21 +779,13 @@ async function submitFeedback() {
   const button = $("feedbackSend");
   button.disabled = true;
   try {
-    const response = await fetch("/api/feedback", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        type: data.type,
-        name: data.name,
-        contact: data.contact,
-        message: data.message,
-      }),
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.error || "Не удалось сохранить запрос.");
+    const opened = await openGithub(githubIssueUrl(data));
+    setFeedbackStatus(
+      opened
+        ? "Окно GitHub открыто. Проверьте текст и приложите файлы."
+        : "GitHub открыт в браузере: встроенное окно недоступно."
+    );
     $("feedbackText").value = "";
-    setFeedbackStatus("Запрос сохранён.");
-    await loadFeedback();
   } catch (error) {
     setFeedbackStatus(String(error.message || error), true);
   } finally {
@@ -834,36 +793,63 @@ async function submitFeedback() {
   }
 }
 
-async function updateFeedbackStatus(id, status) {
-  try {
-    const response = await fetch("/api/feedback/status", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, status }),
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.error || "Не удалось изменить статус.");
-    setFeedbackStatus("Статус обновлён.");
-    await loadFeedback();
-  } catch (error) {
-    setFeedbackStatus(String(error.message || error), true);
-    await loadFeedback();
-  }
+function switchFeedbackTab(name) {
+  const tab = name === "issues" ? "issues" : "send";
+  document.querySelectorAll(".feedback-tab").forEach((button) => {
+    const active = button.dataset.feedbackTab === tab;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  $("feedbackSendPane").classList.toggle("hidden", tab !== "send");
+  $("feedbackIssuesPane").classList.toggle("hidden", tab !== "issues");
+  if (tab === "issues") loadGithubIssues(false);
 }
 
-async function deleteFeedback(id) {
+function renderGithubIssues(info) {
+  const list = $("githubIssuesList");
+  const meta = $("githubIssuesMeta");
+  if (!list || !meta) return;
+  if (!info || !info.checked) {
+    meta.textContent = "Не удалось загрузить проблемы";
+    list.innerHTML = '<p class="feedback-empty">GitHub сейчас недоступен. Попробуйте обновить.</p>';
+    return;
+  }
+  const rows = Array.isArray(info.issues) ? info.issues : [];
+  meta.textContent = rows.length ? rows.length + " проблем" : "Проблем пока нет";
+  if (!rows.length) {
+    list.innerHTML = '<p class="feedback-empty">Открытых и закрытых проблем пока нет.</p>';
+    return;
+  }
+  list.innerHTML = rows.map((issue) => {
+    const labels = (issue.labels || []).map((label) => {
+      const color = /^[0-9a-f]{6}$/i.test(label.color || "") ? "#" + label.color : "#586069";
+      return `<span class="issue-label" style="background:${color}">${escapeHtml(label.name || "")}</span>`;
+    }).join("");
+    const state = issue.state === "closed" ? "закрыта" : "открыта";
+    const date = formatFeedbackDate(issue.updated_at || issue.created_at);
+    return `<article class="github-issue">
+      <div class="github-issue-head">
+        <a href="${escapeHtml(issue.url || "#")}" data-github-url="${escapeHtml(issue.url || "")}">#${escapeHtml(String(issue.number || ""))} ${escapeHtml(issue.title || "")}</a>
+        <span class="github-issue-state ${escapeHtml(issue.state || "")}">${state}</span>
+      </div>
+      <div class="github-issue-meta">${escapeHtml(issue.user || "")}${date ? " · " + date : ""} · ${Number(issue.comments) || 0} комм.</div>
+      ${labels ? `<div class="github-issue-labels">${labels}</div>` : ""}
+    </article>`;
+  }).join("");
+}
+
+async function loadGithubIssues(force = false) {
+  const list = $("githubIssuesList");
+  const meta = $("githubIssuesMeta");
+  if (list) list.innerHTML = '<p class="feedback-empty">Загружаю…</p>';
+  if (meta) meta.textContent = "Загружаю проблемы…";
   try {
-    const response = await fetch("/api/feedback/delete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.error || "Не удалось удалить запрос.");
-    setFeedbackStatus("Запрос удалён.");
-    await loadFeedback();
+    const response = await fetch("/api/github/issues" + (force ? "?force=1" : ""), { cache: "no-store" });
+    if (!response.ok) throw new Error("github issues unavailable");
+    renderGithubIssues(await response.json());
   } catch (error) {
-    setFeedbackStatus(String(error.message || error), true);
+    if (meta) meta.textContent = "Ошибка загрузки";
+    if (list) list.innerHTML = '<p class="feedback-empty">Не удалось загрузить проблемы GitHub.</p>';
   }
 }
 
@@ -881,9 +867,7 @@ async function checkForUpdates(force = false) {
     App.update = info;
     if (button) {
       if (info.available) {
-        button.textContent = isBuildUpdate(info)
-          ? "Новая сборка" + (info.build ? " " + info.build : "")
-          : "Новая версия " + (info.version || "");
+        button.textContent = "Доступно обновление";
         button.title = updateHeadline(info);
         button.classList.remove("hidden");
       } else {
@@ -981,8 +965,254 @@ async function installUpdate() {
   }
 }
 
+const Shot = {
+  base: null, original: null, shapes: [], tool: "circle",
+  start: null, preview: null, color: "#ff4d4f", width: 3,
+};
+
+function shotHint(text) {
+  const hint = $("shotHint");
+  if (hint) hint.textContent = text;
+}
+
+function shotDrawShape(ctx, shape) {
+  const { tool, start, end, color, width, text } = shape;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = width;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  if (tool === "circle") {
+    ctx.beginPath();
+    ctx.ellipse((start.x + end.x) / 2, (start.y + end.y) / 2,
+      Math.abs(end.x - start.x) / 2, Math.abs(end.y - start.y) / 2, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (tool === "line" || tool === "arrow") {
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.lineTo(end.x, end.y);
+    ctx.stroke();
+    if (tool === "arrow") {
+      const angle = Math.atan2(end.y - start.y, end.x - start.x);
+      const size = Math.max(12, width * 4);
+      ctx.beginPath();
+      ctx.moveTo(end.x, end.y);
+      ctx.lineTo(end.x - size * Math.cos(angle - 0.45), end.y - size * Math.sin(angle - 0.45));
+      ctx.moveTo(end.x, end.y);
+      ctx.lineTo(end.x - size * Math.cos(angle + 0.45), end.y - size * Math.sin(angle + 0.45));
+      ctx.stroke();
+    }
+  } else if (tool === "text" && text) {
+    ctx.font = `${Math.max(18, width * 7)}px system-ui, sans-serif`;
+    ctx.textBaseline = "top";
+    ctx.fillText(text, start.x, start.y);
+  }
+  ctx.restore();
+}
+
+function shotDraw() {
+  const canvas = $("shotCanvas");
+  if (!canvas || !Shot.base) return;
+  canvas.width = Shot.base.width || Shot.base.naturalWidth;
+  canvas.height = Shot.base.height || Shot.base.naturalHeight;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(Shot.base, 0, 0);
+  Shot.shapes.forEach((shape) => shotDrawShape(ctx, shape));
+  if (Shot.preview) shotDrawShape(ctx, Shot.preview);
+}
+
+function shotPoint(event) {
+  const canvas = $("shotCanvas");
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (event.clientX - rect.left) * canvas.width / rect.width,
+    y: (event.clientY - rect.top) * canvas.height / rect.height,
+  };
+}
+
+function shotCrop(rect) {
+  const left = Math.max(0, Math.min(rect.start.x, rect.end.x));
+  const top = Math.max(0, Math.min(rect.start.y, rect.end.y));
+  const width = Math.min(Shot.base.width - left, Math.abs(rect.end.x - rect.start.x));
+  const height = Math.min(Shot.base.height - top, Math.abs(rect.end.y - rect.start.y));
+  if (width < 8 || height < 8) return;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  canvas.getContext("2d").drawImage(Shot.base, left, top, width, height, 0, 0, width, height);
+  Shot.base = canvas;
+  Shot.shapes = [];
+  Shot.preview = null;
+  shotDraw();
+  shotHint("Обрезано. Продолжайте аннотировать или сохраните PNG.");
+}
+
+async function shotCapture() {
+  shotHint("Делаю скриншот…");
+  let dataUrl = "";
+  if (window.pywebview?.api?.capture_screen) {
+    const result = await window.pywebview.api.capture_screen();
+    if (result?.data) dataUrl = result.data;
+    else if (result?.error) throw new Error(result.error);
+  }
+  if (!dataUrl && navigator.mediaDevices?.getDisplayMedia) {
+    const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+    try {
+      const video = document.createElement("video");
+      video.srcObject = stream;
+      await new Promise((resolve) => {
+        video.onloadedmetadata = resolve;
+        setTimeout(resolve, 1500);
+      });
+      await video.play();
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth || 1280;
+      canvas.height = video.videoHeight || 720;
+      canvas.getContext("2d").drawImage(video, 0, 0);
+      dataUrl = canvas.toDataURL("image/png");
+    } finally {
+      stream.getTracks().forEach((track) => track.stop());
+    }
+  }
+  if (!dataUrl) throw new Error("Захват экрана недоступен.");
+  await new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      Shot.base = image;
+      Shot.original = image;
+      Shot.shapes = [];
+      Shot.preview = null;
+      shotDraw();
+      shotHint("Выберите инструмент и выделите область.");
+      resolve();
+    };
+    image.onerror = reject;
+    image.src = dataUrl;
+  });
+}
+
+async function openShot() {
+  $("shotModal").classList.remove("hidden");
+  try {
+    await shotCapture();
+  } catch (error) {
+    shotHint("Не удалось сделать скриншот: " + String(error.message || error));
+  }
+}
+
+async function saveShot() {
+  const canvas = $("shotCanvas");
+  if (!canvas || !Shot.base) return;
+  const dataUrl = canvas.toDataURL("image/png");
+  const name = "ogranka-shot-" + Date.now() + ".png";
+  try {
+    if (window.pywebview?.api?.save_png) {
+      const result = await window.pywebview.api.save_png(dataUrl, name);
+      if (result?.path) {
+        shotHint("Сохранено: " + result.path);
+        return;
+      }
+      if (result?.cancelled) return;
+    }
+    const link = document.createElement("a");
+    link.href = dataUrl;
+    link.download = name;
+    link.click();
+    shotHint("PNG сохранён.");
+  } catch (error) {
+    shotHint("Не удалось сохранить PNG: " + String(error.message || error));
+  }
+}
+
+function initShotEditor() {
+  $("shotBtn").onclick = () => openShot();
+  $("shotClose").onclick = () => $("shotModal").classList.add("hidden");
+  $("shotModal").onclick = (event) => {
+    if (event.target.id === "shotModal") $("shotModal").classList.add("hidden");
+  };
+  document.querySelectorAll(".shot-tool").forEach((button) => {
+    button.onclick = () => {
+      document.querySelectorAll(".shot-tool").forEach((item) => item.classList.remove("active"));
+      button.classList.add("active");
+      Shot.tool = button.dataset.shotTool;
+    };
+  });
+  $("shotColor").oninput = () => { Shot.color = $("shotColor").value; };
+  $("shotWidth").oninput = () => { Shot.width = Number($("shotWidth").value) || 3; };
+  $("shotUndo").onclick = () => {
+    Shot.shapes.pop();
+    Shot.preview = null;
+    shotDraw();
+  };
+  $("shotNew").onclick = () => openShot();
+  $("shotSave").onclick = () => saveShot();
+  const canvas = $("shotCanvas");
+  canvas.onpointerdown = (event) => {
+    if (!Shot.base) return;
+    const point = shotPoint(event);
+    if (Shot.tool === "text") {
+      const text = window.prompt("Текст на скриншоте:");
+      if (text) {
+        Shot.shapes.push({ tool: "text", start: point, end: point, color: Shot.color, width: Shot.width, text });
+        shotDraw();
+      }
+      return;
+    }
+    Shot.start = point;
+    Shot.preview = { tool: Shot.tool, start: point, end: point, color: Shot.color, width: Shot.width };
+    canvas.setPointerCapture(event.pointerId);
+    shotDraw();
+  };
+  canvas.onpointermove = (event) => {
+    if (!Shot.start) return;
+    Shot.preview.end = shotPoint(event);
+    shotDraw();
+  };
+  canvas.onpointerup = (event) => {
+    if (!Shot.start) return;
+    const shape = Shot.preview;
+    Shot.start = null;
+    Shot.preview = null;
+    if (shape) {
+      if (Shot.tool === "crop") shotCrop(shape);
+      else {
+        Shot.shapes.push(shape);
+        shotDraw();
+      }
+    }
+  };
+}
+
+function initRestartToast() {
+  const toast = $("restartToast");
+  if (!toast) return;
+  const current = Number(document.querySelector('meta[name="build"]')?.content || 0);
+  if (!current) return;
+  let previous = 0;
+  try {
+    previous = Number(localStorage.getItem("ogranka.lastBuild") || 0);
+    localStorage.setItem("ogranka.lastBuild", String(current));
+  } catch (e) {
+    return;
+  }
+  if (!previous || current <= previous) return;
+  const text = $("restartToastText");
+  if (text) {
+    const version = document.querySelector('meta[name="version"]')?.content || "";
+    text.textContent = (version ? "Версия " + version + " · " : "") + "сборка " + current + ". Можно продолжать работу.";
+  }
+  toast.classList.remove("hidden");
+  const close = () => toast.classList.add("hidden");
+  $("restartToastClose").onclick = close;
+  setTimeout(close, 9000);
+}
+
 function init() {
   initSplash();
+  initRestartToast();
+  initShotEditor();
   addViewer();
   addViewer();
   layoutViewers();
@@ -1199,16 +1429,15 @@ function init() {
   $("feedbackClose").onclick = () => $("feedbackModal").classList.add("hidden");
   $("feedbackModal").onclick = (e) => { if (e.target.id === "feedbackModal") $("feedbackModal").classList.add("hidden"); };
   $("feedbackSend").onclick = () => submitFeedback();
-  $("feedbackList").addEventListener("change", (e) => {
-    const select = e.target.closest(".feedback-status-select");
-    if (select && select.dataset.id) {
-      updateFeedbackStatus(select.dataset.id, select.value);
-    }
+  document.querySelectorAll(".feedback-tab").forEach((button) => {
+    button.onclick = () => switchFeedbackTab(button.dataset.feedbackTab);
   });
-  $("feedbackList").addEventListener("click", (e) => {
-    const button = e.target.closest(".feedback-delete");
-    if (!button || !button.dataset.id) return;
-    if (window.confirm("Удалить запрос?")) deleteFeedback(button.dataset.id);
+  $("githubIssuesRefresh").onclick = () => loadGithubIssues(true);
+  $("githubIssuesList").addEventListener("click", (e) => {
+    const link = e.target.closest("[data-github-url]");
+    if (!link || !link.dataset.githubUrl) return;
+    e.preventDefault();
+    openGithub(link.dataset.githubUrl);
   });
   $("feedbackCopy").onclick = async () => {
     const data = composeFeedback();

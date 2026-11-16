@@ -18,7 +18,6 @@ mkdir -p "$PACKAGE"
 cp -a dist_linux/Ogranka/. "$PACKAGE"/
 cp run-ogranka.sh "$PACKAGE"/
 chmod +x "$PACKAGE/run-ogranka.sh" "$PACKAGE/Ogranka"
-tar -czf "$ROOT/../Ogranka-linux-${VERSION}.tar.gz" -C "$PACKAGE" .
 
 APPDIR="$ROOT/dist_linux/AppDir"
 APPIMAGE="$ROOT/../Ogranka-linux-${VERSION}.AppImage"
@@ -51,5 +50,5 @@ else
   echo "zsyncmake не найден: установите пакет zsync" >&2
   exit 1
 fi
-python3 build_delta.py "$ROOT/../Ogranka-linux-${VERSION}.tar.gz" "$APPIMAGE"
-echo "Готово: Ogranka-linux-${VERSION}.tar.gz, Ogranka-linux-${VERSION}.AppImage, .AppImage.zsync и .delta.json (сборка ${BUILD})"
+python3 build_delta.py "$APPIMAGE"
+echo "Готово: Ogranka-linux-${VERSION}.AppImage, .AppImage.zsync и .delta.json (сборка ${BUILD})"

@@ -73,6 +73,7 @@
   <div class="brand">Огранка <span class="version">{{APP_VERSION}}</span> <span class="build">сборка {{APP_BUILD}}</span> <span class="brand-sub">восстановление формы</span></div>
   <div class="header-right">
     <div id="statusText" class="status">Готов к запуску</div>
+    <button id="shotBtn" class="history-btn" title="Скриншот с аннотациями">Скриншот</button>
     <button id="historyBtn" class="history-btn" title="История изменений">История</button>
     <button id="updateBtn" class="update-btn hidden" title="Доступно обновление">Доступно обновление</button>
     <button id="aboutBtn" class="help-btn about-btn" title="О программе (I)">i</button>
@@ -386,47 +387,94 @@
 </div>
 
 <div id="feedbackModal" class="modal hidden">
-  <div class="modal-card feedback-card">
+  <div class="modal-card feedback-card github-card">
     <div class="modal-head">
       <div>
         <h2>Обратная связь</h2>
-        <div class="update-meta">Запросы сохраняются в приложении — без GitHub</div>
+        <div class="update-meta">GitHub · можно приложить файлы и скриншоты</div>
       </div>
       <button id="feedbackClose" class="help-close" title="Закрыть">×</button>
     </div>
     <div class="modal-body">
-      <label class="feedback-field">Тип
-        <select id="feedbackType">
-          <option value="Ошибка">Ошибка</option>
-          <option value="Идея">Идея</option>
-          <option value="Вопрос">Вопрос</option>
-          <option value="Другое">Другое</option>
-        </select>
-      </label>
-      <label class="feedback-field">Имя <span>(необязательно)</span>
-        <input id="feedbackName" type="text" maxlength="120" autocomplete="name">
-      </label>
-      <label class="feedback-field">Контакт <span>(необязательно)</span>
-        <input id="feedbackContact" type="text" maxlength="200" autocomplete="email">
-      </label>
-      <label class="feedback-field">Сообщение
-        <textarea id="feedbackText" rows="6" maxlength="8000" placeholder="Что случилось или что стоит улучшить?"></textarea>
-      </label>
-      <p class="feedback-hint">Запрос сохранится локально; ниже будут видны все запросы и их статусы.</p>
-      <div class="feedback-actions">
-        <button id="feedbackSend" class="feedback-send">Отправить запрос</button>
-        <button id="feedbackCopy">Скопировать текст</button>
+      <div class="feedback-tabs" role="tablist">
+        <button class="feedback-tab active" data-feedback-tab="send" role="tab">Отправить</button>
+        <button class="feedback-tab" data-feedback-tab="issues" role="tab">Проблемы GitHub</button>
       </div>
-      <p id="feedbackStatus" class="feedback-status" aria-live="polite"></p>
-      <div class="feedback-list-head">
-        <h3>Все запросы</h3>
-        <span id="feedbackCount" class="feedback-count"></span>
+      <div id="feedbackSendPane" class="feedback-pane">
+        <label class="feedback-field">Тип
+          <select id="feedbackType">
+            <option value="Ошибка">Ошибка</option>
+            <option value="Идея">Идея</option>
+            <option value="Вопрос">Вопрос</option>
+            <option value="Другое">Другое</option>
+          </select>
+        </label>
+        <label class="feedback-field">Имя <span>(необязательно)</span>
+          <input id="feedbackName" type="text" maxlength="120" autocomplete="name">
+        </label>
+        <label class="feedback-field">Контакт <span>(необязательно)</span>
+          <input id="feedbackContact" type="text" maxlength="200" autocomplete="email">
+        </label>
+        <label class="feedback-field">Сообщение
+          <textarea id="feedbackText" rows="6" maxlength="8000" placeholder="Что случилось или что стоит улучшить?"></textarea>
+        </label>
+        <p class="feedback-hint">Откроется окно GitHub внутри приложения. Там можно приложить файлы и скриншоты.</p>
+        <div class="feedback-actions">
+          <button id="feedbackSend" class="feedback-send">Открыть GitHub</button>
+          <button id="feedbackCopy">Скопировать текст</button>
+        </div>
+        <p id="feedbackStatus" class="feedback-status" aria-live="polite"></p>
       </div>
-      <div id="feedbackList" class="feedback-list">
-        <p class="feedback-empty">Запросов пока нет.</p>
+      <div id="feedbackIssuesPane" class="feedback-pane hidden">
+        <div class="github-issues-head">
+          <span id="githubIssuesMeta">Загружаю проблемы…</span>
+          <button id="githubIssuesRefresh" class="update-check">Обновить</button>
+        </div>
+        <div id="githubIssuesList" class="github-issues-list">
+          <p class="feedback-empty">Загружаю…</p>
+        </div>
       </div>
     </div>
   </div>
+</div>
+
+<div id="shotModal" class="modal hidden">
+  <div class="modal-card shot-card">
+    <div class="modal-head">
+      <div>
+        <h2>Скриншот</h2>
+        <div class="update-meta">Круг, линия, стрелка, текст, обрезка</div>
+      </div>
+      <button id="shotClose" class="help-close" title="Закрыть">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="shot-toolbar">
+        <button class="shot-tool active" data-shot-tool="circle">Круг</button>
+        <button class="shot-tool" data-shot-tool="line">Линия</button>
+        <button class="shot-tool" data-shot-tool="arrow">Стрелка</button>
+        <button class="shot-tool" data-shot-tool="text">Текст</button>
+        <button class="shot-tool" data-shot-tool="crop">Обрезать</button>
+        <input id="shotColor" type="color" value="#ff4d4f" title="Цвет">
+        <input id="shotWidth" type="range" min="1" max="12" value="3" title="Толщина">
+        <button id="shotUndo">Отменить</button>
+        <button id="shotNew">Новый скриншот</button>
+        <button id="shotSave" class="feedback-send">Сохранить PNG</button>
+      </div>
+      <p id="shotHint" class="feedback-hint">Выберите инструмент и выделите область на скриншоте.</p>
+      <div class="shot-canvas-wrap">
+        <canvas id="shotCanvas"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="restartToast" class="corner-toast hidden" role="status" aria-live="polite">
+  <div class="corner-toast-mark" aria-hidden="true">✓</div>
+  <div class="corner-toast-copy">
+    <strong>Обновление установлено</strong>
+    <span id="restartToastText"></span>
+  </div>
+  <button id="restartToastClose" class="corner-toast-close" title="Закрыть">×</button>
 </div>
 
 <div id="tour" class="tour hidden">

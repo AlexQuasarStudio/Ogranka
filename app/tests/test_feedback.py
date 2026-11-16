@@ -7,43 +7,47 @@ from unittest.mock import patch
 import app
 
 
-class FeedbackTest(unittest.TestCase):
-    def test_add_list_and_update_feedback(self):
-        with tempfile.TemporaryDirectory() as root:
-            path = os.path.join(root, "feedback.json")
-            with patch.object(app, "FEEDBACK_FILE", path):
-                item = app._add_feedback(
-                    {"type": "Ошибка", "name": "Тест", "contact": "test@example.com", "message": "Не работает кнопка"}
-                )
-                self.assertEqual(item["status"], "in_progress")
-                self.assertTrue(os.path.isfile(path))
-                items = app._feedback_items()
-                self.assertEqual(len(items), 1)
-                self.assertEqual(items[0]["message"], "Не работает кнопка")
-                updated = app._set_feedback_status(item["id"], "done")
-                self.assertIsNotNone(updated)
-                self.assertEqual(app._feedback_items()[0]["status"], "done")
+class FakeResponse:
+    def __init__(self, payload):
+        self.payload = payload
 
-    def test_feedback_can_be_deleted(self):
-        with tempfile.TemporaryDirectory() as root:
-            with patch.object(app, "FEEDBACK_FILE", os.path.join(root, "feedback.json")):
-                item = app._add_feedback({"message": "Удалить меня"})
-                self.assertTrue(app._delete_feedback(item["id"]))
-                self.assertEqual(app._feedback_items(), [])
-                self.assertFalse(app._delete_feedback(item["id"]))
+    def __enter__(self):
+        return self
 
-    def test_empty_feedback_is_rejected(self):
-        with tempfile.TemporaryDirectory() as root:
-            with patch.object(app, "FEEDBACK_FILE", os.path.join(root, "feedback.json")):
-                with self.assertRaises(ValueError):
-                    app._add_feedback({"message": " "})
+    def __exit__(self, *args):
+        return False
 
-    def test_unknown_feedback_status_is_rejected(self):
-        with tempfile.TemporaryDirectory() as root:
-            with patch.object(app, "FEEDBACK_FILE", os.path.join(root, "feedback.json")):
-                item = app._add_feedback({"message": "Запрос"})
-                with self.assertRaises(ValueError):
-                    app._set_feedback_status(item["id"], "later")
+    def read(self):
+        return json.dumps(self.payload).encode("utf-8")
+
+
+class GithubIssuesTest(unittest.TestCase):
+    def test_parses_issues_and_labels_and_skips_pull_requests(self):
+        payload = [
+            {
+                "number": 12,
+                "title": "Не работает кнопка",
+                "state": "open",
+                "html_url": "https://github.com/AlexQuasarStudio/Ogranka/issues/12",
+                "comments": 3,
+                "created_at": "2026-11-16T10:00:00Z",
+                "updated_at": "2026-11-16T11:00:00Z",
+                "user": {"login": "tester"},
+                "labels": [{"name": "bug", "color": "d73a4a"}],
+            },
+            {
+                "number": 13,
+                "title": "PR",
+                "pull_request": {"url": "https://example.com"},
+            },
+        ]
+        with patch("app.urlopen", return_value=FakeResponse(payload)):
+            result = app._github_issues(True)
+        self.assertTrue(result["checked"])
+        self.assertEqual(len(result["issues"]), 1)
+        issue = result["issues"][0]
+        self.assertEqual(issue["number"], 12)
+        self.assertEqual(issue["labels"][0]["name"], "bug")
 
     def test_load_all_models_keeps_every_run(self):
         with tempfile.TemporaryDirectory() as root:

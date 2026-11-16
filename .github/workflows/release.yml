@@ -129,7 +129,6 @@ jobs:
         with:
           name: linux
           path: |
-            Ogranka-linux-*.tar.gz
             Ogranka-linux-*.AppImage
             Ogranka-linux-*.AppImage.zsync
             Ogranka-linux-*.delta.json
@@ -151,7 +150,7 @@ jobs:
       - name: Create checksums
         run: |
           cd assets
-          sha256sum Ogranka-macos-*.zip Ogranka-windows-*.exe Ogranka-linux-*.tar.gz Ogranka-linux-*.AppImage Ogranka-linux-*.AppImage.zsync Ogranka-*.delta.json > SHA256SUMS.txt
+          sha256sum Ogranka-macos-*.zip Ogranka-windows-*.exe Ogranka-linux-*.AppImage Ogranka-linux-*.AppImage.zsync Ogranka-*.delta.json > SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.verify.outputs.version }}
@@ -160,7 +159,6 @@ jobs:
           files: |
             assets/Ogranka-macos-*.zip
             assets/Ogranka-windows-*.exe
-            assets/Ogranka-linux-*.tar.gz
             assets/Ogranka-linux-*.AppImage
             assets/Ogranka-linux-*.AppImage.zsync
             assets/Ogranka-*.delta.json
