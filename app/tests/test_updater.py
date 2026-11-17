@@ -1,6 +1,7 @@
 import hashlib
 import io
 import os
+import shutil
 import tarfile
 import tempfile
 import unittest
@@ -33,6 +34,15 @@ class UpdaterTest(unittest.TestCase):
             updater._safe_extract_tar(archive, out)
             with open(os.path.join(out, "Ogranka"), "rb") as fh:
                 self.assertEqual(fh.read(), b"binary")
+
+    def test_update_temp_dir_is_next_to_application(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = updater._update_temp_dir({"parent": root})
+            try:
+                self.assertEqual(os.path.dirname(path), root)
+                self.assertTrue(os.path.isdir(path))
+            finally:
+                shutil.rmtree(path, ignore_errors=True)
 
     def test_can_install_is_disabled_for_source_checkout(self):
         with patch.object(updater.sys, "frozen", False, create=True):

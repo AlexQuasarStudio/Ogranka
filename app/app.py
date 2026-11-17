@@ -32,7 +32,7 @@ from core import pipeline
 from config import APP_BUILD, APP_REPO, APP_TITLE, APP_VERSION
 from live import clear_live, live_variant
 from platform_ui import console_print as _console_print
-from platform_ui import open_windows_window, setup_macos_about
+from platform_ui import open_linux_window, open_windows_window, setup_macos_about
 from sources import prepare_source, quality, scan_folder
 import updater
 
@@ -1364,6 +1364,39 @@ def _csv_text():
     return buf.getvalue()
 
 
+def _linux_window_backend():
+    try:
+        import gi
+
+        gi.require_version("Gtk", "3.0")
+        for webkit in ("4.1", "4.0"):
+            try:
+                gi.require_version("WebKit2", webkit)
+                break
+            except ValueError:
+                continue
+        from gi.repository import Gtk, WebKit2  # noqa: F401
+
+        return "gtk"
+    except Exception:
+        pass
+    for module in ("PyQt5.QtWebEngineWidgets", "PySide6.QtWebEngineWidgets"):
+        try:
+            __import__(module)
+            return "qt"
+        except Exception:
+            continue
+    return None
+
+
+def _make_server(port):
+    try:
+        return ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    except OSError as exc:
+        _console_print("Порт", port, "занят, выбираю свободный:", exc)
+        return ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8765)
@@ -1374,8 +1407,9 @@ def main():
         STATE["models"] = load_all_models()
         if STATE["models"]:
             _console_print("загружены сохранённые результаты:", len(STATE["models"]), "модел(ей)")
-    srv = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
-    url = f"http://127.0.0.1:{args.port}/"
+    srv = _make_server(args.port)
+    port = srv.server_address[1]
+    url = f"http://127.0.0.1:{port}/"
     _console_print("Огранка запущена:", url)
     _console_print("Данные:", DATA)
     if args.no_window:
@@ -1425,16 +1459,46 @@ def main():
         except KeyboardInterrupt:
             _console_print("\nОстановлено")
         return
+    if platform.system() == "Linux":
+        for extra in (
+            "/usr/lib/python3/dist-packages",
+            "/usr/lib/python3.12/dist-packages",
+            "/usr/lib/python3.11/dist-packages",
+            "/usr/lib/python3.10/dist-packages",
+        ):
+            if os.path.isdir(extra) and extra not in sys.path:
+                sys.path.append(extra)
     try:
         import webview
 
         setup_macos_about()
+        gui = _linux_window_backend() if platform.system() == "Linux" else None
+        if platform.system() == "Linux" and not gui:
+            raise RuntimeError("не найдены GTK/WebKit или Qt")
         webview.create_window(
             APP_TITLE, url, width=1440, height=940, min_size=(880, 560), maximized=True, js_api=Api()
         )
-        webview.start()
+        if gui:
+            webview.start(gui=gui)
+        else:
+            webview.start()
+        return
     except Exception as exc:
-        _console_print("Окно недоступно, открываю браузер:", exc)
+        _console_print("Встроенное окно недоступно, открываю отдельное окно:", exc)
+        if platform.system() == "Linux":
+            proc = open_linux_window(url, os.path.join(DATA, "browser-profile"))
+            if proc is not None:
+                try:
+                    proc.wait()
+                except KeyboardInterrupt:
+                    _console_print("\nОстановлено")
+                finally:
+                    try:
+                        proc.terminate()
+                    except Exception:
+                        pass
+                    srv.shutdown()
+                return
         if not args.no_browser:
             webbrowser.open(url)
         try:

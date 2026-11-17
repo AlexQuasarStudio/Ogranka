@@ -565,14 +565,21 @@ rm -rf {shlex.quote(temp)}
     )
 
 
+def _update_temp_dir(context):
+    parent = str((context or {}).get("parent") or "")
+    if not parent or not os.path.isdir(parent):
+        raise RuntimeError("Не удалось найти папку приложения для обновления.")
+    return tempfile.mkdtemp(prefix=".ogranka-update-", dir=parent)
+
+
 def _install(info):
     global _ACTIVE
     temp = ""
     try:
-        temp = tempfile.mkdtemp(prefix="ogranka-update-")
+        context = _platform_context()
+        temp = _update_temp_dir(context)
         name = str(info.get("asset_name") or "update.bin")
         archive = os.path.join(temp, os.path.basename(name))
-        context = _platform_context()
         used_delta = False
         if info.get("delta_url"):
             try:

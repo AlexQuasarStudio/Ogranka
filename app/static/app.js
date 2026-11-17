@@ -968,10 +968,11 @@ async function installUpdate() {
 }
 
 const Shot = {
-  base: null, original: null, shapes: [], selected: null, tool: "select",
+  base: null, original: null, shapes: [], selected: null, tool: "move",
   stage: "crop", crop: null, zoom: 1, drag: null,
   start: null, preview: null, color: "#ff4d4f", width: 3,
   name: "ogranka-shot", title: "Скриншот", subtitle: "",
+  history: [], future: [], textEdit: null,
 };
 
 function shotHint(text) {
@@ -979,13 +980,32 @@ function shotHint(text) {
   if (hint) hint.textContent = text;
 }
 
+function shotTextLines(shape) {
+  return String(shape.text || "").split("\n");
+}
+
+function shotTextMetrics(shape) {
+  const canvas = $("shotCanvas");
+  const ctx = canvas ? canvas.getContext("2d") : null;
+  const fontSize = Math.max(10, shape.fontSize || 18);
+  const lines = shotTextLines(shape);
+  const widths = lines.map((line) => {
+    if (!ctx) return Math.max(1, line.length) * fontSize * 0.55;
+    ctx.font = `${fontSize}px system-ui, sans-serif`;
+    return ctx.measureText(line || " ").width;
+  });
+  return {
+    w: Math.max(1, ...widths),
+    h: Math.max(1, lines.length * fontSize * 1.25),
+    fontSize,
+  };
+}
+
 function shotShapeBounds(shape) {
   if (!shape) return null;
   if (shape.tool === "text") {
-    return {
-      x: shape.start.x, y: shape.start.y,
-      w: Math.max(1, shape.w || 1), h: Math.max(1, shape.h || 1),
-    };
+    const metrics = shotTextMetrics(shape);
+    return { x: shape.start.x, y: shape.start.y, w: metrics.w, h: metrics.h };
   }
   if (shape.tool === "marker" && shape.points && shape.points.length) {
     const xs = shape.points.map((point) => point.x);
@@ -1024,21 +1044,28 @@ function shotRotateVector(vector, angle) {
   return { x: vector.x * cos - vector.y * sin, y: vector.x * sin + vector.y * cos };
 }
 
+const SHOT_ROTATE_CURSOR = (() => {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30">'
+    + '<path d="M9 11a8 8 0 1 1-1.4 7.2" fill="none" stroke="#ffffff" stroke-width="4.5"/>'
+    + '<path d="M9 11a8 8 0 1 1-1.4 7.2" fill="none" stroke="#141414" stroke-width="2"/>'
+    + '<path d="M9 6.4 9 11 4.4 11" fill="none" stroke="#ffffff" stroke-width="4.5"/>'
+    + '<path d="M9 6.4 9 11 4.4 11" fill="none" stroke="#141414" stroke-width="2"/></svg>';
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 15 15, crosshair`;
+})();
+
 function shotCursorForHandle(handle, rotation = 0) {
-  if (handle === "rot") return "grab";
+  if (handle === "rot") return SHOT_ROTATE_CURSOR;
   const base = { e: 0, se: 45, s: 90, sw: 135, w: 180, nw: 225, n: 270, ne: 315 };
   const angle = ((base[handle] || 0) + rotation * 180 / Math.PI + 360) % 360;
   return ["ew-resize", "nwse-resize", "ns-resize", "nesw-resize"][Math.round(angle / 45) % 4];
 }
 
 function shotCursorAt(point) {
-  if (Shot.tool === "hand") return "grab";
-  if (Shot.tool !== "select") return "crosshair";
+  if (Shot.tool === "text") return "text";
+  if (Shot.tool !== "move") return "crosshair";
   const handle = shotShapeHandleAt(point);
-  if (handle) {
-    return handle === "rot" ? "grab" : shotCursorForHandle(handle, Shot.selected?.rotation || 0);
-  }
-  return shotHitShape(point) ? "move" : "default";
+  if (handle) return shotCursorForHandle(handle, Shot.selected?.rotation || 0);
+  return shotHitShape(point) ? "move" : "grab";
 }
 
 function shotDrawShape(ctx, shape) {
@@ -1074,9 +1101,12 @@ function shotDrawShape(ctx, shape) {
       ctx.stroke();
     }
   } else if (tool === "text" && text) {
-    ctx.font = `${Math.max(10, shape.fontSize || 18)}px system-ui, sans-serif`;
+    const fontSize = Math.max(10, shape.fontSize || 18);
+    ctx.font = `${fontSize}px system-ui, sans-serif`;
     ctx.textBaseline = "top";
-    ctx.fillText(text, start.x, start.y);
+    shotTextLines(shape).forEach((line, index) => {
+      ctx.fillText(line, start.x, start.y + index * fontSize * 1.25);
+    });
   } else if (tool === "marker" && shape.points && shape.points.length) {
     ctx.globalAlpha = 0.58;
     ctx.lineWidth = Math.max(6, width * 2.5);
@@ -1199,7 +1229,10 @@ function shotDraw() {
     shotDrawCropFrame(ctx, canvas.width, canvas.height);
     return;
   }
-  Shot.shapes.forEach((shape) => shotDrawShape(ctx, shape));
+  Shot.shapes.forEach((shape) => {
+    if (Shot.textEdit && shape === Shot.textEdit.shape) return;
+    shotDrawShape(ctx, shape);
+  });
   if (Shot.preview) shotDrawShape(ctx, Shot.preview);
   shotDrawSelection(ctx);
 }
@@ -1237,12 +1270,12 @@ function shotSetTool(tool) {
   document.querySelectorAll(".shot-tool").forEach((button) => {
     button.classList.toggle("active", button.dataset.shotTool === tool);
   });
-  if (tool !== "select") {
+  if (tool !== "move") {
     Shot.selected = null;
     shotDraw();
   }
   const canvas = $("shotCanvas");
-  if (canvas) canvas.style.cursor = tool === "hand" ? "grab" : tool === "select" ? "default" : "crosshair";
+  if (canvas) canvas.style.cursor = tool === "move" ? "grab" : tool === "text" ? "text" : "crosshair";
 }
 
 function shotSetStage(stage) {
@@ -1250,11 +1283,11 @@ function shotSetStage(stage) {
   $("shotCropTools").classList.toggle("hidden", stage !== "crop");
   $("shotEditTools").classList.toggle("hidden", stage !== "edit");
   const subtitle = $("shotSubtitle");
-  if (subtitle) subtitle.textContent = stage === "crop" ? "Выберите область" : "Пометки: выбор, ресайз, поворот";
+  if (subtitle) subtitle.textContent = stage === "crop" ? "Выберите область" : "Пометки: перетаскивание, ресайз, поворот";
   shotHint(stage === "crop"
     ? "Потяните за рамку или углы. «Всё окно» — без обрезки."
     : "Кликните по пометке, чтобы выбрать. Enter — сохранить, Esc — закрыть.");
-  if (stage === "edit") shotSetTool("select");
+  if (stage === "edit") shotSetTool("move");
   const canvas = $("shotCanvas");
   if (canvas) canvas.style.cursor = stage === "crop" ? "crosshair" : "default";
   requestAnimationFrame(() => shotSetZoom(Shot.zoom));
@@ -1414,61 +1447,48 @@ function shotResizeShape(point) {
   const drag = Shot.drag;
   const shape = drag.shape;
   const old = drag.bounds;
-  const center = drag.center;
   const rotation = shape.rotation || 0;
-  const local = shotRotatePoint(point, center, -rotation);
-  const target = { x: local.x - drag.offset.x, y: local.y - drag.offset.y };
-  let left = old.x;
-  let top = old.y;
-  let right = old.x + old.w;
-  let bottom = old.y + old.h;
-  if (drag.handle.includes("w")) left = target.x;
-  if (drag.handle.includes("e")) right = target.x;
-  if (drag.handle.includes("n")) top = target.y;
-  if (drag.handle.includes("s")) bottom = target.y;
-  if (right - left < 8) {
-    if (drag.handle.includes("w")) left = right - 8;
-    else right = left + 8;
-  }
-  if (bottom - top < 8) {
-    if (drag.handle.includes("n")) top = bottom - 8;
-    else bottom = top + 8;
-  }
-  const newW = right - left;
-  const newH = bottom - top;
-  const newCenter = { x: left + newW / 2, y: top + newH / 2 };
-  const anchorLocal = {
-    x: drag.handle.includes("w") ? old.x + old.w : old.x,
-    y: drag.handle.includes("n") ? old.y + old.h : old.y,
+  const anchor = drag.anchorWorld;
+  const handle = drag.handle;
+  const rel = shotRotateVector({ x: point.x - anchor.x, y: point.y - anchor.y }, -rotation);
+  let width = old.w;
+  let height = old.h;
+  if (handle.includes("e")) width = Math.max(8, rel.x);
+  if (handle.includes("w")) width = Math.max(8, -rel.x);
+  if (handle.includes("s")) height = Math.max(8, rel.y);
+  if (handle.includes("n")) height = Math.max(8, -rel.y);
+  const localX = handle.includes("w") ? -width : 0;
+  const localY = handle.includes("n") ? -height : 0;
+  const localCenter = { x: localX + width / 2, y: localY + height / 2 };
+  const centerWorld = {
+    x: anchor.x + shotRotateVector(localCenter, rotation).x,
+    y: anchor.y + shotRotateVector(localCenter, rotation).y,
   };
-  const anchorVector = shotRotateVector({
-    x: anchorLocal.x - newCenter.x,
-    y: anchorLocal.y - newCenter.y,
-  }, rotation);
-  const newCenterWorld = {
-    x: drag.anchorWorld.x - anchorVector.x,
-    y: drag.anchorWorld.y - anchorVector.y,
-  };
-  const shift = {
-    x: newCenterWorld.x - newCenter.x,
-    y: newCenterWorld.y - newCenter.y,
-  };
-  const sx = old.w ? newW / old.w : 1;
-  const sy = old.h ? newH / old.h : 1;
-  const map = (p) => ({
-    x: left + (p.x - old.x) * sx + shift.x,
-    y: top + (p.y - old.y) * sy + shift.y,
-  });
   if (shape.tool === "text") {
-    shape.start = { x: left + shift.x, y: top + shift.y };
-    shape.w = newW;
-    shape.h = newH;
-    shape.fontSize = Math.max(10, (drag.fontSize || 18) * (old.h ? newH / old.h : 1));
-  } else if (shape.tool === "marker") {
-    shape.points = shape.points.map(map);
+    const ratio = handle.includes("e") || handle.includes("w")
+      ? (old.w ? width / old.w : 1)
+      : (old.h ? height / old.h : 1);
+    const fontSize = Math.max(10, (drag.fontSize || 18) * ratio);
+    const metrics = shotTextMetrics({ ...shape, fontSize });
+    shape.fontSize = fontSize;
+    shape.w = metrics.w;
+    shape.h = metrics.h;
+    shape.start = { x: centerWorld.x - metrics.w / 2, y: centerWorld.y - metrics.h / 2 };
+    shape.end = { x: shape.start.x + metrics.w, y: shape.start.y + metrics.h };
+    return;
+  }
+  const sx = old.w ? width / old.w : 1;
+  const sy = old.h ? height / old.h : 1;
+  const place = (p) => {
+    const lx = localX + (p.x - old.x) * sx;
+    const ly = localY + (p.y - old.y) * sy;
+    return { x: centerWorld.x + lx - localCenter.x, y: centerWorld.y + ly - localCenter.y };
+  };
+  if (shape.tool === "marker") {
+    shape.points = drag.startShape.points.map(place);
   } else {
-    shape.start = map(shape.start);
-    shape.end = map(shape.end);
+    shape.start = place(drag.startShape.start);
+    shape.end = place(drag.startShape.end);
   }
 }
 
@@ -1506,6 +1526,7 @@ function shotDeleteSelected() {
     shotHint("Сначала выберите пометку.");
     return;
   }
+  shotRemember();
   Shot.shapes = Shot.shapes.filter((shape) => shape !== Shot.selected);
   Shot.selected = null;
   shotDraw();
@@ -1519,27 +1540,146 @@ function shotApplyColor(color) {
     swatch.classList.toggle("active", swatch.dataset.shotColor.toLowerCase() === color.toLowerCase());
   });
   if (Shot.selected) {
+    shotRemember();
     Shot.selected.color = color;
     shotDraw();
   }
 }
 
-function shotCreateText(point) {
-  const text = window.prompt("Текст на скриншоте:");
-  if (!text) return;
-  const fontSize = Math.max(18, Shot.width * 7);
-  const canvas = $("shotCanvas");
-  const ctx = canvas.getContext("2d");
-  ctx.font = `${fontSize}px system-ui, sans-serif`;
-  const width = Math.max(24, ctx.measureText(text).width);
-  const height = fontSize * 1.25;
-  const shape = {
-    tool: "text", start: point, end: point, w: width, h: height,
-    fontSize, color: Shot.color, width: Shot.width, text, rotation: 0,
+function shotShapeSnapshot(shape) {
+  return {
+    start: { ...shape.start },
+    end: shape.end ? { ...shape.end } : { ...shape.start },
+    points: shape.points ? shape.points.map((p) => ({ ...p })) : null,
+    w: shape.w, h: shape.h, fontSize: shape.fontSize,
+    text: shape.text, rotation: shape.rotation || 0,
   };
-  Shot.shapes.push(shape);
-  Shot.selected = shape;
-  shotSetTool("select");
+}
+
+function shotSnapshot() {
+  return Shot.shapes.map((shape) => JSON.parse(JSON.stringify(shape)));
+}
+
+function shotSyncHistory() {
+  const undo = $("shotUndo");
+  const redo = $("shotRedo");
+  if (undo) undo.disabled = Shot.history.length === 0;
+  if (redo) redo.disabled = Shot.future.length === 0;
+}
+
+function shotPushSnapshot(snapshot) {
+  if (!snapshot) return;
+  Shot.history.push(snapshot);
+  if (Shot.history.length > 60) Shot.history.shift();
+  Shot.future = [];
+  shotSyncHistory();
+}
+
+function shotRemember() {
+  shotPushSnapshot(shotSnapshot());
+}
+
+function shotRestore(snapshot) {
+  Shot.shapes = snapshot.map((shape) => JSON.parse(JSON.stringify(shape)));
+  Shot.selected = null;
+  Shot.preview = null;
+  Shot.drag = null;
+  shotDraw();
+  shotSyncHistory();
+}
+
+function shotUndo() {
+  if (Shot.textEdit) shotCommitText();
+  if (!Shot.history.length) return;
+  Shot.future.push(shotSnapshot());
+  shotRestore(Shot.history.pop());
+}
+
+function shotRedo() {
+  if (Shot.textEdit) shotCommitText();
+  if (!Shot.future.length) return;
+  Shot.history.push(shotSnapshot());
+  shotRestore(Shot.future.pop());
+}
+
+function shotTextEditorPosition(shape) {
+  const canvas = $("shotCanvas");
+  const input = $("shotTextInput");
+  if (!canvas || !input) return;
+  const rect = canvas.getBoundingClientRect();
+  const scale = rect.width / Math.max(1, canvas.width);
+  const bounds = shotShapeBounds(shape);
+  input.style.left = `${rect.left + bounds.x * scale}px`;
+  input.style.top = `${rect.top + bounds.y * scale}px`;
+  input.style.fontSize = `${Math.max(10, shape.fontSize || 18) * scale}px`;
+  input.style.color = shape.color || "#ffffff";
+  input.style.width = "0px";
+  input.style.height = "0px";
+  input.style.width = `${Math.max(26, input.scrollWidth + 8)}px`;
+  input.style.height = `${Math.max(input.scrollHeight + 4, (shape.fontSize || 18) * scale * 1.25)}px`;
+}
+
+function shotStartText(point, shape = null) {
+  shotCommitText();
+  const fontSize = Math.max(20, Math.round((Shot.base?.width || 960) / 40));
+  const target = shape || {
+    tool: "text", start: { ...point }, end: { ...point }, w: 24, h: fontSize * 1.25,
+    fontSize, color: Shot.color, width: Shot.width, text: "", rotation: 0,
+  };
+  shotRemember();
+  if (!shape) Shot.shapes.push(target);
+  Shot.selected = target;
+  const input = $("shotTextInput");
+  if (!input) return;
+  Shot.textEdit = { shape: target, isNew: !shape };
+  input.value = target.text || "";
+  input.classList.remove("hidden");
+  shotTextEditorPosition(target);
+  shotDraw();
+  requestAnimationFrame(() => {
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  });
+}
+
+function shotUpdateText(value) {
+  const edit = Shot.textEdit;
+  if (!edit) return;
+  edit.shape.text = value;
+  const metrics = shotTextMetrics(edit.shape);
+  edit.shape.w = metrics.w;
+  edit.shape.h = metrics.h;
+  edit.shape.end = { x: edit.shape.start.x + metrics.w, y: edit.shape.start.y + metrics.h };
+  shotTextEditorPosition(edit.shape);
+  shotDraw();
+}
+
+function shotCommitText(cancel = false) {
+  const edit = Shot.textEdit;
+  if (!edit) return;
+  const input = $("shotTextInput");
+  const shape = edit.shape;
+  Shot.textEdit = null;
+  if (input) {
+    input.classList.add("hidden");
+    input.value = "";
+  }
+  const blank = !String(shape.text || "").trim();
+  if (cancel || blank) {
+    Shot.shapes = Shot.shapes.filter((item) => item !== shape);
+    Shot.selected = null;
+    if (edit.isNew) {
+      Shot.history.pop();
+      shotSyncHistory();
+    } else if (!blank) {
+      shotRestore(Shot.history.pop());
+    }
+  } else {
+    const metrics = shotTextMetrics(shape);
+    shape.w = metrics.w;
+    shape.h = metrics.h;
+    shape.end = { x: shape.start.x + metrics.w, y: shape.start.y + metrics.h };
+  }
   shotDraw();
 }
 
@@ -1687,6 +1827,10 @@ function openShotEditor(image, meta = {}) {
   Shot.base = image;
   Shot.original = image;
   Shot.shapes = [];
+  Shot.history = [];
+  Shot.future = [];
+  Shot.textEdit = null;
+  $("shotTextInput")?.classList.add("hidden");
   Shot.selected = null;
   Shot.preview = null;
   Shot.start = null;
@@ -1704,6 +1848,7 @@ function openShotEditor(image, meta = {}) {
 }
 
 function closeShot() {
+  if (Shot.textEdit) shotCommitText();
   $("shotLayer").classList.add("hidden");
   document.body.classList.remove("shot-open");
   Shot.drag = null;
@@ -1712,6 +1857,7 @@ function closeShot() {
 }
 
 async function saveShot() {
+  if (Shot.textEdit) shotCommitText();
   const canvas = $("shotCanvas");
   if (!canvas || !Shot.base) return;
   if (Shot.stage === "crop") {
@@ -1759,17 +1905,32 @@ function initShotEditor() {
   $("shotWidth").oninput = () => {
     Shot.width = Number($("shotWidth").value) || 3;
     if (Shot.selected) {
+      shotRemember();
       Shot.selected.width = Shot.width;
       shotDraw();
     }
   };
-  $("shotUndo").onclick = () => {
-    Shot.shapes.pop();
-    Shot.selected = null;
-    Shot.preview = null;
-    shotDraw();
-  };
+  $("shotUndo").onclick = () => shotUndo();
+  $("shotRedo").onclick = () => shotRedo();
   $("shotDelete").onclick = () => shotDeleteSelected();
+  const textInput = $("shotTextInput");
+  if (textInput) {
+    textInput.addEventListener("input", () => shotUpdateText(textInput.value));
+    textInput.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        shotCommitText(true);
+      } else if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        shotCommitText();
+      } else if (event.key === "Enter") {
+        event.stopPropagation();
+      }
+    });
+    textInput.addEventListener("blur", () => shotCommitText());
+  }
   $("shotSave").onclick = () => saveShot();
   $("shotCropAll").onclick = () => shotUseFull();
   $("shotCropApply").onclick = () => shotApplyCrop();
@@ -1801,19 +1962,7 @@ function initShotEditor() {
       shotDraw();
       return;
     }
-    if (Shot.tool === "hand") {
-      const stage = $("shotStage");
-      Shot.drag = {
-        mode: "pan",
-        start: { x: event.clientX, y: event.clientY },
-        left: stage.scrollLeft,
-        top: stage.scrollTop,
-      };
-      canvas.style.cursor = "grabbing";
-      canvas.setPointerCapture(event.pointerId);
-      return;
-    }
-    if (Shot.tool === "select") {
+    if (Shot.tool === "move") {
       const handle = shotShapeHandleAt(point);
       if (handle && Shot.selected) {
         const shape = Shot.selected;
@@ -1823,23 +1972,20 @@ function initShotEditor() {
             mode: "shape-rotate", shape, start: point,
             rotation: shape.rotation || 0,
             startAngle: Math.atan2(point.y - center.y, point.x - center.x),
+            before: shotSnapshot(), moved: false,
           };
-          canvas.style.cursor = "grabbing";
+          canvas.style.cursor = SHOT_ROTATE_CURSOR;
         } else {
           const bounds = shotShapeBounds(shape);
-          const local = shotRotatePoint(point, center, -(shape.rotation || 0));
-          const handleX = handle.includes("w") ? bounds.x
-            : handle.includes("e") ? bounds.x + bounds.w : bounds.x + bounds.w / 2;
-          const handleY = handle.includes("n") ? bounds.y
-            : handle.includes("s") ? bounds.y + bounds.h : bounds.y + bounds.h / 2;
           const anchorLocal = {
             x: handle.includes("w") ? bounds.x + bounds.w : bounds.x,
             y: handle.includes("n") ? bounds.y + bounds.h : bounds.y,
           };
           Shot.drag = {
-            mode: "shape-resize", shape, handle, bounds, center,
+            mode: "shape-resize", shape, handle, bounds,
             fontSize: shape.fontSize,
-            offset: { x: local.x - handleX, y: local.y - handleY },
+            startShape: shotShapeSnapshot(shape),
+            before: shotSnapshot(), moved: false,
             anchorWorld: shotRotatePoint(anchorLocal, center, shape.rotation || 0),
           };
           canvas.style.cursor = shotCursorForHandle(handle, shape.rotation || 0);
@@ -1852,12 +1998,8 @@ function initShotEditor() {
         Shot.selected = shape;
         Shot.drag = {
           mode: "shape-move", shape, start: point,
-          startShape: {
-            start: { ...shape.start },
-            end: shape.end ? { ...shape.end } : { ...shape.start },
-            points: shape.points ? shape.points.map((p) => ({ ...p })) : null,
-            w: shape.w, h: shape.h, rotation: shape.rotation || 0,
-          },
+          startShape: shotShapeSnapshot(shape),
+          before: shotSnapshot(), moved: false,
         };
         canvas.style.cursor = "grabbing";
         canvas.setPointerCapture(event.pointerId);
@@ -1865,12 +2007,21 @@ function initShotEditor() {
         return;
       }
       Shot.selected = null;
-      canvas.style.cursor = "default";
+      const stage = $("shotStage");
+      Shot.drag = {
+        mode: "pan",
+        start: { x: event.clientX, y: event.clientY },
+        left: stage.scrollLeft,
+        top: stage.scrollTop,
+      };
+      canvas.style.cursor = "grabbing";
+      canvas.setPointerCapture(event.pointerId);
       shotDraw();
       return;
     }
     if (Shot.tool === "text") {
-      shotCreateText(point);
+      const existing = shotHitShape(point);
+      shotStartText(point, existing && existing.tool === "text" ? existing : null);
       return;
     }
     Shot.start = point;
@@ -1912,8 +2063,11 @@ function initShotEditor() {
       return;
     }
     if (Shot.drag?.shape) {
+      Shot.drag.moved = true;
       if (Shot.drag.mode === "shape-resize") {
         canvas.style.cursor = shotCursorForHandle(Shot.drag.handle, Shot.drag.shape.rotation || 0);
+      } else if (Shot.drag.mode === "shape-rotate") {
+        canvas.style.cursor = SHOT_ROTATE_CURSOR;
       } else {
         canvas.style.cursor = "grabbing";
       }
@@ -1946,13 +2100,16 @@ function initShotEditor() {
       Shot.preview = null;
       Shot.drag = null;
       if (b.w > 3 || b.h > 3) {
+        shotRemember();
         Shot.shapes.push(shape);
         Shot.selected = shape;
-        shotSetTool("select");
+        shotSetTool("move");
       }
       shotDraw();
       return;
     }
+    if (Shot.drag?.before && Shot.drag.moved) shotPushSnapshot(Shot.drag.before);
+    if (Shot.drag?.shape && Shot.drag.moved) Shot.selected = Shot.drag.shape;
     Shot.drag = null;
     canvas.style.cursor = shotCursorAt(shotPoint(event));
     shotDraw();
@@ -1983,12 +2140,17 @@ function initShotEditor() {
     }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
       event.preventDefault();
-      Shot.shapes.pop();
-      Shot.selected = null;
-      shotDraw();
+      if (event.shiftKey) shotRedo();
+      else shotUndo();
+      return;
+    }
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "y") {
+      event.preventDefault();
+      shotRedo();
     }
   });
-  shotSetTool("select");
+  shotSetTool("move");
+  shotSyncHistory();
 }
 
 function initRestartToast() {

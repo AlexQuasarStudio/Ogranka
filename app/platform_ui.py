@@ -17,6 +17,21 @@ def console_print(*args, **kwargs):
 
 
 def _browser_executable():
+    if platform.system() == "Linux":
+        for name in (
+            "google-chrome",
+            "google-chrome-stable",
+            "chromium",
+            "chromium-browser",
+            "microsoft-edge",
+            "microsoft-edge-stable",
+            "brave-browser",
+            "vivaldi",
+        ):
+            path = shutil.which(name)
+            if path:
+                return path
+        return None
     if platform.system() != "Windows":
         return None
     roots = [
@@ -126,6 +141,44 @@ def setup_macos_about():
         AppHelper.callAfter(attempt)
 
     threading.Thread(target=start, daemon=True).start()
+
+
+def open_linux_window(url, profile):
+    for name in (
+        "google-chrome",
+        "google-chrome-stable",
+        "chromium",
+        "chromium-browser",
+        "microsoft-edge",
+        "microsoft-edge-stable",
+        "brave-browser",
+        "vivaldi",
+    ):
+        exe = shutil.which(name)
+        if not exe:
+            continue
+        try:
+            os.makedirs(profile, exist_ok=True)
+            return subprocess.Popen(
+                [
+                    exe,
+                    f"--app={url}",
+                    "--window-size=1440,940",
+                    f"--user-data-dir={profile}",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--disable-features=Translate",
+                ]
+            )
+        except Exception:
+            continue
+    exe = shutil.which("firefox")
+    if exe:
+        try:
+            return subprocess.Popen([exe, "--new-window", url])
+        except Exception:
+            return None
+    return None
 
 
 def open_windows_window(url, profile):

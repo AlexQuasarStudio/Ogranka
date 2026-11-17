@@ -2,4 +2,5 @@
 set -eu
 
 HERE="$(dirname "$(readlink -f "$0")")"
-exec "$HERE/usr/bin/Ogranka" --no-window "$@"
+cd "${HOME:-/}" 2>/dev/null || cd / 2>/dev/null || true
+exec "$HERE/usr/bin/Ogranka" "$@"

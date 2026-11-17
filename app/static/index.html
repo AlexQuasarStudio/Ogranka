@@ -461,8 +461,7 @@
     </div>
     <div id="shotEditTools" class="shot-panel-row hidden">
       <span class="shot-kicker">Пометки</span>
-      <button class="shot-tool" data-shot-tool="hand" title="Перетаскивать скриншот">Рука</button>
-      <button class="shot-tool active" data-shot-tool="select" title="Выбор и перемещение">Выбор</button>
+      <button class="shot-tool active" data-shot-tool="move" title="Перетаскивать скриншот и пометки">Перетаскивать</button>
       <button class="shot-tool" data-shot-tool="circle">Круг</button>
       <button class="shot-tool" data-shot-tool="line">Линия</button>
       <button class="shot-tool" data-shot-tool="arrow">Стрелка</button>
@@ -479,7 +478,8 @@
       </div>
       <input id="shotColor" type="color" value="#ff4d4f" title="Свой цвет">
       <input id="shotWidth" type="range" min="1" max="14" value="3" title="Толщина">
-      <button id="shotUndo" title="Отменить последнюю пометку">Отменить</button>
+      <button id="shotUndo" class="shot-history" title="Отменить (Ctrl+Z)" aria-label="Отменить">↶</button>
+      <button id="shotRedo" class="shot-history" title="Повторить (Ctrl+Shift+Z)" aria-label="Повторить">↷</button>
       <button id="shotDelete" title="Удалить выбранную пометку">Удалить</button>
       <button id="shotSave" class="shot-primary">Сохранить</button>
     </div>
@@ -492,6 +492,7 @@
       <button id="shotClose" class="shot-close" title="Закрыть (Esc)">Закрыть</button>
     </div>
   </div>
+  <textarea id="shotTextInput" class="shot-text-input hidden" spellcheck="false" placeholder="Текст"></textarea>
 </div>
 
 <div id="restartToast" class="corner-toast hidden" role="status" aria-live="polite">
