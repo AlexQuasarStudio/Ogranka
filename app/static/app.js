@@ -778,6 +778,8 @@ async function submitFeedback() {
   }
 }
 
+let feedbackTabToken = 0;
+
 function switchFeedbackTab(name) {
   const tab = name === "issues" ? "issues" : "send";
   document.querySelectorAll(".feedback-tab").forEach((button) => {
@@ -785,9 +787,55 @@ function switchFeedbackTab(name) {
     button.classList.toggle("active", active);
     button.setAttribute("aria-selected", String(active));
   });
-  $("feedbackSendPane").classList.toggle("hidden", tab !== "send");
-  $("feedbackIssuesPane").classList.toggle("hidden", tab !== "issues");
-  if (tab === "issues") loadGithubIssues(false);
+  const send = $("feedbackSendPane");
+  const issues = $("feedbackIssuesPane");
+  const next = tab === "send" ? send : issues;
+  const current = send.classList.contains("hidden") ? issues : send;
+  if (!next || current === next) {
+    if (tab === "issues") loadGithubIssues(false);
+    return;
+  }
+  const wrap = $("feedbackPanes");
+  const token = ++feedbackTabToken;
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const reveal = () => {
+    if (token !== feedbackTabToken) return;
+    current.classList.add("hidden");
+    current.classList.remove("is-leaving");
+    next.classList.remove("hidden");
+    next.classList.add("is-entering");
+    if (wrap && !reduce) {
+      const startHeight = Number.parseFloat(wrap.style.height) || next.getBoundingClientRect().height;
+      const endHeight = next.getBoundingClientRect().height;
+      wrap.style.height = `${startHeight}px`;
+      void wrap.offsetWidth;
+      wrap.style.height = `${endHeight}px`;
+      window.setTimeout(() => {
+        if (token !== feedbackTabToken) return;
+        wrap.style.height = "";
+      }, 240);
+    }
+    let entered = false;
+    const enter = () => {
+      if (entered || token !== feedbackTabToken) return;
+      entered = true;
+      next.classList.remove("is-entering");
+    };
+    requestAnimationFrame(enter);
+    window.setTimeout(enter, 60);
+    if (tab === "issues") loadGithubIssues(false);
+  };
+
+  if (reduce) {
+    if (wrap) wrap.style.height = "";
+    reveal();
+    return;
+  }
+  const startHeight = wrap ? wrap.getBoundingClientRect().height : 0;
+  if (wrap) wrap.style.height = `${startHeight}px`;
+  current.classList.add("is-leaving");
+  window.setTimeout(reveal, 150);
 }
 
 function renderGithubIssues(info) {

@@ -617,6 +617,13 @@ body.progress-on .full-live { bottom: 104px; }
 .feedback-tab:hover { color: #d5e3f5; background: #182231; }
 .feedback-tab.active { color: #bcd7ff; border-bottom-color: #4f8cff; }
 .feedback-pane.hidden { display: none; }
+.feedback-panes { position: relative; overflow: hidden; transition: height .22s ease; }
+.feedback-pane { transition: opacity .16s ease, transform .16s ease; }
+.feedback-pane.is-leaving { opacity: 0; transform: translateY(-6px); pointer-events: none; }
+.feedback-pane.is-entering { opacity: 0; transform: translateY(6px); }
+@media (prefers-reduced-motion: reduce) {
+  .feedback-panes, .feedback-pane { transition: none; }
+}
 .github-issues-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; color: #8da1b8; font-size: 12px; }
 .github-issues-head .update-check { margin-top: 0; padding: 5px 9px; }
 .github-issues-list { display: flex; flex-direction: column; gap: 8px; max-height: 50vh; overflow-y: auto; }
