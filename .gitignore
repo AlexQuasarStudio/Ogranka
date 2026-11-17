@@ -37,3 +37,4 @@ release/
 *.7z
 *.rar
 app/welcome_seen
+app/_last_build

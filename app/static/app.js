@@ -2205,15 +2205,8 @@ function initRestartToast() {
   const toast = $("restartToast");
   if (!toast) return;
   const current = Number(document.querySelector('meta[name="build"]')?.content || 0);
-  if (!current) return;
-  let previous = 0;
-  try {
-    previous = Number(localStorage.getItem("ogranka.lastBuild") || 0);
-    localStorage.setItem("ogranka.lastBuild", String(current));
-  } catch (e) {
-    return;
-  }
-  if (!previous || current <= previous) return;
+  const updated = document.querySelector('meta[name="just-updated"]')?.content === "1";
+  if (!current || !updated) return;
   const text = $("restartToastText");
   if (text) {
     const version = document.querySelector('meta[name="version"]')?.content || "";

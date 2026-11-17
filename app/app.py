@@ -309,6 +309,34 @@ os.makedirs(RUNS, exist_ok=True)
 
 LOCK = threading.Lock()
 STATE = {"job": None, "models": None}
+
+
+def _build_number(value):
+    digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+    return int(digits) if digits else 0
+
+
+def _remember_build():
+    current = _build_number(APP_BUILD)
+    path = os.path.join(DATA, "_last_build")
+    previous = 0
+    try:
+        with open(path, encoding="utf-8") as fh:
+            previous = _build_number(fh.read())
+    except OSError:
+        pass
+    existed = os.path.isdir(DATA)
+    updated = previous > 0 and current > previous
+    if not previous and FROZEN and existed:
+        updated = True
+    try:
+        os.makedirs(DATA, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(str(current))
+    except OSError:
+        pass
+    STATE["previous_build"] = previous
+    STATE["just_updated"] = updated
 UPDATE_LOCK = threading.Lock()
 UPDATE_CACHE = {"at": 0.0, "data": None}
 UPDATE_TTL = 900
@@ -1085,6 +1113,9 @@ class Handler(SimpleHTTPRequestHandler):
             return super().do_GET()
         html = html.replace("{{APP_VERSION}}", APP_VERSION)
         html = html.replace("{{APP_BUILD}}", APP_BUILD)
+        updated = "1" if STATE.get("just_updated") else "0"
+        html = html.replace("{{JUST_UPDATED}}", updated)
+        STATE["just_updated"] = False
         data = html.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1403,6 +1434,7 @@ def main():
     ap.add_argument("--no-browser", action="store_true", help="не открывать браузер")
     ap.add_argument("--no-window", action="store_true", help="без отдельного окна")
     args = ap.parse_args()
+    _remember_build()
     with LOCK:
         STATE["models"] = load_all_models()
         if STATE["models"]:
