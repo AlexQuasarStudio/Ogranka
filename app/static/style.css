@@ -653,11 +653,11 @@ body.progress-on .full-live { bottom: 104px; }
 }
 .shot-text-input.hidden { display: none; }
 .shot-stage {
-  flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center;
+  flex: 1 1 auto; min-height: 0; display: flex;
   overflow: auto; padding: 22px 22px 142px; background: radial-gradient(circle at 50% 35%, #121a27, #05080d 68%);
 }
 #shotCanvas {
-  display: block; flex: 0 0 auto; background: #0b1017;
+  display: block; flex: 0 0 auto; margin: auto; background: #0b1017;
   box-shadow: 0 24px 90px rgba(0,0,0,.58), 0 0 0 1px rgba(124,164,220,.18);
   cursor: crosshair; touch-action: none; border-radius: 3px;
 }
