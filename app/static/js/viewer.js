@@ -28,6 +28,12 @@ class Viewer {
     const l2 = new THREE.DirectionalLight(0x88bbff, 0.4); l2.position.set(-6, 5, -4); this.scene.add(l2);
     this.group = new THREE.Group();
     this.scene.add(this.group);
+    this.previewGroup = new THREE.Group();
+    this.scene.add(this.previewGroup);
+    this._previewTimer = null;
+    this._previewCount = null;
+    this._marqueeW = null;
+    this._marqueeH = null;
     this.controls.addEventListener("change", () => this.onCam(this));
 
     this.mesh = null;
@@ -66,12 +72,20 @@ class Viewer {
     this.raycaster.params.Points.threshold = 0.05;
     this.down = null;
     this.canvas.addEventListener("pointerdown", (e) => {
+      const current = activeViewer();
+      if (current && current !== this) {
+        setActiveViewer(this);
+        this.down = null;
+        this.boxDrag = null;
+        return;
+      }
       if (this.boxSelect && e.button === 0) {
         e.preventDefault();
         this.boxDrag = {
-          x0: e.clientX, y0: e.clientY, pointerId: e.pointerId,
+          x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY, pointerId: e.pointerId,
           action: e.shiftKey ? "add" : ((e.ctrlKey || e.metaKey || e.altKey) ? "subtract" : "replace"),
         };
+        this.clearPreview();
         this.showMarquee(e.clientX, e.clientY, e.clientX, e.clientY);
         try { this.canvas.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
         return;
@@ -81,7 +95,10 @@ class Viewer {
     this.canvas.addEventListener("pointermove", (e) => {
       if (!this.boxDrag) return;
       e.preventDefault();
-      this.showMarquee(this.boxDrag.x0, this.boxDrag.y0, e.clientX, e.clientY);
+      this.boxDrag.x1 = e.clientX;
+      this.boxDrag.y1 = e.clientY;
+      this.showMarquee(this.boxDrag.x0, this.boxDrag.y0, this.boxDrag.x1, this.boxDrag.y1);
+      this.queuePreview();
     });
     this.canvas.addEventListener("pointerup", (e) => {
       if (this.boxDrag) {
@@ -329,6 +346,7 @@ class Viewer {
   }
 
   clear() {
+    if (this.previewGroup) this.clearPreview();
     while (this.group.children.length) {
       const c = this.group.children.pop();
       c.geometry && c.geometry.dispose();
@@ -669,13 +687,22 @@ class Viewer {
     this.marqueeEl.style.top = top + "px";
     this.marqueeEl.style.width = w + "px";
     this.marqueeEl.style.height = h + "px";
-    const label = this.marqueeEl.querySelector(".box-marquee__label");
-    if (label) label.textContent = `${Math.round(w)} × ${Math.round(h)}`;
+    this._marqueeW = w;
+    this._marqueeH = h;
+    this.updateMarqueeLabel();
     this.marqueeEl.classList.remove("hidden");
+  }
+
+  updateMarqueeLabel() {
+    const label = this.marqueeEl && this.marqueeEl.querySelector(".box-marquee__label");
+    if (!label || this._marqueeW == null) return;
+    const size = `${Math.round(this._marqueeW)} × ${Math.round(this._marqueeH)}`;
+    label.textContent = this._previewCount == null ? size : `${size} · ${this._previewCount}`;
   }
 
   hideMarquee() {
     if (this.marqueeEl) this.marqueeEl.classList.add("hidden");
+    this.clearPreview();
   }
 
   pointVisible(p) {
@@ -689,8 +716,8 @@ class Viewer {
     return hit.distance >= dist - Math.max(TOL, dist * 0.01);
   }
 
-  selectInRect(x0, y0, x1, y1, action = "replace") {
-    if (!this.mesh) return;
+  boxHits(x0, y0, x1, y1) {
+    if (!this.mesh) return null;
     if (!this.facePolys) this.facePolys = [];
     const rect = this.canvas.getBoundingClientRect();
     const box = {
@@ -699,7 +726,7 @@ class Viewer {
       top: Math.max(rect.top, Math.min(y0, y1)),
       bottom: Math.min(rect.bottom, Math.max(y0, y1)),
     };
-    if (box.right - box.left < 3 || box.bottom - box.top < 3) return;
+    if (box.right - box.left < 3 || box.bottom - box.top < 3) return null;
     this.camera.updateMatrixWorld(true);
     if (this.solid) this.solid.updateMatrixWorld(true);
     const project = (p) => {
@@ -772,7 +799,138 @@ class Viewer {
         hits.push(si);
       });
     }
-    if (this.onBoxPick) this.onBoxPick(this, hits, action, target);
+    return { target, hits };
+  }
+
+  selectInRect(x0, y0, x1, y1, action = "replace") {
+    const found = this.boxHits(x0, y0, x1, y1);
+    if (found && this.onBoxPick) this.onBoxPick(this, found.hits, action, found.target);
+  }
+
+  previewInRect(x0, y0, x1, y1, action = "replace") {
+    const found = this.boxHits(x0, y0, x1, y1);
+    if (!found) { this.clearPreview(); return null; }
+    this.showPreview(found.target, found.hits, action);
+    return found;
+  }
+
+  queuePreview() {
+    if (!this.boxDrag || this._previewTimer) return;
+    this._previewTimer = setTimeout(() => {
+      this._previewTimer = null;
+      const drag = this.boxDrag;
+      if (!drag) return;
+      if (Math.abs(drag.x1 - drag.x0) < 5 && Math.abs(drag.y1 - drag.y0) < 5) {
+        this.clearPreview();
+        return;
+      }
+      this.previewInRect(drag.x0, drag.y0, drag.x1, drag.y1, drag.action);
+    }, 40);
+  }
+
+  clearPreview() {
+    if (this._previewTimer) {
+      clearTimeout(this._previewTimer);
+      this._previewTimer = null;
+    }
+    this._previewCount = null;
+    if (this.previewGroup) {
+      while (this.previewGroup.children.length) {
+        const child = this.previewGroup.children.pop();
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) child.material.dispose();
+      }
+    }
+    this.updateMarqueeLabel();
+  }
+
+  showPreview(target, hits, action = "replace") {
+    this.clearPreview();
+    this._previewCount = hits.length;
+    this.updateMarqueeLabel();
+    if (!hits.length || !this.previewGroup) return;
+    const color = action === "add" ? 0x55d68b : action === "subtract" ? 0xff6b7a : 0x4f8cff;
+    const add = (obj) => { obj.renderOrder = 40; this.previewGroup.add(obj); };
+    if (target === "face") {
+      const pos = [];
+      hits.forEach((fi) => {
+        const f = this.faces[fi];
+        if (!f) return;
+        triangulateFace(f, this.verts).forEach((t) => {
+          t.forEach((vi) => {
+            const p = this.verts[vi];
+            if (p) pos.push(p[0], p[1], p[2]);
+          });
+        });
+      });
+      if (!pos.length) return;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      const mat = new THREE.MeshBasicMaterial({
+        color, transparent: true, opacity: 0.42, side: THREE.DoubleSide,
+        depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+      });
+      add(new THREE.Mesh(geo, mat));
+    } else if (target === "vertex") {
+      const pos = [];
+      hits.forEach((i) => {
+        const p = this.verts[i];
+        if (p) pos.push(p[0], p[1], p[2]);
+      });
+      if (!pos.length) return;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      const mat = new THREE.PointsMaterial({
+        color, size: 0.075, sizeAttenuation: true, depthTest: false, transparent: true, opacity: 0.95,
+      });
+      add(new THREE.Points(geo, mat));
+    } else if (target === "edge") {
+      const pos = [];
+      hits.forEach((i) => {
+        const e = this.edges[i];
+        if (!e) return;
+        const a = this.verts[e[0]], b = this.verts[e[1]];
+        if (a && b) pos.push(a[0], a[1], a[2], b[0], b[1], b[2]);
+      });
+      if (!pos.length) return;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      const mat = new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.95 });
+      add(new THREE.LineSegments(geo, mat));
+    } else if (target === "section") {
+      const points = [];
+      hits.forEach((si) => {
+        const vids = this.sectionVerts[si] || [];
+        const c = this.sectionCentroid[si];
+        if (!c) return;
+        const order = vids.slice().sort((a, b) =>
+          Math.atan2(this.verts[a][1] - c[1], this.verts[a][0] - c[0]) -
+          Math.atan2(this.verts[b][1] - c[1], this.verts[b][0] - c[0]));
+        const ring = [];
+        order.forEach((vi) => {
+          const p = this.verts[vi];
+          if (p) ring.push(p[0], p[1], p[2]);
+        });
+        if (ring.length >= 6) {
+          const geo = new THREE.BufferGeometry();
+          geo.setAttribute("position", new THREE.Float32BufferAttribute(ring, 3));
+          const mat = new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.95 });
+          add(new THREE.LineLoop(geo, mat));
+        }
+        vids.forEach((vi) => {
+          const p = this.verts[vi];
+          if (p) points.push(p[0], p[1], p[2]);
+        });
+      });
+      if (points.length) {
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute("position", new THREE.Float32BufferAttribute(points, 3));
+        const mat = new THREE.PointsMaterial({
+          color, size: 0.06, sizeAttenuation: true, depthTest: false, transparent: true, opacity: 0.95,
+        });
+        add(new THREE.Points(geo, mat));
+      }
+    }
   }
 
   applyTypeSelection(points, mode, polys = [], ids = []) {
@@ -1556,6 +1714,26 @@ function handleBoxPick(src, indexes, action, target) {
   if (status) {
     status.textContent = `Рамка: ${verb} ${indexes.length} ${what}, всего ${total}`;
     status.title = "ЛКМ — рамка, Shift — добавить, Ctrl — убрать, ПКМ — вращать";
+  }
+}
+
+function clearSelection() {
+  ensureSelBuckets();
+  const had = selectionTotal();
+  SEL_MODES.forEach((mode) => {
+    const bucket = App.sel.buckets[mode];
+    bucket.points = [];
+    bucket.polys = [];
+    bucket.ids = [];
+  });
+  App.sel.points = [];
+  App.sel.polys = [];
+  App.sel.ids = [];
+  App.sel.anchor = null;
+  broadcastSelection();
+  if (had) {
+    const status = $("statusText");
+    if (status) status.textContent = "Выделение снято";
   }
 }
 

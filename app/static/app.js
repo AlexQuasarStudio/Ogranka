@@ -2353,20 +2353,7 @@ function init() {
     App.sel.anchor = null;
     broadcastSelection();
   };
-  $("selClear").onclick = () => {
-    ensureSelBuckets();
-    ["face", "vert", "edge", "section"].forEach((mode) => {
-      const bucket = App.sel.buckets[mode];
-      bucket.points = [];
-      bucket.polys = [];
-      bucket.ids = [];
-    });
-    App.sel.points = [];
-    App.sel.polys = [];
-    App.sel.ids = [];
-    App.sel.anchor = null;
-    broadcastSelection();
-  };
+  $("selClear").onclick = clearSelection;
   $("isoSel").onchange = () => {
     App.isolate = $("isoSel").checked;
     App.viewers.forEach((v) => { v.isolate = App.isolate; v.rebuild(App.mode); });
@@ -2568,10 +2555,13 @@ function init() {
       return;
     }
     if (e.key === "Escape") {
+      e.preventDefault();
+      const hadModal = !$("helpModal").classList.contains("hidden")
+        || !$("aboutModal").classList.contains("hidden");
       $("helpModal").classList.add("hidden");
       $("aboutModal").classList.add("hidden");
       if (App.boxSelect) { setBoxSelect(false); return; }
-      if (App.solo) toggleSolo(App.solo);
+      if (!hadModal && selectionTotal() > 0) clearSelection();
       return;
     }
     if (e.altKey && e.code === "KeyA") { e.preventDefault(); $("selClear").click(); return; }
