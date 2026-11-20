@@ -2303,40 +2303,70 @@ function init() {
   updateLiveLabels();
   $("modelSel").onchange = async () => { App.modelIdx = +$("modelSel").value; await renderModel(); };
   $("colorMode").onchange = () => setViewMode($("colorMode").value);
-  $("addView").onclick = () => { addViewer(); App.viewers.forEach((v) => v.applySelection(App.sel.points, App.sel.mode, App.sel.polys, App.sel.ids)); };
+  $("addView").onclick = () => { addViewer(); App.viewers.forEach((v) => v.applySelection(App.sel)); };
   $("delView").onclick = () => removeViewer();
   $("syncCam").onchange = () => { App.syncCam = $("syncCam").checked; };
   $("selTarget").onchange = () => {
     App.selTarget = $("selTarget").value;
     App.viewers.forEach((v) => { v.selTarget = App.selTarget; v.rebuild(App.mode); });
+    updateBoxHint();
     broadcastSelection();
+  };
+  $("boxSel").onclick = () => setBoxSelect(!App.boxSelect);
+  $("selInvert").onclick = invertSelection;
+  $("selGrow").onclick = () => growSelection(1);
+  $("selShrink").onclick = () => growSelection(-1);
+  $("selCopy").onclick = async () => {
+    const text = $("selectionInfo").textContent;
+    if (!text || text === "Выделение: —") return;
+    try {
+      await navigator.clipboard.writeText(text);
+      $("statusText").textContent = "Сводка выделения скопирована";
+    } catch (err) {
+      download("ogranka-selection.txt", text);
+      $("statusText").textContent = "Сводка сохранена в файл";
+    }
   };
   $("selAll").onclick = () => {
     const v = App.viewers[0];
     if (!v || !v.mesh) return;
     const target = App.selTarget;
-    if (target === "edge") {
-      App.sel.mode = "edge";
+    const mode = (target === "vertex" || App.mode === "points") ? "vert" : target;
+    loadSelBucket(mode);
+    if (mode === "edge") {
       App.sel.points = v.edges.map((_, ei) => v.edgePoint(ei));
       App.sel.polys = [];
-    } else if (target === "section") {
-      App.sel.mode = "section";
+      App.sel.ids = v.edges.map((_, ei) => ({ viewer: v, type: "edge", index: ei }));
+    } else if (mode === "section") {
       App.sel.points = v.sectionCentroid.map((c) => c.slice());
       App.sel.polys = [];
-    } else if (target === "vertex" || App.mode === "points") {
-      App.sel.mode = "vert";
+      App.sel.ids = v.sectionCentroid.map((_, si) => ({ viewer: v, type: "section", index: si }));
+    } else if (mode === "vert") {
       App.sel.points = v.verts.map((p) => p.slice());
       App.sel.polys = [];
+      App.sel.ids = v.verts.map((_, vi) => ({ viewer: v, type: "vert", index: vi }));
     } else {
-      App.sel.mode = "face";
       App.sel.points = v.faceCentroids.map((c) => c.slice());
       App.sel.polys = v.facePolys.map((poly) => poly.map((p) => p.slice()));
+      App.sel.ids = v.faceCentroids.map((_, fi) => ({ viewer: v, type: "face", index: fi }));
     }
+    App.sel.anchor = null;
+    broadcastSelection();
+  };
+  $("selClear").onclick = () => {
+    ensureSelBuckets();
+    ["face", "vert", "edge", "section"].forEach((mode) => {
+      const bucket = App.sel.buckets[mode];
+      bucket.points = [];
+      bucket.polys = [];
+      bucket.ids = [];
+    });
+    App.sel.points = [];
+    App.sel.polys = [];
     App.sel.ids = [];
     App.sel.anchor = null;
     broadcastSelection();
   };
-  $("selClear").onclick = () => { App.sel.points = []; App.sel.polys = []; App.sel.ids = []; App.sel.anchor = null; broadcastSelection(); };
   $("isoSel").onchange = () => {
     App.isolate = $("isoSel").checked;
     App.viewers.forEach((v) => { v.isolate = App.isolate; v.rebuild(App.mode); });
@@ -2360,6 +2390,31 @@ function init() {
       App.camLock = false;
       App.resetTimer = null;
     }, 620);
+  };
+  $("objSelBtn").onclick = async () => {
+    const v = activeViewer();
+    if (!v || !v.mesh || !App.sel.buckets) return;
+    const faces = App.sel.buckets.face.ids
+      .filter((id) => id.viewer === v && id.type === "face")
+      .map((id) => id.index);
+    if (!faces.length) {
+      $("statusText").textContent = "В активном окне нет выделенных граней";
+      return;
+    }
+    const name = exportBase(v) + "-selection.obj";
+    const text = toObj(v.mesh, faces.sort((a, b) => a - b));
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.save_obj) {
+      const res = await window.pywebview.api.save_obj(text, name);
+      if (res && res.path) {
+        $("statusText").textContent = "OBJ выделения сохранён";
+        $("statusText").title = res.path;
+        return;
+      }
+      if (res && res.cancelled) return;
+      if (res && res.error) { alert("Не удалось сохранить OBJ: " + res.error); return; }
+    }
+    download(name, text, "text/plain");
+    $("statusText").textContent = "OBJ выделения скачан в загрузки";
   };
   $("objBtn").onclick = async () => {
     const v = activeViewer();
@@ -2515,6 +2570,7 @@ function init() {
     if (e.key === "Escape") {
       $("helpModal").classList.add("hidden");
       $("aboutModal").classList.add("hidden");
+      if (App.boxSelect) { setBoxSelect(false); return; }
       if (App.solo) toggleSolo(App.solo);
       return;
     }
@@ -2527,6 +2583,7 @@ function init() {
     if (num) { setViewMode(modes[+num[1] - 1]); e.preventDefault(); return; }
     if (e.code === "BracketLeft" || e.code === "BracketRight") {
       e.preventDefault();
+      if (e.shiftKey) { growSelection(e.code === "BracketRight" ? 1 : -1); return; }
       cycleViewerResult(e.code === "BracketRight" ? 1 : -1);
       return;
     }
@@ -2543,15 +2600,18 @@ function init() {
       s.value = order[(order.indexOf(s.value) + 1) % order.length];
       s.dispatchEvent(new Event("change"));
     }
+    else if (k === "b") { setBoxSelect(!App.boxSelect); }
     else if (k === "c") { const c = $("syncCam"); c.checked = !c.checked; c.dispatchEvent(new Event("change")); }
     else if (k === "a") { $("selAll").click(); }
     else if (k === "l") { const c = $("isoSel"); c.checked = !c.checked; c.dispatchEvent(new Event("change")); }
     else if (k === "p") { const c = $("orthoSel"); c.checked = !c.checked; c.dispatchEvent(new Event("change")); }
     else if (k === "g") { $("resetBtn").click(); }
+    else if (e.shiftKey && k === "o") { $("objSelBtn").click(); }
     else if (k === "o") { $("objBtn").click(); }
     else if (e.shiftKey && k === "s") { startAppShot(); }
     else if (k === "s") { startViewportShot(activeViewer()); }
     else if (e.key === "?" || k === "h") { $("aboutModal").classList.add("hidden"); $("helpModal").classList.toggle("hidden"); }
+    else if (e.shiftKey && k === "i") { invertSelection(); }
     else if (k === "i") { $("helpModal").classList.add("hidden"); $("aboutModal").classList.toggle("hidden"); }
     else if (e.key === "+" || e.key === "=") { $("addView").click(); }
     else if (e.key === "-" || e.key === "_") { $("delView").click(); }

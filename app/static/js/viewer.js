@@ -1,6 +1,6 @@
 /* Three.js viewer, selection and viewport layout. */
 class Viewer {
-  constructor(card, onPick, onCam) {
+  constructor(card, onPick, onCam, onBoxPick) {
     this.card = card;
     this.modelSel = card.querySelector(".vmodel");
     this.select = card.querySelector(".vsel");
@@ -8,6 +8,7 @@ class Viewer {
     this.canvas = card.querySelector("canvas");
     this.onPick = onPick;
     this.onCam = onCam;
+    this.onBoxPick = onBoxPick || null;
 
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -38,6 +39,7 @@ class Viewer {
     this.solid = null;
     this.pointsObj = null;
     this.hlFaces = new Set();
+    this.selFaces = new Set();
     this.hlVerts = new Set();
     this.hlSections = new Set();
     this.hlEdges = new Set();
@@ -51,6 +53,10 @@ class Viewer {
     this.edgeTol = 0.1;
     this.mode = "solid_edges";
     this.selTarget = "face";
+    this.boxSelect = false;
+    this.boxDrag = null;
+    this.boxVisibleOnly = true;
+    this._orbitButtons = { ...this.controls.mouseButtons };
 
     this.hudCur = card.querySelector(".cur");
     this.setupGizmo(card);
@@ -60,14 +66,47 @@ class Viewer {
     this.raycaster.params.Points.threshold = 0.05;
     this.down = null;
     this.canvas.addEventListener("pointerdown", (e) => {
+      if (this.boxSelect && e.button === 0) {
+        e.preventDefault();
+        this.boxDrag = {
+          x0: e.clientX, y0: e.clientY, pointerId: e.pointerId,
+          action: e.shiftKey ? "add" : ((e.ctrlKey || e.metaKey || e.altKey) ? "subtract" : "replace"),
+        };
+        this.showMarquee(e.clientX, e.clientY, e.clientX, e.clientY);
+        try { this.canvas.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+        return;
+      }
       this.down = { x: e.clientX, y: e.clientY, shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey };
     });
+    this.canvas.addEventListener("pointermove", (e) => {
+      if (!this.boxDrag) return;
+      e.preventDefault();
+      this.showMarquee(this.boxDrag.x0, this.boxDrag.y0, e.clientX, e.clientY);
+    });
     this.canvas.addEventListener("pointerup", (e) => {
+      if (this.boxDrag) {
+        e.preventDefault();
+        const drag = this.boxDrag;
+        this.boxDrag = null;
+        this.hideMarquee();
+        try { this.canvas.releasePointerCapture(drag.pointerId); } catch (err) { /* ignore */ }
+        if (Math.abs(e.clientX - drag.x0) < 5 && Math.abs(e.clientY - drag.y0) < 5) {
+          this.pick(e.clientX, e.clientY, e.shiftKey, e.ctrlKey || e.metaKey);
+        } else {
+          this.selectInRect(drag.x0, drag.y0, e.clientX, e.clientY, drag.action);
+        }
+        return;
+      }
       if (!this.down) return;
       if (Math.hypot(e.clientX - this.down.x, e.clientY - this.down.y) < 5) {
         this.pick(e.clientX, e.clientY, this.down.shift, this.down.ctrl);
       }
       this.down = null;
+    });
+    this.canvas.addEventListener("pointercancel", () => {
+      this.boxDrag = null;
+      this.down = null;
+      this.hideMarquee();
     });
 
     new ResizeObserver(() => this.resize()).observe(this.canvas.parentElement);
@@ -600,12 +639,144 @@ class Viewer {
       this.onPick(this, this.faceCentroids[fi].slice(), "face", action, poly, fi);
   }
 
-  applySelection(points, mode, polys = [], ids = []) {
-    this.hlFaces = new Set();
-    this.hlVerts = new Set();
-    this.hlSections = new Set();
-    this.hlEdges = new Set();
-    this.hlMode = mode;
+  setBoxSelect(on) {
+    this.boxSelect = !!on;
+    this.controls.mouseButtons = this.boxSelect
+      ? { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE }
+      : { ...this._orbitButtons };
+    this.card.classList.toggle("box-mode", this.boxSelect);
+    if (!this.boxSelect) {
+      this.boxDrag = null;
+      this.hideMarquee();
+    }
+  }
+
+  showMarquee(x0, y0, x1, y1) {
+    const rect = this.canvas.getBoundingClientRect();
+    if (!this.marqueeEl) {
+      const el = document.createElement("div");
+      el.className = "box-marquee hidden";
+      el.innerHTML = '<span class="box-marquee__label"></span>';
+      this.canvas.parentElement.appendChild(el);
+      this.marqueeEl = el;
+    }
+    const left = Math.max(0, Math.min(x0, x1) - rect.left);
+    const top = Math.max(0, Math.min(y0, y1) - rect.top);
+    const right = Math.min(rect.width, Math.max(x0, x1) - rect.left);
+    const bottom = Math.min(rect.height, Math.max(y0, y1) - rect.top);
+    const w = Math.max(0, right - left), h = Math.max(0, bottom - top);
+    this.marqueeEl.style.left = left + "px";
+    this.marqueeEl.style.top = top + "px";
+    this.marqueeEl.style.width = w + "px";
+    this.marqueeEl.style.height = h + "px";
+    const label = this.marqueeEl.querySelector(".box-marquee__label");
+    if (label) label.textContent = `${Math.round(w)} × ${Math.round(h)}`;
+    this.marqueeEl.classList.remove("hidden");
+  }
+
+  hideMarquee() {
+    if (this.marqueeEl) this.marqueeEl.classList.add("hidden");
+  }
+
+  pointVisible(p) {
+    if (!this.boxVisibleOnly || !this.solid) return true;
+    const q = new THREE.Vector3(p[0], p[1], p[2]).project(this.camera);
+    if (q.z > 1) return false;
+    this.raycaster.setFromCamera(new THREE.Vector2(q.x, q.y), this.camera);
+    const hit = this.raycaster.intersectObject(this.solid, false)[0];
+    if (!hit) return true;
+    const dist = this.camera.position.distanceTo(new THREE.Vector3(p[0], p[1], p[2]));
+    return hit.distance >= dist - Math.max(TOL, dist * 0.01);
+  }
+
+  selectInRect(x0, y0, x1, y1, action = "replace") {
+    if (!this.mesh) return;
+    if (!this.facePolys) this.facePolys = [];
+    const rect = this.canvas.getBoundingClientRect();
+    const box = {
+      left: Math.max(rect.left, Math.min(x0, x1)),
+      right: Math.min(rect.right, Math.max(x0, x1)),
+      top: Math.max(rect.top, Math.min(y0, y1)),
+      bottom: Math.min(rect.bottom, Math.max(y0, y1)),
+    };
+    if (box.right - box.left < 3 || box.bottom - box.top < 3) return;
+    this.camera.updateMatrixWorld(true);
+    if (this.solid) this.solid.updateMatrixWorld(true);
+    const project = (p) => {
+      const q = new THREE.Vector3(p[0], p[1], p[2]).project(this.camera);
+      return {
+        x: rect.left + (q.x * 0.5 + 0.5) * rect.width,
+        y: rect.top + (-q.y * 0.5 + 0.5) * rect.height,
+        z: q.z,
+      };
+    };
+    const target = this.selTarget || "face";
+    const hits = [];
+    if (target === "face") {
+      this.facePolys.forEach((poly, fi) => {
+        const pts = poly.map(project);
+        if (pts.some((p) => p.z > 1)) return;
+        if (!polyRectHit(pts, box)) return;
+        if (this.boxVisibleOnly && this.solid) {
+          const samples = [project(this.faceCentroids[fi]), ...pts]
+            .filter((p) => pointInRect2D(p, box))
+            .slice(0, 5);
+          let visible = false;
+          for (const sample of samples) {
+            const ndc = new THREE.Vector2(
+              ((sample.x - rect.left) / rect.width) * 2 - 1,
+              -((sample.y - rect.top) / rect.height) * 2 + 1
+            );
+            this.raycaster.setFromCamera(ndc, this.camera);
+            const hit = this.raycaster.intersectObject(this.solid, false)[0];
+            if (hit && this.triFace[hit.faceIndex] === fi) { visible = true; break; }
+          }
+          if (!visible) return;
+        }
+        hits.push(fi);
+      });
+    } else if (target === "vertex") {
+      this.verts.forEach((p, i) => {
+        const q = project(p);
+        if (q.z > 1 || !pointInRect2D(q, box)) return;
+        if (!this.pointVisible(p)) return;
+        hits.push(i);
+      });
+    } else if (target === "edge") {
+      this.edges.forEach((e, i) => {
+        const a = this.verts[e[0]], b = this.verts[e[1]];
+        if (!a || !b) return;
+        const pa = project(a), pb = project(b);
+        if (pa.z > 1 || pb.z > 1) return;
+        const corners = [
+          { x: box.left, y: box.top }, { x: box.right, y: box.top },
+          { x: box.right, y: box.bottom }, { x: box.left, y: box.bottom },
+        ];
+        const mid = { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 };
+        const inside = pointInRect2D(pa, box) || pointInRect2D(pb, box) || pointInRect2D(mid, box) ||
+          corners.some((c, k) => segmentsCross(pa, pb, c, corners[(k + 1) % 4]));
+        if (!inside) return;
+        const mid3 = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+        if (!this.pointVisible(a) && !this.pointVisible(mid3) && !this.pointVisible(b)) return;
+        hits.push(i);
+      });
+    } else if (target === "section") {
+      this.sectionZ.forEach((z, si) => {
+        const vids = this.sectionVerts[si] || [];
+        const pts = vids.map((vi) => ({ vi, q: project(this.verts[vi]) }))
+          .filter((x) => x.q.z <= 1 && pointInRect2D(x.q, box));
+        const center = project(this.sectionCentroid[si]);
+        const inside = pts.length > 0 || (center.z <= 1 && pointInRect2D(center, box));
+        if (!inside) return;
+        if (!pts.some((x) => this.pointVisible(this.verts[x.vi]))) return;
+        hits.push(si);
+      });
+    }
+    if (this.onBoxPick) this.onBoxPick(this, hits, action, target);
+  }
+
+  applyTypeSelection(points, mode, polys = [], ids = []) {
+    if (!points.length || !this.mesh) return;
     if (points.length && this.mesh) {
       const mappedPoints = [];
       const mappedPolys = [];
@@ -661,6 +832,7 @@ class Viewer {
             if (hit) this.hlFaces.add(fi);
           }
         }
+        this.selFaces = new Set(this.hlFaces);
       } else if (mode === "section") {
         exactSections.forEach((si) => {
           if (si >= 0 && si < this.sectionZ.length) this.hlSections.add(si);
@@ -726,6 +898,28 @@ class Viewer {
         }
       }
     }
+  }
+
+  applySelection(state) {
+    this.hlFaces = new Set();
+    this.selFaces = new Set();
+    this.hlVerts = new Set();
+    this.hlSections = new Set();
+    this.hlEdges = new Set();
+    this.hlMode = state.mode || "face";
+    const buckets = state.buckets || {};
+    const list = {};
+    ["face", "vert", "edge", "section"].forEach((mode) => {
+      const b = buckets[mode];
+      list[mode] = b && b.points ? b : { points: [], polys: [], ids: [] };
+    });
+    if (state.points && state.points.length) {
+      list[state.mode] = { points: state.points, polys: state.polys || [], ids: state.ids || [] };
+    }
+    ["face", "vert", "edge", "section"].forEach((mode) => {
+      const b = list[mode];
+      if (b.points.length) this.applyTypeSelection(b.points, mode, b.polys || [], b.ids || []);
+    });
     this.rebuild(this.mode);
   }
 
@@ -1025,9 +1219,11 @@ function toggleSolo(v) {
 function addViewer() {
   if (App.viewers.length >= 6) return;
   const card = makeCard();
-  const v = new Viewer(card, handlePick, handleCam);
+  const v = new Viewer(card, handlePick, handleCam, handleBoxPick);
   v.isolate = App.isolate;
+  v.selTarget = App.selTarget;
   v.setOrtho(App.ortho);
+  v.setBoxSelect(App.boxSelect);
   card.querySelector(".vmax").onclick = () => toggleSolo(v);
   card.querySelector(".vadd").onclick = () => addViewer();
   card.querySelector(".vdel").onclick = () => removeViewer(v);
@@ -1038,7 +1234,7 @@ function addViewer() {
     setActiveViewer(v);
   }
   populateViewer(v, App.viewers.length - 1);
-  if (App.models.length) loadViewer(v).then(() => v.applySelection(App.sel.points, App.sel.mode, App.sel.polys, App.sel.ids));
+  if (App.models.length) loadViewer(v).then(() => v.applySelection(App.sel));
   if (App.viewers.length > 1) v.copyCamera(App.viewers[0]);
   layoutViewers();
   updateViewButtons();
@@ -1135,7 +1331,9 @@ function populateViewer(v, idx) {
 }
 
 async function loadViewer(v) {
+  ensureSelBuckets();
   App.sel.anchor = null;
+  ["face", "vert", "edge", "section"].forEach((mode) => { App.sel.buckets[mode].ids = []; });
   App.sel.ids = [];
   const id = v.select.value;
   if (!id) return;
@@ -1161,12 +1359,98 @@ async function loadViewer(v) {
 
 async function loadAllViewers() {
   for (const v of App.viewers) await loadViewer(v);
-  App.viewers.forEach((v) => v.applySelection(App.sel.points, App.sel.mode, App.sel.polys, App.sel.ids));
+  App.viewers.forEach((v) => v.applySelection(App.sel));
+}
+
+const SEL_MODES = ["face", "vert", "edge", "section"];
+const SEL_WORDS = {
+  face: ["грань", "грани", "граней"],
+  vert: ["вершина", "вершины", "вершин"],
+  edge: ["ребро", "ребра", "рёбер"],
+  section: ["сечение", "сечения", "сечений"],
+};
+
+function ensureSelBuckets() {
+  if (!App.sel) App.sel = { mode: "face", points: [], polys: [], ids: [], anchor: null };
+  if (!App.sel.buckets) {
+    App.sel.buckets = {};
+    SEL_MODES.forEach((mode) => { App.sel.buckets[mode] = { points: [], polys: [], ids: [] }; });
+    const current = App.sel.buckets[App.sel.mode] || App.sel.buckets.face;
+    current.points = App.sel.points || [];
+    current.polys = App.sel.polys || [];
+    current.ids = App.sel.ids || [];
+  } else {
+    SEL_MODES.forEach((mode) => {
+      if (!App.sel.buckets[mode]) App.sel.buckets[mode] = { points: [], polys: [], ids: [] };
+    });
+  }
+}
+
+function selBucket(mode = App.sel.mode) {
+  ensureSelBuckets();
+  return App.sel.buckets[mode] || App.sel.buckets.face;
+}
+
+function syncSelBucket() {
+  ensureSelBuckets();
+  const bucket = selBucket();
+  bucket.points = App.sel.points;
+  bucket.polys = App.sel.polys;
+  bucket.ids = App.sel.ids;
+}
+
+function loadSelBucket(mode) {
+  ensureSelBuckets();
+  syncSelBucket();
+  App.sel.mode = mode;
+  const bucket = selBucket(mode);
+  App.sel.points = bucket.points;
+  App.sel.polys = bucket.polys;
+  App.sel.ids = bucket.ids;
+  App.sel.anchor = null;
+}
+
+function modeOfTarget(target) {
+  return target === "vertex" ? "vert" : target;
+}
+
+function selectionCount(mode) {
+  return selBucket(mode).points.length;
+}
+
+function selectionTotal() {
+  return SEL_MODES.reduce((sum, mode) => sum + selectionCount(mode), 0);
+}
+
+function elementPayload(src, mode, indexes) {
+  const points = [], polys = [], ids = [];
+  indexes.forEach((i) => {
+    if (mode === "edge") {
+      if (!src.edges[i]) return;
+      points.push(src.edgePoint(i));
+      polys.push(null);
+    } else if (mode === "section") {
+      if (!src.sectionCentroid[i]) return;
+      points.push(src.sectionCentroid[i].slice());
+      polys.push(null);
+    } else if (mode === "vert") {
+      if (!src.verts[i]) return;
+      points.push(src.verts[i].slice());
+      polys.push(null);
+    } else {
+      if (!src.faceCentroids[i]) return;
+      points.push(src.faceCentroids[i].slice());
+      polys.push(src.facePolys[i].map((p) => p.slice()));
+    }
+    ids.push({ viewer: src, type: mode, index: i });
+  });
+  return { points, polys, ids };
 }
 
 function handlePick(src, point, type, action, poly, index) {
+  ensureSelBuckets();
+  if (App.sel.mode !== type) loadSelBucket(type);
   if (!App.sel.polys) App.sel.polys = [];
-  if (App.sel.mode !== type) App.sel = { points: [], polys: [], mode: type, anchor: null, ids: [] };
   if (!("anchor" in App.sel)) App.sel.anchor = null;
   if (!App.sel.ids) App.sel.ids = [];
   const keyOf = (p) => p.map((x) => x.toFixed(6)).join(",");
@@ -1229,25 +1513,193 @@ function handlePick(src, point, type, action, poly, index) {
   broadcastSelection();
 }
 
+function applyElementSelection(src, mode, indexes, action = "replace") {
+  if (!src || !src.mesh) return;
+  loadSelBucket(mode);
+  const payload = elementPayload(src, mode, indexes);
+  if (action === "replace") {
+    App.sel.points = payload.points;
+    App.sel.polys = payload.polys;
+    App.sel.ids = payload.ids;
+  } else if (action === "add") {
+    const hasId = (id) => App.sel.ids.some((x) => x.viewer === id.viewer && x.type === id.type && x.index === id.index);
+    payload.ids.forEach((id, k) => {
+      if (hasId(id)) return;
+      App.sel.points.push(payload.points[k]);
+      App.sel.polys.push(payload.polys[k]);
+      App.sel.ids.push(id);
+    });
+  } else if (action === "subtract") {
+    const drop = new Set(indexes);
+    const points = [], polys = [], ids = [];
+    App.sel.ids.forEach((id, i) => {
+      if (id.viewer === src && id.type === mode && drop.has(id.index)) return;
+      points.push(App.sel.points[i]);
+      polys.push(App.sel.polys[i]);
+      ids.push(id);
+    });
+    App.sel.points = points;
+    App.sel.polys = polys;
+    App.sel.ids = ids;
+  }
+  App.sel.anchor = null;
+  broadcastSelection();
+}
+
+function handleBoxPick(src, indexes, action, target) {
+  const mode = modeOfTarget(target || src.selTarget);
+  applyElementSelection(src, mode, indexes, action);
+  const total = selectionCount(mode);
+  const verb = action === "subtract" ? "убрано" : (action === "add" ? "добавлено" : "выбрано");
+  const what = plural(indexes.length, ...SEL_WORDS[mode]);
+  const status = $("statusText");
+  if (status) {
+    status.textContent = `Рамка: ${verb} ${indexes.length} ${what}, всего ${total}`;
+    status.title = "ЛКМ — рамка, Shift — добавить, Ctrl — убрать, ПКМ — вращать";
+  }
+}
+
+function invertSelection() {
+  const v = activeViewer();
+  if (!v || !v.mesh) return;
+  const mode = modeOfTarget(App.selTarget);
+  const total = mode === "face" ? v.faceCentroids.length
+    : mode === "section" ? v.sectionZ.length
+    : mode === "edge" ? v.edges.length : v.verts.length;
+  loadSelBucket(mode);
+  const picked = new Set(App.sel.ids.filter((id) => id.viewer === v && id.type === mode).map((id) => id.index));
+  const indexes = [];
+  for (let i = 0; i < total; i++) if (!picked.has(i)) indexes.push(i);
+  applyElementSelection(v, mode, indexes, "replace");
+  const status = $("statusText");
+  if (status) status.textContent = `Инверсия: ${indexes.length} из ${total} · ${plural(indexes.length, ...SEL_WORDS[mode])}`;
+}
+
+function growSelection(step) {
+  const v = activeViewer();
+  if (!v || !v.mesh) return;
+  if (App.selTarget !== "face") {
+    const status = $("statusText");
+    if (status) status.textContent = "Рост и сужение работают для граней";
+    return;
+  }
+  const current = new Set(selBucket("face").ids.filter((id) => id.viewer === v && id.type === "face").map((id) => id.index));
+  if (!current.size) return;
+  let next = current;
+  if (step > 0) {
+    next = new Set(current);
+    current.forEach((fi) => (v.faceAdj[fi] || []).forEach((fj) => next.add(fj)));
+  } else {
+    next = new Set();
+    current.forEach((fi) => {
+      const adj = v.faceAdj[fi] || [];
+      if (adj.length && adj.every((fj) => current.has(fj))) next.add(fi);
+    });
+  }
+  applyElementSelection(v, "face", [...next], "replace");
+  const status = $("statusText");
+  if (status) {
+    status.textContent = step > 0
+      ? `Добавлены соседние грани: ${next.size}`
+      : `Оставлены внутренние грани: ${next.size}`;
+  }
+}
+
+function plural(n, one, few, many) {
+  const mod10 = n % 10, mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+  return many;
+}
+
 function broadcastSelection() {
-  App.viewers.forEach((v) => v.applySelection(App.sel.points, App.sel.mode, App.sel.polys, App.sel.ids));
+  syncSelBucket();
+  App.viewers.forEach((v) => v.applySelection(App.sel));
   selectionText();
+  updateSelectionActions();
 }
 
 function selectionText() {
-  if (!App.sel.points.length) {
-    $("selectionInfo").textContent = "Выделение: —";
+  ensureSelBuckets();
+  const info = $("selectionInfo");
+  const v = activeViewer() || App.viewers[0];
+  const counts = {};
+  SEL_MODES.forEach((mode) => { counts[mode] = selectionCount(mode); });
+  const total = selectionTotal();
+  if (!info || !total || !v || !v.mesh) {
+    if (info) info.textContent = "Выделение: —";
+    updateSelectionActions();
     return;
   }
-  const count = (v) => App.sel.mode === "face" ? v.hlFaces.size
-    : App.sel.mode === "section" ? v.hlSections.size
-    : App.sel.mode === "edge" ? v.hlEdges.size : v.hlVerts.size;
-  const parts = App.viewers.map((v, i) => `окно ${i + 1}: ${count(v)}`);
-  const what = App.sel.mode === "face" ? "граней"
-    : App.sel.mode === "section" ? "сечений"
-    : App.sel.mode === "edge" ? "рёбер" : "вершин";
-  $("selectionInfo").textContent =
-    `Выделено точек: ${App.sel.points.length} (${what}) · ` + parts.join(" · ");
+  const parts = SEL_MODES.filter((mode) => counts[mode]).map((mode) => {
+    const n = counts[mode];
+    return `${plural(n, ...SEL_WORDS[mode])}: ${n}`;
+  });
+  let text = `Выделение: ${total} ${plural(total, "элемент", "элемента", "элементов")} · ${parts.join(" · ")}`;
+  const faceIds = v.selFaces || new Set();
+  let title = "";
+  if (faceIds.size) {
+    let area = 0, totalArea = 0, count = 0;
+    const verts = new Set();
+    v.faces.forEach((f, fi) => {
+      const a = polyArea3(v.verts, f);
+      totalArea += a;
+      if (!faceIds.has(fi)) return;
+      area += a;
+      count++;
+      f.forEach((i) => verts.add(i));
+    });
+    const share = totalArea > 0 ? (area / totalArea * 100) : 0;
+    text += ` · площадь ${fmt(area)} (${share.toFixed(1)}%) · ${verts.size} ${plural(verts.size, "вершина", "вершины", "вершин")}`;
+    title = `Граней: ${count}; площадь выделения: ${fmt(area)}; площадь модели: ${fmt(totalArea)}; доля: ${share.toFixed(2)}%`;
+  }
+  const active = App.sel.mode;
+  const per = App.viewers.map((x, i) => {
+    const n = selBucket(active).ids.filter((id) => id.viewer === x).length;
+    return n ? `окно ${i + 1}: ${n}` : null;
+  }).filter(Boolean);
+  if (per.length) text += " · " + per.join(" · ");
+  info.textContent = text;
+  info.title = title;
+  updateSelectionActions();
+}
+
+function updateSelectionActions() {
+  ensureSelBuckets();
+  const total = selectionTotal();
+  const faceSel = selectionCount("face") > 0;
+  const copy = $("selCopy");
+  if (copy) copy.disabled = total === 0;
+  const grow = $("selGrow");
+  if (grow) grow.disabled = !(faceSel && App.selTarget === "face");
+  const shrink = $("selShrink");
+  if (shrink) shrink.disabled = !(faceSel && App.selTarget === "face");
+  const obj = $("objSelBtn");
+  if (obj) obj.disabled = !faceSel;
+}
+
+function setBoxSelect(on) {
+  const next = !!on;
+  App.boxSelect = next;
+  const btn = $("boxSel");
+  if (btn) {
+    btn.classList.toggle("active", next);
+    btn.setAttribute("aria-pressed", String(next));
+  }
+  const hint = $("boxHint");
+  if (hint) hint.classList.toggle("hidden", !next);
+  updateBoxHint();
+  App.viewers.forEach((v) => v.setBoxSelect(next));
+  document.body.classList.toggle("box-select-mode", next);
+}
+
+function updateBoxHint() {
+  const hint = $("boxHint");
+  if (!hint) return;
+  const target = App.selTarget;
+  const what = target === "vertex" ? "вершины" : target === "edge" ? "рёбра"
+    : target === "section" ? "сечения" : "грани";
+  hint.textContent = `Рамка: ЛКМ — выделить ${what}, Shift — добавить, Ctrl — убрать, ПКМ — вращать. Выход — B или Esc.`;
 }
 
 function handleCam(src) {

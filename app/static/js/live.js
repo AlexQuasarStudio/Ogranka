@@ -81,6 +81,15 @@ function applyLive(result, target) {
     (App.activeViewer && App.viewers.includes(App.activeViewer) ? App.activeViewer :
       (App.fullscreen ? (App.solo || App.viewers[0]) : (App.viewers[1] || App.viewers[0])));
   if (!v || !result || !result.mesh) return;
+  if (App.sel.buckets) {
+    ["face", "vert", "edge", "section"].forEach((mode) => {
+      const bucket = App.sel.buckets[mode];
+      if (!bucket) return;
+      bucket.points = [];
+      bucket.polys = [];
+      bucket.ids = [];
+    });
+  }
   App.sel.points = [];
   App.sel.polys = [];
   App.sel.ids = [];

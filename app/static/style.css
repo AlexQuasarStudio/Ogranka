@@ -402,6 +402,27 @@ body.viewer-full { overflow: hidden; }
 .gizmo { width: 84px; height: 84px; display: block; cursor: default; }
 .cur { background: rgba(0,0,0,.4); padding: 2px 7px; border-radius: 6px; font-size: 11px; color: #9fb0c6; }
 
+.box-marquee {
+  position: absolute; z-index: 8; pointer-events: none;
+  border: 1px solid #7fb3ff; border-radius: 3px;
+  background: rgba(79, 140, 255, .14);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .35) inset, 0 0 18px rgba(79, 140, 255, .18);
+}
+.box-marquee.hidden { display: none; }
+.box-marquee__label {
+  position: absolute; right: 4px; bottom: 4px;
+  padding: 1px 5px; border-radius: 4px;
+  background: rgba(8, 14, 24, .82); color: #dce9ff;
+  font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.viewer-card.box-mode canvas { cursor: crosshair; }
+.tool-toggle.active {
+  background: #2458c5; border-color: #4f8cff; color: #fff;
+  box-shadow: 0 0 0 1px rgba(79, 140, 255, .35) inset;
+}
+.box-hint { color: #9fc5ff; }
+.box-hint.hidden { display: none; }
+
 .badge.ref { background: rgba(120,160,200,.16); color: #9fb0c6; }
 
 .workspace { position: relative; }

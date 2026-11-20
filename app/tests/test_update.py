@@ -56,21 +56,22 @@ class UpdateTest(unittest.TestCase):
 
     def test_release_asset_metadata_for_auto_update(self):
         digest = "a" * 64
+        version = "1.0.99"
         payload = {
-            "tag_name": "v1.0.2",
-            "name": "Огранка 1.0.2 · сборка 49",
+            "tag_name": f"v{version}",
+            "name": f"Огранка {version} · сборка 49",
             "html_url": "https://example.com/release",
             "body": "## Обновление",
             "assets": [
                 {
-                    "name": "Ogranka-macos-1.0.2.zip",
-                    "browser_download_url": "https://example.com/Ogranka-macos-1.0.2.zip",
+                    "name": f"Ogranka-macos-{version}.zip",
+                    "browser_download_url": f"https://example.com/Ogranka-macos-{version}.zip",
                     "digest": "sha256:" + digest,
                     "size": 123,
                 },
                 {
-                    "name": "Ogranka-macos-1.0.2.zip.delta.json",
-                    "browser_download_url": "https://example.com/Ogranka-macos-1.0.2.zip.delta.json",
+                    "name": f"Ogranka-macos-{version}.zip.delta.json",
+                    "browser_download_url": f"https://example.com/Ogranka-macos-{version}.zip.delta.json",
                     "size": 456,
                 },
                 {
@@ -82,14 +83,14 @@ class UpdateTest(unittest.TestCase):
         with patch("app.platform.system", return_value="Darwin"):
             with patch("app.urlopen", return_value=FakeResponse(payload)):
                 info = app._update_info(True)
-        self.assertEqual(info["asset_name"], "Ogranka-macos-1.0.2.zip")
+        self.assertEqual(info["asset_name"], f"Ogranka-macos-{version}.zip")
         self.assertEqual(info["asset_sha256"], digest)
         self.assertEqual(info["asset_size"], 123)
         self.assertEqual(
             info["delta_url"],
-            "https://example.com/Ogranka-macos-1.0.2.zip.delta.json",
+            f"https://example.com/Ogranka-macos-{version}.zip.delta.json",
         )
-        self.assertEqual(info["delta_name"], "Ogranka-macos-1.0.2.zip.delta.json")
+        self.assertEqual(info["delta_name"], f"Ogranka-macos-{version}.zip.delta.json")
         self.assertEqual(info["checksums_url"], "https://example.com/SHA256SUMS.txt")
         self.assertFalse(info["installable"])
         self.assertEqual(info["install_reason"], "dev")
@@ -120,9 +121,10 @@ class UpdateTest(unittest.TestCase):
         self.assertEqual(asset["name"], "Ogranka-linux-1.0.2-arm64.AppImage")
 
     def test_same_version_newer_build_is_a_build_update(self):
+        next_build = str(int(app.APP_BUILD) + 1)
         payload = {
-            "tag_name": "v1.0.1",
-            "name": "Огранка 1.0.1 · сборка 49",
+            "tag_name": f"v{app.APP_VERSION}",
+            "name": f"Огранка {app.APP_VERSION} · сборка {next_build}",
             "html_url": "https://example.com/release",
             "body": "## Новая сборка",
             "assets": [],

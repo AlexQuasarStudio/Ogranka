@@ -11,8 +11,17 @@ const App = {
   fullViews: [],
   syncCam: true,
   camLock: false,
-  sel: { points: [], polys: [], mode: "face", anchor: null, ids: [] },
+  sel: {
+    points: [], polys: [], mode: "face", anchor: null, ids: [],
+    buckets: {
+      face: { points: [], polys: [], ids: [] },
+      vert: { points: [], polys: [], ids: [] },
+      edge: { points: [], polys: [], ids: [] },
+      section: { points: [], polys: [], ids: [] },
+    },
+  },
   selTarget: "face",
+  boxSelect: false,
   isolate: false,
   ortho: false,
   viewers: [],
@@ -331,10 +340,68 @@ function exportBase(v) {
   return "ogranka-" + (clean || "view");
 }
 
-function toObj(mesh) {
-  let out = `# vertices: ${mesh.v.length}, faces: ${mesh.f.length}\n`;
-  mesh.v.forEach((p) => out += `v ${p[0].toFixed(6)} ${p[1].toFixed(6)} ${p[2].toFixed(6)}\n`);
-  mesh.f.forEach((f) => out += "f " + f.map((i) => i + 1).join(" ") + "\n");
+function toObj(mesh, faceIndexes = null) {
+  if (!faceIndexes) {
+    let out = `# vertices: ${mesh.v.length}, faces: ${mesh.f.length}\n`;
+    mesh.v.forEach((p) => out += `v ${p[0].toFixed(6)} ${p[1].toFixed(6)} ${p[2].toFixed(6)}\n`);
+    mesh.f.forEach((f) => out += "f " + f.map((i) => i + 1).join(" ") + "\n");
+    return out;
+  }
+  const faces = faceIndexes.map((i) => mesh.f[i]).filter(Boolean);
+  const remap = new Map();
+  const verts = [];
+  faces.forEach((f) => f.forEach((i) => {
+    if (remap.has(i)) return;
+    remap.set(i, verts.length);
+    verts.push(mesh.v[i]);
+  }));
+  let out = `# vertices: ${verts.length}, faces: ${faces.length}\n`;
+  verts.forEach((p) => out += `v ${p[0].toFixed(6)} ${p[1].toFixed(6)} ${p[2].toFixed(6)}\n`);
+  faces.forEach((f) => out += "f " + f.map((i) => remap.get(i) + 1).join(" ") + "\n");
   return out;
+}
+
+function pointInRect2D(p, r) {
+  return p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom;
+}
+
+function pointInPoly2D(p, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j];
+    if ((a.y > p.y) !== (b.y > p.y)) {
+      const t = (p.y - a.y) / (b.y - a.y || 1e-12);
+      if (p.x < a.x + t * (b.x - a.x)) inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function orient2D(a, b, c) {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+
+function segmentsCross(a, b, c, d) {
+  const d1 = orient2D(a, b, c), d2 = orient2D(a, b, d);
+  const d3 = orient2D(c, d, a), d4 = orient2D(c, d, b);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+         ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+}
+
+function polyRectHit(points, rect) {
+  if (!points.length) return false;
+  if (points.some((p) => pointInRect2D(p, rect))) return true;
+  const corners = [
+    { x: rect.left, y: rect.top }, { x: rect.right, y: rect.top },
+    { x: rect.right, y: rect.bottom }, { x: rect.left, y: rect.bottom },
+  ];
+  if (corners.some((c) => pointInPoly2D(c, points))) return true;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i], b = points[(i + 1) % points.length];
+    for (let j = 0; j < 4; j++) {
+      if (segmentsCross(a, b, corners[j], corners[(j + 1) % 4])) return true;
+    }
+  }
+  return false;
 }
 
