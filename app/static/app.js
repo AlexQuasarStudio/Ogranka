@@ -2560,7 +2560,11 @@ function init() {
         || !$("aboutModal").classList.contains("hidden");
       $("helpModal").classList.add("hidden");
       $("aboutModal").classList.add("hidden");
-      if (App.boxSelect) { setBoxSelect(false); return; }
+      if (App.boxSelect) {
+        setBoxSelect(false);
+        if (!hadModal && selectionTotal() > 0) clearSelection();
+        return;
+      }
       if (!hadModal && selectionTotal() > 0) clearSelection();
       return;
     }
