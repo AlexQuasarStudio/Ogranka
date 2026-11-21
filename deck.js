@@ -51,6 +51,17 @@ function cell(text, extra) {
   return { text: String(text), options: Object.assign({ color: P.ink, fill: { color: CARD } }, extra || {}) };
 }
 
+function rich(parts, extra) {
+  return {
+    text: parts.map(([text, opts]) => ({ text, options: opts || {} })),
+    options: Object.assign({ color: P.ink, fill: { color: CARD } }, extra || {}),
+  };
+}
+
+function s(base, sub, tail, extra) {
+  return rich([[base, {}], [sub, { subscript: true, fontSize: 8 }], [tail || "", {}]], extra);
+}
+
 function head(text) {
   return { text, options: { bold: true, color: P.bg, fill: { color: P.accent } } };
 }
@@ -118,22 +129,23 @@ async function main() {
   K.card(s3, 0.6, 1.5, 5.9, 4.75, CARD);
   s3.addText("Дано", { x: 0.95, y: 1.8, w: 5.2, h: 0.5, fontFace: FONT, fontSize: 19, bold: true, color: P.accent, valign: "top" });
   bullets(s3, [
-    "Вершины выпуклого многоугольника на фиксированной высоте z",
-    "Дискретная опорная функция r(α): набор пар (α_i, r_i)",
+    "Вершины выпуклого многоугольника на фиксированной высоте",
+    "Дискретная опорная функция: направления и расстояния до опорных прямых",
     "Значения искажены шумом измерений",
     "В 3D — набор таких сечений на разных высотах",
   ], { x: 0.95, y: 2.45, w: 5.2, h: 3.6, marginLeft: 0.3, fontSize: 14 });
   K.card(s3, 6.75, 1.5, 5.95, 4.75, CARD);
   s3.addText("Опорная функция", { x: 7.1, y: 1.8, w: 5.3, h: 0.5, fontFace: FONT, fontSize: 19, bold: true, color: P.accent, valign: "top" });
-  s3.addText("Расстояние до опорной прямой с нормалью α; для многоугольника — максимум проекций вершин:", {
+  s3.addText("Расстояние до опорной прямой с заданной нормалью; для многоугольника — максимум проекций вершин:", {
     x: 7.1, y: 2.35, w: 5.3, h: 0.75, fontFace: FONT, fontSize: 13, color: P.ink, valign: "top",
   });
   await tex(s3, "r(\\alpha)=\\max_j\\left(x_j\\cos\\alpha+y_j\\sin\\alpha\\right)", 7.1, 3.15, 19);
-  s3.addText("В активной вершине r(α)=x cos α+y sin α; дифференцируя, получаем x=r cos α−r′ sin α, y=r sin α+r′ cos α.", {
-    x: 7.1, y: 3.95, w: 5.3, h: 0.9, fontFace: FONT, fontSize: 12.5, color: P.ink, valign: "top",
+  s3.addText("При правильном центрировании производная равна нулю:", {
+    x: 7.1, y: 3.95, w: 5.3, h: 0.55, fontFace: FONT, fontSize: 12.5, color: P.ink, valign: "top",
   });
-  s3.addText("Для правильного центрированного сечения r′=0, поэтому x_i=r_i cos α_i, y_i=r_i sin α_i и r_i=x_i/cos α_i=y_i/sin α_i. В 3D — для каждого слоя z_k.", {
-    x: 7.1, y: 4.85, w: 5.3, h: 1.15, fontFace: FONT, fontSize: 11.5, color: P.ink, valign: "top",
+  await tex(s3, "x_i=r_i\\cos\\alpha_i,\\qquad y_i=r_i\\sin\\alpha_i", 7.1, 4.55, 16);
+  s3.addText("В 3D это выполняется для каждого слоя по высоте.", {
+    x: 7.1, y: 5.15, w: 5.3, h: 0.55, fontFace: FONT, fontSize: 12, color: P.ink, valign: "top",
   });
   K.addFooter(s3, 3);
   finish(s3);
@@ -144,27 +156,27 @@ async function main() {
   K.addHeader(s4, "Обозначения", "Что означает каждый символ");
   const left = [
     [head("Символ"), head("Смысл")],
-    [cell("α_i"), cell("направление наблюдения (угол)")],
-    [cell("h = 2π/n"), cell("шаг сетки по углу")],
+    [s("α", "i"), cell("направление наблюдения (угол)")],
+    [cell("h"), cell("шаг сетки по углу")],
     [cell("n"), cell("число направлений (720)")],
     [cell("r(α)"), cell("опорная функция тела")],
-    [cell("R(α_i)"), cell("опорная функция слоя")],
-    [cell("p_i"), cell("проекция вершины на α_i")],
-    [cell("z_k"), cell("высота слоя")],
+    [s("R(α", "i", ")"), cell("опорная функция слоя")],
+    [s("p", "i"), cell("проекция вершины на направление α")],
+    [s("z", "k"), cell("высота слоя")],
   ];
   const right = [
     [head("Символ"), head("Смысл")],
-    [cell("r_v"), cell("амплитуда шума: 0.008 / 0.08")],
+    [s("r", "v"), cell("амплитуда шума: 0.008 / 0.08")],
     [cell("ξ"), cell("случайная величина на [−1, 1]")],
     [cell("M"), cell("число гармоник ряда (8 / 12)")],
     [cell("k"), cell("число итераций усреднения")],
-    [cell("k_i"), cell("своё k для зоны i")],
-    [cell("E_i(k)"), cell("ошибка максимумов в зоне")],
-    [cell("e_min"), cell("согласованная ошибка зон")],
+    [s("k", "i"), cell("своё k для зоны i")],
+    [s("E", "i", "(k)"), cell("ошибка максимумов в зоне")],
+    [s("e", "min"), cell("согласованная ошибка зон")],
   ];
   table(s4, left, { x: 0.6, y: 1.5, w: 5.9, colW: [1.4, 4.4], fontSize: 12, fontFace: FONT, color: P.ink, border: { pt: 0.5, color: P.line }, valign: "middle" });
   table(s4, right, { x: 6.8, y: 1.5, w: 5.9, colW: [1.4, 4.4], fontSize: 12, fontFace: FONT, color: P.ink, border: { pt: 0.5, color: P.line }, valign: "middle" });
-  s4.addText("Метрики ошибки — MSE, RMSE, d_max — определены на слайде «Как измеряется ошибка».", {
+  s4.addText("Метрики ошибки — MSE, RMSE и максимальное отклонение — определены на слайде «Как измеряется ошибка».", {
     x: 0.6, y: 6.25, w: 12.1, h: 0.45, fontFace: FONT, fontSize: 13, color: P.accent, align: "center", valign: "top",
   });
   K.addFooter(s4, 4);
@@ -174,19 +186,44 @@ async function main() {
   const s5 = pptx.addSlide();
   s5.background = { color: P.bg };
   K.addHeader(s5, "Карта формул", "Какая формула к чему относится");
-  const map = [
-    [head("Формула"), head("Где работает"), head("Что даёт")],
-    [cell("r(α) = max ⱼ(xⱼ·cos α + yⱼ·sin α)"), cell("постановка"), cell("опорная функция тела")],
-    [cell("α_i = i·h,  h = 2π/n"), cell("генерация"), cell("сетка направлений")],
-    [cell("R(α_i) = max проекций вершин"), cell("генерация"), cell("опорная функция слоя")],
-    [cell("R̃ = R + r_v·ξ"), cell("шум"), cell("зашумлённые данные")],
-    [cell("d1 ≥ 0,  d2 < 0"), cell("восстановление"), cell("вершина = локальный максимум")],
-    [cell("ряд Фурье + МНК"), cell("сглаживание 1"), cell("коэффициенты c = (AᵀA)⁻¹Aᵀr")],
-    [cell("r̃ = (2r_i + r_i−1 + r_i+1)/4"), cell("сглаживание 2"), cell("скользящее среднее")],
-    [cell("k_i = argmin E_i,  K*"), cell("зональный метод"), cell("своё число итераций")],
-    [cell("MSE, RMSE, d_max"), cell("оценка"), cell("качество восстановления")],
+  const rows5 = [
+    ["r(\\alpha)=\\max_j\\left(x_j\\cos\\alpha+y_j\\sin\\alpha\\right)", "постановка", "опорная функция тела"],
+    ["\\alpha_i=i h,\\quad h=2\\pi/n", "генерация", "сетка направлений"],
+    ["R(\\alpha_i)=\\max_j\\left(x_j\\cos\\alpha_i+y_j\\sin\\alpha_i\\right)", "генерация", "опорная функция слоя"],
+    ["\\widetilde R=R+r_v\\xi", "шум", "зашумлённые данные"],
+    ["d_1\\ge 0,\\quad d_2<0", "восстановление", "вершина = локальный максимум"],
+    [null, "сглаживание 1", "коэффициенты МНК", "ряд Фурье + МНК"],
+    ["\\widetilde r_i=\\frac{2r_i+r_{i-1}+r_{i+1}}{4}", "сглаживание 2", "скользящее среднее"],
+    ["k_i=\\arg\\min_k E_i(k),\\quad K^*", "зональный метод", "своё число итераций"],
+    ["\\mathrm{MSE},\\ \\mathrm{RMSE},\\ d_{\\max}", "оценка", "качество восстановления"],
   ];
-  table(s5, map, { x: 0.6, y: 1.45, w: 12.1, colW: [4.3, 2.6, 5.2], fontSize: 11, fontFace: FONT, color: P.ink, border: { pt: 0.5, color: P.line }, valign: "middle" });
+  const x5 = 0.6, y5 = 1.45, hHead5 = 0.38, rowH5 = 0.5;
+  const cols5 = [4.3, 2.6, 5.2];
+  const xs5 = [x5, x5 + cols5[0], x5 + cols5[0] + cols5[1]];
+  const heads5 = ["Формула", "Где работает", "Что даёт"];
+  for (let c = 0; c < 3; c++) {
+    s5.addShape(pptx.ShapeType.rect, { x: xs5[c], y: y5, w: cols5[c], h: hHead5, fill: { color: P.accent }, line: { color: P.line, width: 0.5 } });
+    s5.addText(heads5[c], { x: xs5[c] + 0.1, y: y5, w: cols5[c] - 0.2, h: hHead5, fontFace: FONT, fontSize: 11, bold: true, color: P.bg, valign: "middle" });
+  }
+  for (const [i, [src, where, what, fallback]] of rows5.entries()) {
+    const yy = y5 + hHead5 + i * rowH5;
+    for (let c = 0; c < 3; c++) {
+      s5.addShape(pptx.ShapeType.rect, { x: xs5[c], y: yy, w: cols5[c], h: rowH5, fill: { color: CARD }, line: { color: P.line, width: 0.5 } });
+    }
+    if (src) {
+      let pt = 10.5;
+      let dim = H.latexSize(src, { fontSizePt: pt });
+      if (dim.w > 4.0 || dim.h > 0.42) {
+        pt = Math.max(7.5, pt * Math.min(4.0 / dim.w, 0.42 / dim.h));
+        dim = H.latexSize(src, { fontSizePt: pt });
+      }
+      await tex(s5, src, xs5[0] + 0.12, yy + (rowH5 - dim.h) / 2, pt);
+    } else {
+      s5.addText(fallback || "", { x: xs5[0] + 0.12, y: yy, w: cols5[0] - 0.24, h: rowH5, fontFace: FONT, fontSize: 11, color: P.ink, valign: "middle" });
+    }
+    s5.addText(where, { x: xs5[1] + 0.12, y: yy, w: cols5[1] - 0.24, h: rowH5, fontFace: FONT, fontSize: 11, color: P.ink, valign: "middle" });
+    s5.addText(what, { x: xs5[2] + 0.12, y: yy, w: cols5[2] - 0.24, h: rowH5, fontFace: FONT, fontSize: 11, color: P.ink, valign: "middle" });
+  }
   K.addFooter(s5, 5);
   finish(s5);
 
@@ -195,9 +232,9 @@ async function main() {
   s6.background = { color: P.bg };
   K.addHeader(s6, "Схема обработки", "Путь от сечения до 3D-модели");
   const steps = [
-    ["1", "Сечения", "Горизонтальные слои z_k, контур тела"],
-    ["2", "Опорная функция", "R(α_i) по вершинам слоя"],
-    ["3", "Шум", "R̃ = R + r_v·ξ, уровни r8 / r80"],
+    ["1", "Сечения", "Горизонтальные слои по высоте, контур тела"],
+    ["2", "Опорная функция", "Опорная функция по вершинам слоя"],
+    ["3", "Шум", "Зашумлённая опорная функция, уровни r8 / r80"],
     ["4", "Сглаживание", "Фурье + МНК или соседи"],
     ["5", "Вершины", "Локальные максимумы по слою"],
     ["6", "Оболочка", "Выпуклая оболочка облака точек"],
@@ -223,22 +260,22 @@ async function main() {
   K.addHeader(s7, "Генерация данных", "Сечения, опорная функция и шум");
   K.card(s7, 0.6, 1.5, 6.0, 4.7, CARD);
   s7.addText("Данные слоя", { x: 0.95, y: 1.8, w: 5.3, h: 0.45, fontFace: FONT, fontSize: 17, bold: true, color: P.accent, valign: "top" });
-  s7.addText("Для каждого направления α_i берётся максимум проекций вершин слоя:", {
+  s7.addText("Для каждого направления берётся максимум проекций вершин слоя:", {
     x: 0.95, y: 2.3, w: 5.3, h: 0.6, fontFace: FONT, fontSize: 12.5, color: P.ink, valign: "top",
   });
   await tex(s7, "R(\\alpha_i)=\\max_j\\left(x_j\\cos\\alpha_i+y_j\\sin\\alpha_i\\right)", 0.95, 2.95, 17);
   bullets(s7, [
-    "Сетка: α_i = i·h,  h = 2π/n,  n = 720 (шаг 0.5°)",
-    "3D: 60 слоёв, Δz = 0.05, высота H = 3",
-    "Файл: 43 200 строк (α_i, R, z_k) на тело",
+    "Сетка: 720 направлений с шагом 0.5°",
+    "3D: 60 слоёв, шаг по высоте 0.05, высота 3",
+    "Файл: 43 200 строк на тело — угол, опорная функция и высота слоя",
   ], { x: 0.95, y: 3.85, w: 5.3, h: 2.1, marginLeft: 0.3, fontSize: 12 });
   K.card(s7, 6.9, 1.5, 5.8, 4.7, CARD);
   s7.addText("Шум", { x: 7.25, y: 1.8, w: 5.1, h: 0.45, fontFace: FONT, fontSize: 17, bold: true, color: P.accent, valign: "top" });
   await tex(s7, "\\widetilde R=R+r_v\\xi,\\quad \\xi\\in[-1,1]", 7.25, 2.45, 22);
-  s7.addText("r_v = 0.008 → r8     r_v = 0.08 → r80", {
+  s7.addText("Амплитуда 0.008 — уровень r8, 0.08 — r80", {
     x: 7.25, y: 3.15, w: 5.1, h: 0.4, fontFace: FONT, fontSize: 13, bold: true, color: P.ink, valign: "top",
   });
-  s7.addText("Шум независим для каждой пары (α_i, z_k). Он моделирует ошибки измерений, дискретизацию и неточности восстановления контуров.", {
+  s7.addText("Шум независим для каждой пары «направление — высота слоя». Он моделирует ошибки измерений, дискретизацию и неточности восстановления контуров.", {
     x: 7.25, y: 3.7, w: 5.1, h: 1.4, fontFace: FONT, fontSize: 12.5, color: P.ink, valign: "top",
   });
   s7.addText("r8 — умеренный шум, r80 — сильный (в 10 раз больше).", {
@@ -263,7 +300,7 @@ async function main() {
   s8.addText("Координаты вершины", { x: 0.95, y: 4.1, w: 5.2, h: 0.4, fontFace: FONT, fontSize: 15, bold: true, color: P.accent, valign: "top" });
   await tex(s8, "x_i=r_i\\cos\\alpha_i-r_i'\\sin\\alpha_i", 0.95, 4.5, 15);
   await tex(s8, "y_i=r_i\\sin\\alpha_i+r_i'\\cos\\alpha_i", 0.95, 4.9, 15);
-  s8.addText("При r′=0 (правильное центрированное сечение): x_i=r_i cos α_i, y_i=r_i sin α_i, r_i=x_i/cos α_i=y_i/sin α_i. z берётся из слоя z_k.", {
+  s8.addText("При правильном центрировании производная равна нулю; координаты вершины даёт формула выше, а высота берётся из слоя.", {
     x: 0.95, y: 5.35, w: 5.2, h: 0.8, fontFace: FONT, fontSize: 11, color: P.ink, valign: "top",
   });
   K.card(s8, 6.8, 3.85, 5.9, 2.4, CARD);
@@ -281,20 +318,20 @@ async function main() {
   K.card(s9, 0.6, 1.5, 6.1, 4.7, CARD);
   s9.addText("Как работает", { x: 0.95, y: 1.8, w: 5.4, h: 0.45, fontFace: FONT, fontSize: 16, bold: true, color: P.accent, valign: "top" });
   bullets(s9, [
-    "r(α) периодична, поэтому раскладывается в ряд Фурье",
-    "Коэффициенты a_m, b_m находятся из МНК: «подогнать ряд под зашумлённые точки»",
-    "M = 8 в 2D (8 вершин сечения)",
-    "M = 12 в 3D (до 10 вершин в сечении)",
-    "Правило: M не меньше числа вершин",
+    "Опорная функция периодична, поэтому раскладывается в ряд Фурье",
+    "Коэффициенты ряда находятся из МНК: «подогнать ряд под зашумлённые точки»",
+    "8 гармоник в 2D (8 вершин сечения)",
+    "12 гармоник в 3D (до 10 вершин в сечении)",
+    "Правило: число гармоник не меньше числа вершин",
   ], { x: 0.95, y: 2.35, w: 5.4, h: 3.5, marginLeft: 0.3, fontSize: 12.5 });
   K.card(s9, 6.9, 1.5, 5.8, 4.7, CARD);
   s9.addText("Формулы", { x: 7.25, y: 1.8, w: 5.1, h: 0.45, fontFace: FONT, fontSize: 16, bold: true, color: P.accent, valign: "top" });
   await tex(s9, "r(\\alpha)\\approx a_0+\\sum_{m=1}^{M}\\left(a_m\\cos m\\alpha+b_m\\sin m\\alpha\\right)", 7.25, 2.45, 13);
-  s9.addText("Система A·c ≈ r, где A — столбцы 1, cos, sin:", {
-    x: 7.25, y: 3.35, w: 5.1, h: 0.4, fontFace: FONT, fontSize: 12, color: P.ink, valign: "top",
+  s9.addText("Система линейных уравнений; матрица составлена из столбцов 1, cos и sin:", {
+    x: 7.25, y: 3.35, w: 5.1, h: 0.55, fontFace: FONT, fontSize: 12, color: P.ink, valign: "top",
   });
   await tex(s9, "c=(A^TA)^{-1}A^Tr", 7.25, 3.95, 22);
-  s9.addText("c — вектор коэффициентов ряда; именно он даёт сглаженную r̃(α).", {
+  s9.addText("Вектор коэффициентов ряда даёт сглаженную опорную функцию.", {
     x: 7.25, y: 4.75, w: 5.1, h: 0.6, fontFace: FONT, fontSize: 12, color: P.muted, valign: "top",
   });
   K.addFooter(s9, 9);
@@ -315,12 +352,12 @@ async function main() {
   });
   K.card(s10, 6.9, 1.5, 5.8, 4.7, CARD);
   s10.addText("Зональный вариант", { x: 7.25, y: 1.8, w: 5.1, h: 0.45, fontFace: FONT, fontSize: 16, bold: true, color: P.accent, valign: "top" });
-  s10.addText("Область делится на зоны между соседними минимумами; в каждой зоне своё k_i ∈ [5, 30].", {
+  s10.addText("Область делится на зоны между соседними минимумами; в каждой зоне число итераций выбирается отдельно — от 5 до 30.", {
     x: 7.25, y: 2.3, w: 5.1, h: 0.85, fontFace: FONT, fontSize: 12.5, color: P.ink, valign: "top",
   });
   await tex(s10, "k_i=\\arg\\min_k E_i(k),\\qquad e_i=e_{\\min}", 7.25, 3.25, 15);
   await tex(s10, "K^{*}=\\arg\\min_{k_1,\\dots,k_N}\\sum_{i=1}^{N}E_i(k_i)", 7.25, 4.0, 15);
-  s10.addText("E_i(k) — ошибка совпадения максимумов в зоне; e_min — минимальная ошибка, общая для всех зон.", {
+  s10.addText("Ошибка совпадения максимумов в зоне и минимальная ошибка, общая для всех зон.", {
     x: 7.25, y: 4.85, w: 5.1, h: 1.0, fontFace: FONT, fontSize: 12, color: P.muted, valign: "top",
   });
   K.addFooter(s10, 10);
@@ -334,10 +371,10 @@ async function main() {
   s11.addText("2D: расстояние между точками", { x: 0.95, y: 1.8, w: 5.4, h: 0.45, fontFace: FONT, fontSize: 15, bold: true, color: P.accent, valign: "top" });
   await tex(s11, "d_i=\\sqrt{(x_i-\\hat x_i)^2+(y_i-\\hat y_i)^2}", 0.95, 2.4, 16);
   await tex(s11, "\\mathrm{MSE}=\\frac1N\\sum_{i=1}^{N}d_i^2,\\qquad d_{\\max}=\\max_i d_i", 0.95, 3.15, 14);
-  s11.addText("(x_i, y_i) — точная модель, (x̂_i, ŷ_i) — восстановленная.", {
+  s11.addText("Сравниваются координаты точки эталона и восстановленной точки.", {
     x: 0.95, y: 3.95, w: 5.4, h: 0.5, fontFace: FONT, fontSize: 12, color: P.muted, valign: "top",
   });
-  s11.addText("3D: те же формулы с координатой z и RMSE = √MSE.", {
+  s11.addText("3D: те же формулы с координатой z; RMSE — корень из MSE.", {
     x: 0.95, y: 4.5, w: 5.4, h: 0.6, fontFace: FONT, fontSize: 12, color: P.ink, valign: "top",
   });
   K.card(s11, 6.9, 1.5, 5.8, 4.7, CARD);
@@ -346,8 +383,8 @@ async function main() {
   s11.addText("Сравниваются опорные функции восстановленного и точного сечения на одной сетке углов. Метрика не зависит от числа найденных вершин — это важно, потому что после шума оно меняется в десятки раз.", {
     x: 7.25, y: 3.2, w: 5.1, h: 1.5, fontFace: FONT, fontSize: 12.5, color: P.ink, valign: "top",
   });
-  s11.addText("MSE = среднее ε², RMSE = √MSE, d_max = max|ε|.", {
-    x: 7.25, y: 4.9, w: 5.1, h: 0.5, fontFace: FONT, fontSize: 12, color: P.muted, valign: "top",
+  s11.addText("MSE — среднее квадрата ошибки, RMSE — корень из MSE, максимум — наибольшее отклонение.", {
+    x: 7.25, y: 4.9, w: 5.1, h: 0.8, fontFace: FONT, fontSize: 12, color: P.muted, valign: "top",
   });
   K.addFooter(s11, 11);
   finish(s11);
@@ -357,7 +394,7 @@ async function main() {
   s12.background = { color: P.bg };
   K.addHeader(s12, "Результаты 2D", "Сравнение методов на восьмиугольнике");
   const rows2d = [
-    [head("Метод"), head("MSE r8"), head("d_max r8"), head("MSE r80"), head("d_max r80")],
+    [head("Метод"), head("MSE r8"), head("dmax r8"), head("MSE r80"), head("dmax r80")],
     [cell("Фурье + МНК"), cell("0.00594"), cell("0.0773"), cell("0.00820"), cell("0.1261")],
     [cell("Ближайшие соседи"), cell("0.00222"), cell("0.0737"), cell("9.81"), cell("4.56")],
     [cell("Модифицированные соседи"), cell("0.00222"), cell("0.0737"), cell("—"), cell("—")],
@@ -417,7 +454,7 @@ async function main() {
     s14.addImage(H.imageSizingCrop(path.join(IMG, `deck_${b}_r0.png`), x, 1.5, wI, wI));
     s14.addText(cap, { x, y: 1.5 + wI + 0.12, w: wI, h: 0.4, fontFace: FONT, fontSize: 11, bold: true, color: P.ink, align: "center", valign: "top" });
   }
-  s14.addText("Ошибка относительно аналитических сечений: MSE ≤ 9.4·10⁻⁷ — эталон восстанавливается практически точно.", {
+  s14.addText("Ошибка MSE меньше одной миллионной — эталон восстанавливается практически точно.", {
     x: 1.2, y: 5.5, w: 10.9, h: 0.5, fontFace: FONT, fontSize: 13, bold: true, color: P.accent, align: "center", valign: "top",
   });
   K.addFooter(s14, 14);
@@ -461,7 +498,7 @@ async function main() {
   // 17 — 3D соседи
   const s17 = pptx.addSlide();
   s17.background = { color: P.bg };
-  K.addHeader(s17, "3D: метод соседей", "Сглаживание по слоям с зональным k_i");
+  K.addHeader(s17, "3D: метод соседей", "Сглаживание по слоям, число итераций по зонам");
   for (const [r, v] of ["uni_r8", "uni_r80"].entries()) {
     const y = 1.5 + r * 2.45;
     s17.addText(v === "uni_r8" ? "r8" : "r80", { x: 0.35, y: y + 0.9, w: 1.15, h: 0.4, fontFace: FONT, fontSize: 15, bold: true, color: P.accent, align: "right", valign: "top" });
@@ -478,7 +515,7 @@ async function main() {
   // 18 — 3D метрики
   const s18 = pptx.addSlide();
   s18.background = { color: P.bg };
-  K.addHeader(s18, "3D: метрики", "MSE и d_max относительно аналитического эталона");
+  K.addHeader(s18, "3D: метрики", "MSE и максимальное отклонение от эталона");
   const rows3d = [
     [head("Тело · метрика"), head("r8"), head("r80"), head("Фурье r8"), head("Фурье r80"), head("Соседи r8"), head("Соседи r80")],
     [cell("Октаэдр · MSE"), cell("0.00378"), cell("0.01334"), cell("0.000014"), cell("0.000290"), cell("0.000563"), cell("0.00418")],
@@ -491,7 +528,7 @@ async function main() {
     [cell("Бриллиант · dmax"), cell("0.049"), cell("0.120"), cell("0.011"), cell("0.148"), cell("0.038"), cell("0.074")],
   ];
   table(s18, rows3d, { x: 0.6, y: 1.45, w: 12.1, colW: [2.7, 1.5, 1.5, 1.6, 1.6, 1.6, 1.6], fontSize: 10.5, fontFace: FONT, color: P.ink, border: { pt: 0.5, color: P.line }, valign: "middle" });
-  s18.addText("МНК снижает MSE в 7–266 раз, соседи — в 3–13 раз. По MSE МНК точнее в 1.3–40 раз; на икосаэдре при r8 соседи дают меньший d_max (0.089 против 0.105).", {
+  s18.addText("МНК снижает MSE в 7–266 раз, соседи — в 3–13 раз. По MSE МНК точнее в 1.3–40 раз; на икосаэдре при r8 соседи дают меньшее максимальное отклонение (0.089 против 0.105).", {
     x: 0.8, y: 5.35, w: 11.8, h: 0.9, fontFace: FONT, fontSize: 12, bold: true, color: P.accent, align: "center", valign: "top",
   });
   K.addFooter(s18, 18);
@@ -556,13 +593,13 @@ async function main() {
     const x = xS + i * (wS + gS);
     s20.addImage(H.imageSizingCrop(path.join(IMG, `deck_true_${b}.png`), x, 1.45, wS, wS));
     s20.addText(t, { x, y: 3.9, w: wS, h: 0.3, fontFace: FONT, fontSize: 12, bold: true, color: P.accent, align: "center", valign: "top" });
-    s20.addText(cap, { x, y: 4.18, w: wS, h: 0.3, fontFace: FONT, fontSize: 10, color: P.muted, align: "center", valign: "top" });
+    s20.addText(cap, { x, y: 4.22, w: wS, h: 0.3, fontFace: FONT, fontSize: 10, color: P.muted, align: "center", valign: "top" });
   }
   s20.addText("Корона вверх, высота нормирована к 3; 60 слоёв × 720 направлений (0.5°).", {
     x: 0.9, y: 4.55, w: 11.5, h: 0.35, fontFace: FONT, fontSize: 12, color: P.ink, align: "center", valign: "top",
   });
   K.card(s20, 0.6, 5.0, 12.1, 1.55, CARD);
-  s20.addText("Сечения содержат 8–217 вершин (микро-грани сканера). Поэтому режим максимумов даёт 3–4 точки на слой (MSE 0.12 и 0.077), а восстановление выполняется как пересечение полуплоскостей: MSE 1e-13 на точных данных.\nНа рисунках — минимальные многогранники (auto-режим); все варианты выгружены в OBJ (out3D_real/obj).", {
+  s20.addText("Сечения содержат 8–217 вершин (микро-грани сканера). Поэтому режим максимумов даёт 3–4 точки на слой (MSE 0.12 и 0.077), а восстановление выполняется как пересечение полуплоскостей: MSE 1e-13 на точных данных.\nНа рисунках — минимальные многогранники (auto-режим); все варианты выгружены в OBJ.", {
     x: 1.0, y: 5.15, w: 11.3, h: 1.3, fontFace: FONT, fontSize: 12, color: P.ink, align: "center", valign: "top",
   });
   K.addFooter(s20, 21);
@@ -612,7 +649,7 @@ async function main() {
   bullets(s22, [
     "Оба метода восстанавливают форму на всех четырёх телах",
     "МНК точнее по MSE и возвращает правильное число вершин",
-    "Соседи проще и иногда лучше по d_max, но оставляют ложные вершины",
+    "Соседи проще и иногда лучше по максимальному отклонению, но оставляют ложные вершины",
     "Число гармоник должно быть не меньше числа вершин сечения",
     "Ошибка растёт с шумом, но форма сохраняется",
   ], { x: 0.95, y: 2.25, w: 5.3, h: 3.3, marginLeft: 0.3, fontSize: 12.5 });
