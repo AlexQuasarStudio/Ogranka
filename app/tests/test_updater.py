@@ -91,6 +91,30 @@ class UpdaterTest(unittest.TestCase):
             )
         self.assertEqual(updater.status()["state"], "installing")
 
+    def test_install_falls_back_to_full_after_corrupt_delta(self):
+        info = {
+            "asset_name": "Ogranka-linux-1.0.3.AppImage",
+            "asset_url": "https://example.com/Ogranka-linux-1.0.3.AppImage",
+            "delta_url": "https://example.com/Ogranka-linux-1.0.3.AppImage.delta.json",
+        }
+        with tempfile.TemporaryDirectory() as root:
+            with patch("updater._platform_context", return_value={"kind": "linux"}):
+                with patch("updater._update_temp_dir", return_value=root):
+                    with patch("updater._download_delta", return_value=True):
+                        with patch(
+                            "updater._verify",
+                            side_effect=[updater.CorruptUpdateError("bad"), None],
+                        ) as verify:
+                            with patch("updater._download") as download:
+                                with patch("updater._cache_asset"):
+                                    with patch("updater._install_linux") as install:
+                                        with patch("updater.time.sleep"):
+                                            with patch("updater.os._exit"):
+                                                updater._install(info)
+        download.assert_called_once()
+        self.assertEqual(verify.call_count, 2)
+        install.assert_called_once()
+
     def test_start_install_rejects_source_checkout(self):
         with patch.object(updater.sys, "frozen", False, create=True):
             with self.assertRaisesRegex(RuntimeError, "собранной"):

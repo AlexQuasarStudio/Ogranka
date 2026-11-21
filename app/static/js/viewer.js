@@ -46,6 +46,7 @@ class Viewer {
     this.pointsObj = null;
     this.hlFaces = new Set();
     this.selFaces = new Set();
+    this.selIds = { face: new Set(), vert: new Set(), edge: new Set(), section: new Set() };
     this.hlVerts = new Set();
     this.hlSections = new Set();
     this.hlEdges = new Set();
@@ -522,6 +523,29 @@ class Viewer {
     this.solid.visible = mode !== "edges" && mode !== "points" && mode !== "wire";
     this.group.add(this.solid);
 
+    if ((mode === "wire" || mode === "edges") && this.hlFaces.size) {
+      const selPos = [];
+      tris.forEach((t, ti) => {
+        if (!this.hlFaces.has(triFace[ti])) return;
+        for (let j = 0; j < 3; j++) {
+          const p = v[t[j]];
+          selPos.push(p[0], p[1], p[2]);
+        }
+      });
+      if (selPos.length) {
+        const sg = new THREE.BufferGeometry();
+        sg.setAttribute("position", new THREE.Float32BufferAttribute(selPos, 3));
+        const sm = new THREE.MeshBasicMaterial({
+          color: 0xffb347, transparent: true, opacity: 0.32,
+          side: THREE.DoubleSide, depthWrite: false,
+          polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+        });
+        const selected = new THREE.Mesh(sg, sm);
+        selected.renderOrder = 2;
+        this.group.add(selected);
+      }
+    }
+
     if (mode === "edges" || mode === "solid_edges" || mode === "wire") {
       const segs = [];
       if (mode === "wire") {
@@ -762,7 +786,7 @@ class Viewer {
             }
           }
           let visible = false;
-          for (const sample of samples.slice(0, 8)) {
+          for (const sample of samples) {
             const ndc = new THREE.Vector2(
               ((sample.x - rect.left) / rect.width) * 2 - 1,
               -((sample.y - rect.top) / rect.height) * 2 + 1
@@ -947,7 +971,8 @@ class Viewer {
   }
 
   applyTypeSelection(points, mode, polys = [], ids = []) {
-    if (!points.length || !this.mesh) return;
+    if (!points.length || !this.mesh) return new Set();
+    const out = new Set();
     if (points.length && this.mesh) {
       const mappedPoints = [];
       const mappedPolys = [];
@@ -971,7 +996,7 @@ class Viewer {
         }
       }
       if (mode === "face") {
-        exactFaces.forEach((fi) => this.hlFaces.add(fi));
+        exactFaces.forEach((fi) => { this.hlFaces.add(fi); out.add(fi); });
         if (mappedPoints.length) {
           const regions = mappedPolys.filter(Boolean);
           const infos = regions.map((poly) => {
@@ -1000,18 +1025,18 @@ class Viewer {
             if (!hit && !regions.length) {
               for (const p of mappedPoints) if (near(c, p)) { hit = true; break; }
             }
-            if (hit) this.hlFaces.add(fi);
+            if (hit) { this.hlFaces.add(fi); out.add(fi); }
           }
         }
         this.selFaces = new Set(this.hlFaces);
       } else if (mode === "section") {
         exactSections.forEach((si) => {
-          if (si >= 0 && si < this.sectionZ.length) this.hlSections.add(si);
+          if (si >= 0 && si < this.sectionZ.length) { this.hlSections.add(si); out.add(si); }
         });
         mappedPoints.forEach((p) => {
           let si = -1, best = Infinity;
           this.sectionZ.forEach((z, k) => { const d = Math.abs(z - p[2]); if (d < best) { best = d; si = k; } });
-          if (si >= 0) this.hlSections.add(si);
+          if (si >= 0) { this.hlSections.add(si); out.add(si); }
         });
         this.hlSections.forEach((si) => {
           (this.sectionFaces[si] || []).forEach((fi) => this.hlFaces.add(fi));
@@ -1019,7 +1044,7 @@ class Viewer {
         });
       } else if (mode === "edge") {
         exactEdges.forEach((ei) => {
-          if (ei >= 0 && ei < this.edges.length) this.hlEdges.add(ei);
+          if (ei >= 0 && ei < this.edges.length) { this.hlEdges.add(ei); out.add(ei); }
         });
         mappedPoints.forEach((p) => {
           let best = -1, bd = Infinity;
@@ -1027,7 +1052,7 @@ class Viewer {
             const d = pointSegDist2(p, this.verts[e[0]], this.verts[e[1]]);
             if (d < bd) { bd = d; best = ei; }
           });
-          if (best >= 0) this.hlEdges.add(best);
+          if (best >= 0) { this.hlEdges.add(best); out.add(best); }
         });
         this.hlEdges.forEach((ei) => {
           const e = this.edges[ei];
@@ -1038,6 +1063,7 @@ class Viewer {
       } else {
         exactVerts.forEach((i) => {
           this.hlVerts.add(i);
+          out.add(i);
           (this.vertFaces[i] || []).forEach((fi) => this.hlFaces.add(fi));
         });
         if (mappedPoints.length) {
@@ -1053,27 +1079,29 @@ class Viewer {
           });
           facesHit.forEach((fi) => {
             this.hlFaces.add(fi);
-            (this.faces[fi] || []).forEach((i) => this.hlVerts.add(i));
+            (this.faces[fi] || []).forEach((i) => { this.hlVerts.add(i); out.add(i); });
           });
           loose.forEach((p) => {
             let found = false;
             this.verts.forEach((c, i) => {
-              if (near(c, p)) { this.hlVerts.add(i); found = true; }
+              if (near(c, p)) { this.hlVerts.add(i); out.add(i); found = true; }
             });
             if (!found && this.verts.length) {
               let best = -1, bd = Infinity;
               this.verts.forEach((c, i) => { const d = dist2(c, p); if (d < bd) { bd = d; best = i; } });
-              if (best >= 0) this.hlVerts.add(best);
+              if (best >= 0) { this.hlVerts.add(best); out.add(best); }
             }
           });
         }
       }
     }
+    return out;
   }
 
   applySelection(state) {
     this.hlFaces = new Set();
     this.selFaces = new Set();
+    this.selIds = { face: new Set(), vert: new Set(), edge: new Set(), section: new Set() };
     this.hlVerts = new Set();
     this.hlSections = new Set();
     this.hlEdges = new Set();
@@ -1089,7 +1117,7 @@ class Viewer {
     }
     ["face", "vert", "edge", "section"].forEach((mode) => {
       const b = list[mode];
-      if (b.points.length) this.applyTypeSelection(b.points, mode, b.polys || [], b.ids || []);
+      if (b.points.length) this.selIds[mode] = this.applyTypeSelection(b.points, mode, b.polys || [], b.ids || []);
     });
     this.rebuild(this.mode);
   }
@@ -1504,8 +1532,11 @@ function populateViewer(v, idx) {
 async function loadViewer(v) {
   ensureSelBuckets();
   App.sel.anchor = null;
-  ["face", "vert", "edge", "section"].forEach((mode) => { App.sel.buckets[mode].ids = []; });
-  App.sel.ids = [];
+  ["face", "vert", "edge", "section"].forEach((mode) => {
+    const bucket = App.sel.buckets[mode];
+    bucket.ids = bucket.ids.filter((id) => id.viewer !== v);
+  });
+  App.sel.ids = selBucket(App.sel.mode).ids;
   const id = v.select.value;
   if (!id) return;
   const seq = (v.loadSeq || 0) + 1;
@@ -1514,6 +1545,8 @@ async function loadViewer(v) {
     const r = await meshOf(id);
     if (v.loadSeq !== seq) return;
     v.setMesh(r.mesh, App.mode, !!v.mesh);
+    v.applySelection(App.sel);
+    syncViewerIds(v);
     const m = r.metrics || {};
     v.meta.innerHTML = `${badge(r.quality)} MSE ${fmt(m.mse)} · RMSE ${fmt(m.rmse)} · dmax ${fmt(m.dmax)} · ${r.time != null ? r.time + " с" : "—"}`;
     updateDiff();
@@ -1526,6 +1559,17 @@ async function loadViewer(v) {
     updateDiff();
     selectionText();
   }
+}
+
+function syncViewerIds(v) {
+  ensureSelBuckets();
+  ["face", "vert", "edge", "section"].forEach((mode) => {
+    const bucket = App.sel.buckets[mode];
+    bucket.ids = bucket.ids.filter((id) => id.viewer !== v);
+    const set = v.selIds && v.selIds[mode];
+    if (set) set.forEach((index) => bucket.ids.push({ viewer: v, type: mode, index }));
+  });
+  App.sel.ids = selBucket(App.sel.mode).ids;
 }
 
 async function loadAllViewers() {
@@ -1758,7 +1802,10 @@ function invertSelection() {
     : mode === "section" ? v.sectionZ.length
     : mode === "edge" ? v.edges.length : v.verts.length;
   loadSelBucket(mode);
-  const picked = new Set(App.sel.ids.filter((id) => id.viewer === v && id.type === mode).map((id) => id.index));
+  const selected = mode === "face" ? v.selFaces
+    : mode === "section" ? v.hlSections
+    : mode === "edge" ? v.hlEdges : v.hlVerts;
+  const picked = new Set(selected || []);
   const indexes = [];
   for (let i = 0; i < total; i++) if (!picked.has(i)) indexes.push(i);
   applyElementSelection(v, mode, indexes, "replace");
@@ -1774,7 +1821,7 @@ function growSelection(step) {
     if (status) status.textContent = "Рост и сужение работают для граней";
     return;
   }
-  const current = new Set(selBucket("face").ids.filter((id) => id.viewer === v && id.type === "face").map((id) => id.index));
+  const current = new Set(v.selFaces || []);
   if (!current.size) return;
   let next = current;
   if (step > 0) {
@@ -1846,7 +1893,10 @@ function selectionText() {
   }
   const active = App.sel.mode;
   const per = App.viewers.map((x, i) => {
-    const n = selBucket(active).ids.filter((id) => id.viewer === x).length;
+    const n = active === "face" ? (x.selFaces ? x.selFaces.size : 0)
+      : active === "section" ? (x.hlSections ? x.hlSections.size : 0)
+      : active === "edge" ? (x.hlEdges ? x.hlEdges.size : 0)
+      : (x.hlVerts ? x.hlVerts.size : 0);
     return n ? `окно ${i + 1}: ${n}` : null;
   }).filter(Boolean);
   if (per.length) text += " · " + per.join(" · ");
@@ -1858,7 +1908,8 @@ function selectionText() {
 function updateSelectionActions() {
   ensureSelBuckets();
   const total = selectionTotal();
-  const faceSel = selectionCount("face") > 0;
+  const active = activeViewer();
+  const faceSel = !!(active && active.selFaces && active.selFaces.size);
   const copy = $("selCopy");
   if (copy) copy.disabled = total === 0;
   const grow = $("selGrow");

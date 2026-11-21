@@ -40,6 +40,10 @@ _STATE = {
 _ACTIVE = False
 
 
+class CorruptUpdateError(RuntimeError):
+    """Downloaded asset failed the integrity check."""
+
+
 def _set_state(state=None, progress=None, detail=None, error=None):
     with _LOCK:
         if state is not None:
@@ -252,6 +256,8 @@ def start_install(info):
     )
     if not ok:
         raise RuntimeError(reason_text(reason))
+    if not _is_newer_release_info(info):
+        raise RuntimeError("В релизе нет более новой сборки.")
     with _LOCK:
         if _ACTIVE:
             raise RuntimeError("Установка уже идёт.")
@@ -333,10 +339,10 @@ def _verify(path, info):
         raise RuntimeError("Не удалось проверить обновление.")
     actual = _sha256(path)
     if not hmac.compare_digest(actual, expected):
-        raise RuntimeError("Обновление повреждено.")
+        raise CorruptUpdateError("Обновление повреждено.")
     size = info.get("asset_size")
     if size and os.path.getsize(path) != int(size):
-        raise RuntimeError("Обновление повреждено.")
+        raise CorruptUpdateError("Обновление повреждено.")
     _set_state("installing", 0.96, "Устанавливаю обновление…")
 
 
@@ -366,6 +372,22 @@ def _ps_quote(value):
 def _build_number(value):
     match = re.search(r"\d+", str(value or ""))
     return int(match.group(0)) if match else 0
+
+
+def _version_key(value):
+    parts = [int(x) for x in re.findall(r"\d+", str(value or ""))][:3]
+    return tuple(parts + [0] * (3 - len(parts)))
+
+
+def _is_newer_release_info(info):
+    version = str((info or {}).get("version") or "")
+    if not version:
+        return True
+    latest = _version_key(version)
+    current = _version_key(APP_VERSION)
+    if latest != current:
+        return latest > current
+    return _build_number((info or {}).get("build")) > _build_number(APP_BUILD)
 
 
 def _install_mac(archive, info):
@@ -400,17 +422,33 @@ set -u
 old={shlex.quote(target)}
 new={shlex.quote(new_app)}
 backup="$old.old.$$"
-while kill -0 {os.getpid()} 2>/dev/null; do sleep 1; done
-if mv "$old" "$backup" 2>/dev/null; then
-  if ! mv "$new" "$old" 2>/dev/null; then
-    rm -rf "$old"
-    mv "$backup" "$old"
+launch() {{
+  app="$1"
+  shift
+  if [ -d "$app" ] && [ -x /usr/bin/open ]; then
+    if /usr/bin/open -n "$app" --args "$@" >/dev/null 2>&1; then
+      return
+    fi
   fi
+  if [ -x "$app/Contents/MacOS/Ogranka" ]; then
+    ( cd "$app/Contents/MacOS" && nohup ./Ogranka "$@" >/dev/null 2>&1 & )
+  fi
+}}
+while kill -0 {os.getpid()} 2>/dev/null; do sleep 1; done
+if ! mv "$old" "$backup" 2>/dev/null; then
+  launch "$old" "$@"
+  exit 1
 fi
-if [ -x "$old/Contents/MacOS/Ogranka" ]; then
-  cd "$old/Contents/MacOS" || true
-  nohup "$old/Contents/MacOS/Ogranka" "$@" >/dev/null 2>&1 &
+if ! mv "$new" "$old" 2>/dev/null; then
+  rm -rf "$old"
+  if mv "$backup" "$old" 2>/dev/null; then
+    launch "$old" "$@"
+  else
+    launch "$backup" "$@"
+  fi
+  exit 1
 fi
+launch "$old" "$@"
 sleep 2
 rm -rf "$backup" {shlex.quote(temp)}
 """
@@ -581,6 +619,7 @@ def _install(info):
         name = str(info.get("asset_name") or "update.bin")
         archive = os.path.join(temp, os.path.basename(name))
         used_delta = False
+        verified = False
         if info.get("delta_url"):
             try:
                 used_delta = _download_delta(info, archive, context)
@@ -591,9 +630,25 @@ def _install(info):
                     0.02,
                     "Продолжаю загрузку обновления.",
                 )
+            if used_delta:
+                try:
+                    _verify(archive, info)
+                    verified = True
+                except CorruptUpdateError:
+                    used_delta = False
+                    try:
+                        os.remove(archive)
+                    except OSError:
+                        pass
+                    _set_state(
+                        "downloading",
+                        0.02,
+                        "Дельта не совпала, скачиваю полный архив.",
+                    )
         if not used_delta:
             _download(info["asset_url"], archive, 0.02, 0.88)
-        _verify(archive, info)
+        if not verified:
+            _verify(archive, info)
         _cache_asset(archive, context)
         if context["kind"] == "mac":
             _install_mac(archive, info)

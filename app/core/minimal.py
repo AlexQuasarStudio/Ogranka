@@ -1,5 +1,6 @@
 """Минимальный многогранник и кэш упрощения."""
 import hashlib
+import threading
 
 import numpy as np
 
@@ -10,6 +11,7 @@ __all__ = ["minimal_polyhedron", "SIMPLIFY_LEVELS"]
 
 _MIN_CACHE = {}
 _MIN_ORDER = []
+_MIN_LOCK = threading.Lock()
 SIMPLIFY_LEVELS = [100, 70, 50, 35, 25, 15]
 
 
@@ -26,8 +28,9 @@ def minimal_polyhedron(points, angle_tol_deg=1.0, loss_target=0.001, hull=None, 
             pct,
             bool(snap),
         )
-        if key in _MIN_CACHE:
-            return dict(_MIN_CACHE[key])
+        with _MIN_LOCK:
+            if key in _MIN_CACHE:
+                return dict(_MIN_CACHE[key])
     except Exception:
         key = None
     if not HAS_FAST:
@@ -59,8 +62,10 @@ def minimal_polyhedron(points, angle_tol_deg=1.0, loss_target=0.001, hull=None, 
         "hull_faces": int(len(hf)),
     }
     if key is not None:
-        _MIN_CACHE[key] = res
-        _MIN_ORDER.append(key)
-        while len(_MIN_ORDER) > 12:
-            _MIN_CACHE.pop(_MIN_ORDER.pop(0), None)
+        with _MIN_LOCK:
+            if key not in _MIN_CACHE:
+                _MIN_CACHE[key] = res
+                _MIN_ORDER.append(key)
+            while len(_MIN_ORDER) > 12:
+                _MIN_CACHE.pop(_MIN_ORDER.pop(0), None)
     return res

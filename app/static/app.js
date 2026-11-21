@@ -2380,10 +2380,8 @@ function init() {
   };
   $("objSelBtn").onclick = async () => {
     const v = activeViewer();
-    if (!v || !v.mesh || !App.sel.buckets) return;
-    const faces = App.sel.buckets.face.ids
-      .filter((id) => id.viewer === v && id.type === "face")
-      .map((id) => id.index);
+    if (!v || !v.mesh) return;
+    const faces = [...(v.selFaces || [])];
     if (!faces.length) {
       $("statusText").textContent = "В активном окне нет выделенных граней";
       return;
@@ -2556,7 +2554,7 @@ function init() {
     }
     if (e.key === "Escape") {
       e.preventDefault();
-      const modals = ["helpModal", "aboutModal", "changelogModal"];
+      const modals = ["helpModal", "aboutModal", "changelogModal", "feedbackModal", "updateModal"];
       const hadModal = modals.some((id) => !$(id).classList.contains("hidden"));
       modals.forEach((id) => $(id).classList.add("hidden"));
       if (hadModal) return;

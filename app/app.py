@@ -338,6 +338,7 @@ def _remember_build():
     STATE["previous_build"] = previous
     STATE["just_updated"] = updated
 UPDATE_LOCK = threading.Lock()
+UPDATE_FETCH_LOCK = threading.Lock()
 UPDATE_CACHE = {"at": 0.0, "data": None}
 UPDATE_TTL = 900
 UPDATE_NOTES_LIMIT = 12000
@@ -688,6 +689,8 @@ def _run(sources, params, run_token, run_label):
                 "run_label": run_label,
                 "results": _prefix_result_ids(results, run_token),
             })
+            # Пишем после каждой модели: закрытие окна не должно терять готовое.
+            _save(models, run_token)
 
         _stage("Сохранение результатов", 0.985, detail=f"моделей: {len(models)}")
         _save(models, run_token)
@@ -706,6 +709,11 @@ def _run(sources, params, run_token, run_label):
         _console_print(f"Готово: {len(models)} модел(ей) за {elapsed:.1f} с")
     except Exception as exc:
         elapsed = round(time.time() - t0, 1)
+        if models:
+            try:
+                _save(models, run_token)
+            except Exception:
+                pass
         with LOCK:
             if STATE["job"]:
                 STATE["job"].update(
@@ -843,92 +851,99 @@ def _update_info(force=False):
             if cached is not None and now - UPDATE_CACHE["at"] < UPDATE_TTL:
                 return cached
 
-    url = f"https://api.github.com/repos/{APP_REPO}/releases/latest"
-    request = Request(
-        url,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "User-Agent": f"Ogranka/{APP_VERSION}",
-        },
-    )
-    try:
-        with urlopen(request, timeout=6, context=SSL_CONTEXT) as response:
-            release = json.load(response)
-    except HTTPError as exc:
-        if exc.code == 404:
-            result = {"available": False, "current": APP_VERSION, "checked": True}
-        else:
+    with UPDATE_FETCH_LOCK:
+        if not force:
+            now = time.time()
+            with UPDATE_LOCK:
+                cached = UPDATE_CACHE["data"]
+                if cached is not None and now - UPDATE_CACHE["at"] < UPDATE_TTL:
+                    return cached
+        now = time.time()
+        url = f"https://api.github.com/repos/{APP_REPO}/releases/latest"
+        request = Request(
+            url,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": f"Ogranka/{APP_VERSION}",
+            },
+        )
+        try:
+            with urlopen(request, timeout=6, context=SSL_CONTEXT) as response:
+                release = json.load(response)
+        except HTTPError as exc:
+            if exc.code == 404:
+                result = {"available": False, "current": APP_VERSION, "checked": True}
+            else:
+                result = {
+                    "available": False,
+                    "current": APP_VERSION,
+                    "checked": False,
+                    "error": f"github_http_{exc.code}",
+                }
+        except Exception:
             result = {
                 "available": False,
                 "current": APP_VERSION,
                 "checked": False,
-                "error": f"github_http_{exc.code}",
+                "error": "network",
             }
-    except Exception:
-        result = {
-            "available": False,
-            "current": APP_VERSION,
-            "checked": False,
-            "error": "network",
-        }
-    else:
-        tag = str(release.get("tag_name") or release.get("name") or "").strip()
-        version = tag.lstrip("vV")
-        build = _release_build(release)
-        asset_info = _release_asset(release)
-        asset_url = str((asset_info or {}).get("browser_download_url") or "")
-        asset_name = str((asset_info or {}).get("name") or "")
-        asset_sha256 = _asset_sha256(asset_info)
-        checksums_url = _checksums_url(release)
-        delta_info = _delta_asset(release, asset_name)
-        delta_url = str((delta_info or {}).get("browser_download_url") or "")
-        delta_name = str((delta_info or {}).get("name") or "")
-        installable, install_reason = updater.can_install(
-            asset_name, bool(asset_sha256 or checksums_url)
-        )
-        download = asset_url or release.get("html_url")
-        notes = str(release.get("body") or "").strip()
-        notes_truncated = len(notes) > UPDATE_NOTES_LIMIT
-        available = _is_newer_release(version, build, APP_VERSION, APP_BUILD)
-        if available and _is_newer_version(version, APP_VERSION):
-            update_kind = "version"
-        elif available:
-            update_kind = "build"
         else:
-            update_kind = "none"
-        result = {
-            "available": available,
-            "update_kind": update_kind,
-            "current": APP_VERSION,
-            "current_build": APP_BUILD,
-            "version": version,
-            "build": build,
-            "tag": tag,
-            "title": release.get("name") or tag,
-            "url": download,
-            "release_url": release.get("html_url"),
-            "asset": asset_name or None,
-            "asset_url": asset_url,
-            "asset_name": asset_name,
-            "asset_size": int((asset_info or {}).get("size") or 0),
-            "asset_sha256": asset_sha256,
-            "delta_url": delta_url,
-            "delta_name": delta_name,
-            "checksums_url": checksums_url,
-            "installable": installable,
-            "install_reason": install_reason,
-            "install_hint": updater.reason_text(install_reason) if install_reason else "",
-            "published_at": release.get("published_at"),
-            "notes": notes[:UPDATE_NOTES_LIMIT],
-            "notes_truncated": notes_truncated,
-            "checked": True,
-        }
+            tag = str(release.get("tag_name") or release.get("name") or "").strip()
+            version = tag.lstrip("vV")
+            build = _release_build(release)
+            asset_info = _release_asset(release)
+            asset_url = str((asset_info or {}).get("browser_download_url") or "")
+            asset_name = str((asset_info or {}).get("name") or "")
+            asset_sha256 = _asset_sha256(asset_info)
+            checksums_url = _checksums_url(release)
+            delta_info = _delta_asset(release, asset_name)
+            delta_url = str((delta_info or {}).get("browser_download_url") or "")
+            delta_name = str((delta_info or {}).get("name") or "")
+            installable, install_reason = updater.can_install(
+                asset_name, bool(asset_sha256 or checksums_url)
+            )
+            download = asset_url or release.get("html_url")
+            notes = str(release.get("body") or "").strip()
+            notes_truncated = len(notes) > UPDATE_NOTES_LIMIT
+            available = _is_newer_release(version, build, APP_VERSION, APP_BUILD)
+            if available and _is_newer_version(version, APP_VERSION):
+                update_kind = "version"
+            elif available:
+                update_kind = "build"
+            else:
+                update_kind = "none"
+            result = {
+                "available": available,
+                "update_kind": update_kind,
+                "current": APP_VERSION,
+                "current_build": APP_BUILD,
+                "version": version,
+                "build": build,
+                "tag": tag,
+                "title": release.get("name") or tag,
+                "url": download,
+                "release_url": release.get("html_url"),
+                "asset": asset_name or None,
+                "asset_url": asset_url,
+                "asset_name": asset_name,
+                "asset_size": int((asset_info or {}).get("size") or 0),
+                "asset_sha256": asset_sha256,
+                "delta_url": delta_url,
+                "delta_name": delta_name,
+                "checksums_url": checksums_url,
+                "installable": installable,
+                "install_reason": install_reason,
+                "install_hint": updater.reason_text(install_reason) if install_reason else "",
+                "published_at": release.get("published_at"),
+                "notes": notes[:UPDATE_NOTES_LIMIT],
+                "notes_truncated": notes_truncated,
+                "checked": True,
+            }
 
-    with UPDATE_LOCK:
-        UPDATE_CACHE["at"] = now
-        UPDATE_CACHE["data"] = result
-    return result
-
+        with UPDATE_LOCK:
+            UPDATE_CACHE["at"] = now
+            UPDATE_CACHE["data"] = result
+        return result
 
 def _changelog_info(force=False):
     now = time.time()
@@ -1113,9 +1128,10 @@ class Handler(SimpleHTTPRequestHandler):
             return super().do_GET()
         html = html.replace("{{APP_VERSION}}", APP_VERSION)
         html = html.replace("{{APP_BUILD}}", APP_BUILD)
-        updated = "1" if STATE.get("just_updated") else "0"
+        with LOCK:
+            updated = "1" if STATE.get("just_updated") else "0"
+            STATE["just_updated"] = False
         html = html.replace("{{JUST_UPDATED}}", updated)
-        STATE["just_updated"] = False
         data = html.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1187,16 +1203,18 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json({"error": str(exc)}, 500)
         if u.path == "/api/clear-cache":
             with LOCK:
+                if STATE.get("job") and STATE["job"].get("state") == "running":
+                    return self._json({"error": "Идёт расчёт — очистка недоступна."}, 409)
                 STATE["models"] = None
                 STATE["job"] = {"state": "idle"}
-            clear_live()
-            for d in (UPLOADS, RUNS):
-                shutil.rmtree(d, ignore_errors=True)
-                os.makedirs(d, exist_ok=True)
-            try:
-                os.remove(WELCOME_FILE)
-            except FileNotFoundError:
-                pass
+                clear_live()
+                for d in (UPLOADS, RUNS):
+                    shutil.rmtree(d, ignore_errors=True)
+                    os.makedirs(d, exist_ok=True)
+                try:
+                    os.remove(WELCOME_FILE)
+                except FileNotFoundError:
+                    pass
             return self._json({"ok": True})
         if u.path == "/api/folder":
             n = int(self.headers.get("Content-Length", 0))
@@ -1352,7 +1370,7 @@ class Handler(SimpleHTTPRequestHandler):
             threading.Thread(
                 target=_run,
                 args=(sources, body.get("params", {}), run_token, run_label),
-                daemon=True,
+                daemon=False,
             ).start()
             return self._json({"ok": True})
         return self._json({"error": "неизвестный запрос"}, 404)
