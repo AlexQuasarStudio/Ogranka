@@ -290,6 +290,7 @@ function setActiveViewer(v) {
   App.activeViewer = v;
   App.viewers.forEach((x) => x.card.classList.toggle("active-viewer", x === v));
   if (typeof syncPrimaryFromViewer === "function") syncPrimaryFromViewer(v);
+  if (typeof selectionText === "function") selectionText();
 }
 
 async function cycleViewerResult(delta) {

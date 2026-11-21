@@ -849,7 +849,7 @@ class Viewer {
     this._previewCount = hits.length;
     this.updateMarqueeLabel();
     if (!hits.length || !this.previewGroup) return;
-    const color = action === "add" ? 0x55d68b : action === "subtract" ? 0xff6b7a : 0x4f8cff;
+    const color = action === "add" ? 0x55d68b : action === "subtract" ? 0xff6b7a : 0xffb347;
     const add = (obj) => { obj.renderOrder = 40; this.previewGroup.add(obj); };
     if (target === "face") {
       const pos = [];
