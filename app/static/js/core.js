@@ -389,6 +389,17 @@ function segmentsCross(a, b, c, d) {
          ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
 }
 
+function segmentIntersection2D(a, b, c, d) {
+  const d1 = orient2D(a, b, c), d2 = orient2D(a, b, d);
+  const d3 = orient2D(c, d, a), d4 = orient2D(c, d, b);
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+      ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) {
+    const t = d1 / (d1 - d2);
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+  }
+  return null;
+}
+
 function polyRectHit(points, rect) {
   if (!points.length) return false;
   if (points.some((p) => pointInRect2D(p, rect))) return true;

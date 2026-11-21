@@ -745,11 +745,24 @@ class Viewer {
         if (pts.some((p) => p.z > 1)) return;
         if (!polyRectHit(pts, box)) return;
         if (this.boxVisibleOnly && this.solid) {
-          const samples = [project(this.faceCentroids[fi]), ...pts]
-            .filter((p) => pointInRect2D(p, box))
-            .slice(0, 5);
+          const samples = [];
+          const pushSample = (p) => { if (p && pointInRect2D(p, box)) samples.push(p); };
+          pushSample(project(this.faceCentroids[fi]));
+          pts.forEach(pushSample);
+          const corners = [
+            { x: box.left, y: box.top }, { x: box.right, y: box.top },
+            { x: box.right, y: box.bottom }, { x: box.left, y: box.bottom },
+          ];
+          corners.forEach((c) => { if (pointInPoly2D(c, pts)) samples.push(c); });
+          for (let i = 0; i < pts.length; i++) {
+            const a = pts[i], b = pts[(i + 1) % pts.length];
+            for (let j = 0; j < 4; j++) {
+              const p = segmentIntersection2D(a, b, corners[j], corners[(j + 1) % 4]);
+              if (p) samples.push(p);
+            }
+          }
           let visible = false;
-          for (const sample of samples) {
+          for (const sample of samples.slice(0, 8)) {
             const ndc = new THREE.Vector2(
               ((sample.x - rect.left) / rect.width) * 2 - 1,
               -((sample.y - rect.top) / rect.height) * 2 + 1

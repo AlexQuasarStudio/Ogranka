@@ -2556,16 +2556,17 @@ function init() {
     }
     if (e.key === "Escape") {
       e.preventDefault();
-      const hadModal = !$("helpModal").classList.contains("hidden")
-        || !$("aboutModal").classList.contains("hidden");
-      $("helpModal").classList.add("hidden");
-      $("aboutModal").classList.add("hidden");
-      if (App.boxSelect) {
-        setBoxSelect(false);
-        if (!hadModal && selectionTotal() > 0) clearSelection();
+      const modals = ["helpModal", "aboutModal", "changelogModal"];
+      const hadModal = modals.some((id) => !$(id).classList.contains("hidden"));
+      modals.forEach((id) => $(id).classList.add("hidden"));
+      if (hadModal) return;
+      if (App.boxSelect) setBoxSelect(false);
+      if (App.fullscreen) {
+        if (selectionTotal() > 0) clearSelection();
+        toggleSolo(App.solo);
         return;
       }
-      if (!hadModal && selectionTotal() > 0) clearSelection();
+      if (selectionTotal() > 0) clearSelection();
       return;
     }
     if (e.altKey && e.code === "KeyA") { e.preventDefault(); $("selClear").click(); return; }
