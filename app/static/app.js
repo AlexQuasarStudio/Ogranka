@@ -2560,7 +2560,10 @@ function init() {
       if (hadModal) return;
       if (App.boxSelect) setBoxSelect(false);
       if (App.fullscreen) {
-        if (selectionTotal() > 0) clearSelection();
+        if (selectionTotal() > 0) {
+          clearSelection();
+          return;
+        }
         toggleSolo(App.solo);
         return;
       }
