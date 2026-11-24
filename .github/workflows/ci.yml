@@ -5,7 +5,23 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Ruff
+        run: |
+          python -m pip install "ruff>=0.6"
+          ruff check app reconstruct3D/levels_collage.py
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -19,3 +35,5 @@ jobs:
         run: python -m pip install -r app/requirements.txt
       - name: Unit and E2E tests
         run: python -m unittest discover -s app/tests -t app
+      - name: Self-test
+        run: python app/app.py --self-test

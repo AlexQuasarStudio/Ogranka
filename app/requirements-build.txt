@@ -1,0 +1,2 @@
+# Инструменты сборки (поверх requirements.txt).
+pyinstaller>=6.10

@@ -10,18 +10,23 @@
 |---|---:|---|---|
 | Python | 3.11 | PSF-2.0 | Среда выполнения |
 | NumPy | 1.26.4 | BSD-3-Clause | Вычисления, массивы |
-| SciPy / Qhull | 1.15.3 / Qhull | BSD-3-Clause / Qhull License | Выпуклая оболочка, Qhull |
-| OpenBLAS / LAPACK | из колёс SciPy/NumPy | BSD-3-Clause-Attribution | Линейная алгебра в бинарных колёсах |
-| GCC runtime / libquadmath | из колёс NumPy/SciPy | GPL-3.0-with-GCC-exception / LGPL-2.1-or-later | Бинарные зависимости колёс |
+| SciPy / Qhull | ≥ 1.9 / Qhull | BSD-3-Clause / Qhull License | Выпуклая оболочка: в сборку входит только расширение `_qhull` |
+| OpenBLAS / LAPACK | из колёс NumPy | BSD-3-Clause-Attribution | Линейная алгебра NumPy (копия из SciPy в сборку больше не входит) |
+| GCC runtime / libquadmath | из колёс NumPy | GPL-3.0-with-GCC-exception / LGPL-2.1-or-later | Бинарные зависимости колёс |
 | pywebview | 6.2.1 | BSD-3-Clause | Окно приложения на macOS |
 | PyObjC | 13.0 | MIT | Доступ к AppKit/WebKit на macOS |
-| fast-simplification | 0.2.0 | MIT | Упрощение сетки |
+| fast-simplification | ≥ 0.2 | MIT | Упрощение сетки (ядро Fast-Quadric-Mesh-Simplification, MIT) |
 | certifi | 2026.7.22 | MPL-2.0 | Проверка HTTPS-сертификатов |
 | PyInstaller | 6.22.3 | GPL-2.0-or-later with bootloader exception | Сборка исполняемых файлов |
 | three.js / OrbitControls / Lines | vendored | MIT | 3D-просмотр в интерфейсе |
 
 WebKit и системные фреймворки macOS не распространяются вместе с проектом:
 приложение использует системные компоненты операционной системы.
+
+Начиная с версии 1.1.0 модули `scipy.linalg.cython_lapack` и
+`scipy._lib._array_api` в сборке заменены заглушками (`app/qhull_bundle.py`):
+расширению Qhull они нужны только для импорта, а сам Qhull и его исходный
+код не изменялись.
 
 ## Qhull
 

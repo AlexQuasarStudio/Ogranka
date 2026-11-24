@@ -1,0 +1,15 @@
+# Ruff: проверка кода приложения (CI → job «lint»).
+line-length = 110
+target-version = "py39"
+extend-exclude = ["Отчет", "app/static"]
+
+[lint]
+select = ["E9", "F", "B"]
+ignore = [
+  "B008",  # значения по умолчанию в сигнатурах
+  "B904",  # raise ... from внутри except
+  "B905",  # zip() без strict: длины совпадают по построению
+]
+
+[lint.per-file-ignores]
+"app/ogranka.spec" = ["F821"]

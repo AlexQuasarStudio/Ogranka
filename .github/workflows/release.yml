@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -54,13 +58,14 @@ jobs:
           cache: pip
           cache-dependency-path: app/requirements.txt
       - name: Install dependencies
-        run: python -m pip install -r app/requirements.txt pyinstaller
+        run: python -m pip install -r app/requirements.txt -r app/requirements-build.txt
       - name: Bake build metadata
         run: python app/build_version.py
       - name: Build and sign app
         run: |
           cd app
-          python -m PyInstaller --noconfirm --clean --distpath dist_new --workpath build --log-level WARN Ogranka.spec
+          python -m PyInstaller --noconfirm --clean --distpath dist_new --workpath build --log-level WARN ogranka.spec
+          dist_new/Ogranka.app/Contents/MacOS/Ogranka --self-test
           ditto --norsrc --noextattr dist_new/Ogranka.app "Огранка.app"
           xattr -cr "Огранка.app"
           codesign --force --deep --sign - "Огранка.app"
@@ -120,7 +125,7 @@ jobs:
           cache: pip
           cache-dependency-path: app/requirements.txt
       - name: Install dependencies
-        run: python -m pip install -r app/requirements.txt pyinstaller
+        run: python -m pip install -r app/requirements.txt -r app/requirements-build.txt
       - name: Install AppImage tools
         run: sudo apt-get update && sudo apt-get install -y zsync
       - name: Build Linux archive
@@ -148,7 +153,7 @@ jobs:
           cache: pip
           cache-dependency-path: app/requirements.txt
       - name: Install dependencies
-        run: python -m pip install -r app/requirements.txt pyinstaller
+        run: python -m pip install -r app/requirements.txt -r app/requirements-build.txt
       - name: Install AppImage tools
         run: sudo apt-get update && sudo apt-get install -y zsync
       - name: Build Linux ARM64 archive

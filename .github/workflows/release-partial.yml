@@ -77,7 +77,7 @@ jobs:
           cache: pip
           cache-dependency-path: app/requirements.txt
       - name: Install dependencies
-        run: python -m pip install -r app/requirements.txt pyinstaller
+        run: python -m pip install -r app/requirements.txt -r app/requirements-build.txt
       - name: Install AppImage tools
         run: sudo apt-get update && sudo apt-get install -y zsync
       - name: Build Linux archive
@@ -105,7 +105,7 @@ jobs:
           cache: pip
           cache-dependency-path: app/requirements.txt
       - name: Install dependencies
-        run: python -m pip install -r app/requirements.txt pyinstaller
+        run: python -m pip install -r app/requirements.txt -r app/requirements-build.txt
       - name: Install AppImage tools
         run: sudo apt-get update && sudo apt-get install -y zsync
       - name: Build Linux ARM64 archive

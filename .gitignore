@@ -38,3 +38,6 @@ release/
 *.rar
 app/welcome_seen
 app/_last_build
+
+# Генерируются build_version.py перед сборкой
+app/version_info.txt
