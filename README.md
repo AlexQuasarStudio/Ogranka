@@ -11,7 +11,7 @@
 
 ## Что лежит в репозитории
 
-- `Dyachenko_AM.pdf` — собранная курсовая работа (34 страницы).
+- `Dyachenko_AM.pdf` — собранная курсовая работа (35 страниц).
 - `point-cloud-3d-recovery.pptx` — презентация (25 слайдов).
 - `Отчет/` — LaTeX-исходник отчёта, рисунки и скрипт сборки коллажей.
 - `app/` — приложение «Огранка»: полный конвейер в интерактивном окне.
@@ -94,7 +94,7 @@ python3 export3D_obj.py          # выгрузка OBJ
 
 | Путь | Назначение |
 |---|---|
-| `Dyachenko_AM.pdf` | Собранная курсовая работа, 34 страницы |
+| `Dyachenko_AM.pdf` | Собранная курсовая работа, 35 страниц |
 | `point-cloud-3d-recovery.pptx` | Презентация, 25 слайдов |
 | `deck.js` | Исходник презентации (PptxGenJS) |
 | `img/` | Картинки и фоны для презентации |
@@ -103,7 +103,7 @@ python3 export3D_obj.py          # выгрузка OBJ
 | `ACKNOWLEDGMENTS.md` | Благодарности, включая научного руководителя |
 | `THIRD_PARTY_NOTICES.md` | Лицензии сторонних компонентов |
 | `.github/workflows/ci.yml` | CI: тесты при push и pull request |
-| `.github/workflows/release.yml` | Сборка и публикация релиза по тегу `v*` |
+| `.github/workflows/release.yml` | Сборка и публикация релиза при push в `main` и по тегу `v*` |
 | `release-notes/` | Тексты релизов для GitHub Releases |
 | `docs/SIGNING.md` | Подпись и notarization: требования и команды |
 | `docs/benchmark-real.md` | Сводка метрик на реальных моделях |
