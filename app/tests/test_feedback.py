@@ -4,7 +4,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import app
+import jobs
+import releases
 
 
 class FakeResponse:
@@ -41,8 +42,8 @@ class GithubIssuesTest(unittest.TestCase):
                 "pull_request": {"url": "https://example.com"},
             },
         ]
-        with patch("app.urlopen", return_value=FakeResponse(payload)):
-            result = app._github_issues(True)
+        with patch("releases.urlopen", return_value=FakeResponse(payload)):
+            result = releases.github_issues(True)
         self.assertTrue(result["checked"])
         self.assertEqual(len(result["issues"]), 1)
         issue = result["issues"][0]
@@ -61,8 +62,7 @@ class GithubIssuesTest(unittest.TestCase):
                 with open(path, "w", encoding="utf-8") as f:
                     json.dump({"models": [{"name": model_name}]}, f)
                 os.utime(path, (stamp, stamp))
-            with patch.object(app, "RUNS", root):
-                models = app.load_all_models()
+            models = jobs.load_all_models(root)
         self.assertEqual([m["name"] for m in models], ["старая", "новая"])
 
 

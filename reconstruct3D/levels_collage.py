@@ -3,7 +3,6 @@ import os
 import sys
 import csv
 
-import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -12,9 +11,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.abspath(os.path.join(HERE, "..", "app")))
 
-import app as A
 from core import pipeline
-from visualize3D_bodies import STYLES, limits_for
+from sources import demo_body
+from visualize3D_bodies import limits_for
 from visualize_minimal3D import draw_polys
 
 BODIES = ["octa", "icosa", "dodeca", "diamond", "cube", "prism"]
@@ -29,7 +28,7 @@ def build_data():
     data = {}
     rows = []
     for body in BODIES:
-        v = pipeline.normalize_mesh(A.demo_body(body), flip=False)
+        v = pipeline.normalize_mesh(demo_body(body), flip=False)
         hv, hf = pipeline.hull(v)
         lims = limits_for(hv, margin=0.15)
         data[body] = {"hull": (hv, hf), "lims": lims, "levels": []}
@@ -41,7 +40,6 @@ def build_data():
 
 
 def render(data, style, out):
-    st = STYLES[style]
     bg = "white" if style == "report" else "#101820"
     fg = "black" if style == "report" else "#F2F2F2"
     muted = "#555555" if style == "report" else "#9AA5B1"

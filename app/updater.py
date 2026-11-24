@@ -5,7 +5,6 @@ import json
 import os
 import platform
 import plistlib
-import re
 import shlex
 import shutil
 import ssl
@@ -18,7 +17,9 @@ import time
 from urllib.request import Request, urlopen
 
 import delta
+import paths
 from config import APP_BUILD, APP_VERSION
+from versioning import build_number, version_key
 
 try:
     import certifi
@@ -135,18 +136,7 @@ def can_install(asset_name, has_checksum=True):
 
 
 def _cache_dir():
-    override = os.environ.get("OGRANKA_DATA")
-    if override:
-        root = override
-    else:
-        home = os.path.expanduser("~")
-        if platform.system() == "Darwin":
-            root = os.path.join(home, "Library", "Application Support", "ShapePipeline")
-        elif platform.system() == "Windows":
-            root = os.path.join(os.environ.get("APPDATA", home), "ShapePipeline")
-        else:
-            root = os.path.join(home, ".local", "share", "shape-pipeline")
-    path = os.path.join(root, "update-cache")
+    path = os.path.join(paths.user_data_root(), "update-cache")
     os.makedirs(path, exist_ok=True)
     return path
 
@@ -228,7 +218,7 @@ def _download_delta(info, archive, context):
             detail=f"Загружаю обновление… {round(fraction * 100)}%",
         )
 
-    stats = delta.reconstruct(old_path, manifest, fetch, archive, progress=progress)
+    delta.reconstruct(old_path, manifest, fetch, archive, progress=progress)
     _set_state(detail="Обновление загружено.")
     return True
 
@@ -283,6 +273,7 @@ def _download(url, path, start=0.0, end=0.9):
         headers={"User-Agent": f"Ogranka/{APP_VERSION}", "Accept": "application/octet-stream"},
     )
     _set_state("downloading", start, "Скачиваю обновление…")
+    last = -1.0
     with urlopen(request, timeout=60, context=SSL_CONTEXT) as response:
         total = int(response.headers.get("Content-Length") or 0)
         done = 0
@@ -297,8 +288,10 @@ def _download(url, path, start=0.0, end=0.9):
                     progress = start + (end - start) * min(1.0, done / total)
                 else:
                     progress = min(end, start + 0.02)
-                percent = f" {round(progress * 100)}%" if total else ""
-                _set_state(detail=f"Скачиваю обновление…{percent}", progress=progress)
+                if progress - last >= 0.005 or progress >= end:
+                    last = progress
+                    percent = f" {round(progress * 100)}%" if total else ""
+                    _set_state(detail=f"Скачиваю обновление…{percent}", progress=progress)
     if total and done != total:
         raise RuntimeError("Загрузка оборвалась: получено меньше байт, чем ожидалось.")
     _set_state(progress=end, detail="Скачивание завершено.")
@@ -369,25 +362,15 @@ def _ps_quote(value):
     return "'" + str(value).replace("'", "''") + "'"
 
 
-def _build_number(value):
-    match = re.search(r"\d+", str(value or ""))
-    return int(match.group(0)) if match else 0
-
-
-def _version_key(value):
-    parts = [int(x) for x in re.findall(r"\d+", str(value or ""))][:3]
-    return tuple(parts + [0] * (3 - len(parts)))
-
-
 def _is_newer_release_info(info):
     version = str((info or {}).get("version") or "")
     if not version:
         return True
-    latest = _version_key(version)
-    current = _version_key(APP_VERSION)
+    latest = version_key(version)
+    current = version_key(APP_VERSION)
     if latest != current:
         return latest > current
-    return _build_number((info or {}).get("build")) > _build_number(APP_BUILD)
+    return build_number((info or {}).get("build")) > build_number(APP_BUILD)
 
 
 def _install_mac(archive, info):
@@ -412,8 +395,8 @@ def _install_mac(archive, info):
             plist = plistlib.load(fh)
     except Exception as exc:
         raise RuntimeError("Не удалось прочитать версию нового бандла.") from exc
-    new_build = _build_number(plist.get("CFBundleVersion"))
-    if new_build <= _build_number(APP_BUILD):
+    new_build = build_number(plist.get("CFBundleVersion"))
+    if new_build <= build_number(APP_BUILD):
         raise RuntimeError("В релизе нет более новой macOS-сборки.")
     helper = os.path.join(os.path.dirname(archive), "install.sh")
     temp = os.path.dirname(archive)

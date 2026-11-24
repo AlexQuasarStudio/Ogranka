@@ -192,18 +192,43 @@ function polyArea3(v, f) {
   return 0.5 * Math.hypot(nx, ny, nz);
 }
 
-function areaColor(t) {
-  const a = new THREE.Color(0x3f7bff), b = new THREE.Color(0xff9f43);
-  return a.clone().lerp(b, Math.min(1, Math.max(0, t)));
+// ---------------------------------------------------------------- API
+
+/* POST-запросы несут заголовок X-Ogranka: сервер отклоняет запросы без него,
+   поэтому сторонняя страница в браузере не может управлять приложением. */
+const API_HEADERS = { "X-Ogranka": "1" };
+
+async function readJson(response) {
+  try { return await response.json(); } catch (err) { return {}; }
+}
+
+async function apiGet(path, options = {}) {
+  const response = await fetch(path, options);
+  const data = await readJson(response);
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  return data;
+}
+
+async function apiPost(path, body = {}, options = {}) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...API_HEADERS },
+    body: JSON.stringify(body),
+    ...options,
+  });
+  const data = await readJson(response);
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  return data;
 }
 
 // ---------------------------------------------------------------- окна
 
 async function meshOf(id) {
   if (!App.meshes[id]) {
-    const r = await fetch("/api/mesh?id=" + encodeURIComponent(id));
-    if (!r.ok) throw new Error("не удалось загрузить меш");
-    App.meshes[id] = await r.json();
+    App.meshes[id] = apiGet("/api/mesh?id=" + encodeURIComponent(id)).catch((err) => {
+      delete App.meshes[id];
+      throw new Error("не удалось загрузить меш: " + err.message);
+    });
   }
   return App.meshes[id];
 }

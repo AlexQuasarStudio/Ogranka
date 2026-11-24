@@ -2,7 +2,9 @@ import json
 import unittest
 from unittest.mock import patch
 
-import app
+import releases
+import versioning
+from config import APP_BUILD, APP_VERSION
 
 
 class FakeResponse:
@@ -21,12 +23,18 @@ class FakeResponse:
 
 class UpdateTest(unittest.TestCase):
     def test_version_key(self):
-        self.assertEqual(app._version_key("v1.2.10"), (1, 2, 10))
-        self.assertTrue(app._is_newer_version("1.2.10", "1.2.9"))
-        self.assertFalse(app._is_newer_version("1.2.9", "1.2.10"))
-        self.assertTrue(app._is_newer_release("1.0.1", "45", "1.0.1", "44"))
-        self.assertFalse(app._is_newer_release("1.0.1", "44", "1.0.1", "44"))
-        self.assertTrue(app._is_newer_release("1.0.2", "", "1.0.1", "44"))
+        self.assertEqual(versioning.version_key("v1.2.10"), (1, 2, 10))
+        self.assertEqual(versioning.version_key("1.1"), (1, 1, 0))
+        self.assertEqual(versioning.version_key("сборка"), ())
+        self.assertTrue(versioning.is_newer_version("1.2.10", "1.2.9"))
+        self.assertFalse(versioning.is_newer_version("1.2.9", "1.2.10"))
+        self.assertTrue(versioning.is_newer_version("1.1.0", "1.0.4"))
+        self.assertFalse(versioning.is_newer_version("1.1", "1.1.0"))
+        self.assertTrue(versioning.is_newer_release("1.0.1", "45", "1.0.1", "44"))
+        self.assertFalse(versioning.is_newer_release("1.0.1", "44", "1.0.1", "44"))
+        self.assertTrue(versioning.is_newer_release("1.0.2", "", "1.0.1", "44"))
+        self.assertEqual(versioning.release_build({"name": "Огранка 1.1.0 · сборка 81"}), "81")
+        self.assertEqual(versioning.build_number("build 7"), 7)
 
     def test_release_notes_are_returned(self):
         payload = {
@@ -36,27 +44,28 @@ class UpdateTest(unittest.TestCase):
             "body": "## Исправления\n- Патчноуты",
             "assets": [],
         }
-        with patch("app.urlopen", return_value=FakeResponse(payload)):
-            info = app._update_info(True)
+        with patch("releases.urlopen", return_value=FakeResponse(payload)):
+            info = releases.update_info(True)
         self.assertEqual(info["notes"], "## Исправления\n- Патчноуты")
         self.assertFalse(info["notes_truncated"])
 
     def test_release_notes_are_truncated(self):
-        body = "я" * (app.UPDATE_NOTES_LIMIT + 50)
+        body = "я" * (releases.NOTES_LIMIT + 50)
         payload = {
             "tag_name": "v1.0.1",
             "html_url": "https://example.com/release",
             "body": body,
             "assets": [],
         }
-        with patch("app.urlopen", return_value=FakeResponse(payload)):
-            info = app._update_info(True)
-        self.assertEqual(len(info["notes"]), app.UPDATE_NOTES_LIMIT)
+        with patch("releases.urlopen", return_value=FakeResponse(payload)):
+            info = releases.update_info(True)
+        self.assertEqual(len(info["notes"]), releases.NOTES_LIMIT)
         self.assertTrue(info["notes_truncated"])
 
     def test_release_asset_metadata_for_auto_update(self):
         digest = "a" * 64
-        version = "1.0.99"
+        major, minor, micro = versioning.version_key(APP_VERSION)[:3]
+        version = f"{major}.{minor}.{micro + 99}"
         payload = {
             "tag_name": f"v{version}",
             "name": f"Огранка {version} · сборка 49",
@@ -80,9 +89,9 @@ class UpdateTest(unittest.TestCase):
                 },
             ],
         }
-        with patch("app.platform.system", return_value="Darwin"):
-            with patch("app.urlopen", return_value=FakeResponse(payload)):
-                info = app._update_info(True)
+        with patch("releases.platform.system", return_value="Darwin"):
+            with patch("releases.urlopen", return_value=FakeResponse(payload)):
+                info = releases.update_info(True)
         self.assertEqual(info["asset_name"], f"Ogranka-macos-{version}.zip")
         self.assertEqual(info["asset_sha256"], digest)
         self.assertEqual(info["asset_size"], 123)
@@ -109,28 +118,28 @@ class UpdateTest(unittest.TestCase):
                 },
             ]
         }
-        with patch("app.platform.system", return_value="Linux"):
-            with patch("app.platform.machine", return_value="x86_64"):
-                with patch("app.updater.is_appimage", return_value=True):
-                    asset = app._release_asset(release)
+        with patch("releases.platform.system", return_value="Linux"):
+            with patch("releases.platform.machine", return_value="x86_64"):
+                with patch("releases.updater.is_appimage", return_value=True):
+                    asset = releases.release_asset(release)
         self.assertEqual(asset["name"], "Ogranka-linux-1.0.2.AppImage")
-        with patch("app.platform.system", return_value="Linux"):
-            with patch("app.platform.machine", return_value="aarch64"):
-                with patch("app.updater.is_appimage", return_value=True):
-                    asset = app._release_asset(release)
+        with patch("releases.platform.system", return_value="Linux"):
+            with patch("releases.platform.machine", return_value="aarch64"):
+                with patch("releases.updater.is_appimage", return_value=True):
+                    asset = releases.release_asset(release)
         self.assertEqual(asset["name"], "Ogranka-linux-1.0.2-arm64.AppImage")
 
     def test_same_version_newer_build_is_a_build_update(self):
-        next_build = str(int(app.APP_BUILD) + 1)
+        next_build = str(int(APP_BUILD) + 1)
         payload = {
-            "tag_name": f"v{app.APP_VERSION}",
-            "name": f"Огранка {app.APP_VERSION} · сборка {next_build}",
+            "tag_name": f"v{APP_VERSION}",
+            "name": f"Огранка {APP_VERSION} · сборка {next_build}",
             "html_url": "https://example.com/release",
             "body": "## Новая сборка",
             "assets": [],
         }
-        with patch("app.urlopen", return_value=FakeResponse(payload)):
-            info = app._update_info(True)
+        with patch("releases.urlopen", return_value=FakeResponse(payload)):
+            info = releases.update_info(True)
         self.assertTrue(info["available"])
         self.assertEqual(info["update_kind"], "build")
 
@@ -160,8 +169,8 @@ class UpdateTest(unittest.TestCase):
                 "draft": True,
             },
         ]
-        with patch("app.urlopen", return_value=FakeResponse(payload)):
-            info = app._changelog_info(True)
+        with patch("releases.urlopen", return_value=FakeResponse(payload)):
+            info = releases.changelog_info(True)
         self.assertTrue(info["checked"])
         self.assertEqual(len(info["releases"]), 2)
         self.assertEqual(info["releases"][0]["version"], "1.0.2")

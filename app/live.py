@@ -1,37 +1,72 @@
-"""Live preview cache and computation."""
+"""Живой предпросмотр: кэш сечений модели и быстрый пересчёт варианта."""
+from __future__ import annotations
+
 import json
 import threading
 import time
 
-import numpy as np
-
 from core import pipeline
+from core.variants import ModelSections
+from jobs import mesh_payload
 from sources import prepare_source, quality
 
-LIVE = {"key": None, "base": None}
-LIVE_LOCK = threading.Lock()
+_LOCK = threading.Lock()
+_CACHE: dict = {"key": None, "sections": None, "variant": None, "pts": None, "hull": None, "contours": None}
 
 
-def clear_live():
-    with LIVE_LOCK:
-        LIVE["key"] = None
-        LIVE["base"] = None
+def clear_live() -> None:
+    with _LOCK:
+        _CACHE.update(key=None, sections=None, variant=None, pts=None, hull=None, contours=None)
 
 
-def live_variant(source, params):
-    t0 = time.time()
-    n_angles = int(params.get("angles", 720))
-    n_layers = int(params.get("layers", 60))
-    mode = params.get("mode", "envelope")
+def _param(params, key, default, cast, low=None, high=None):
+    try:
+        value = cast(params.get(key, default))
+    except (TypeError, ValueError):
+        value = cast(default)
+    if low is not None:
+        value = max(low, value)
+    if high is not None:
+        value = min(high, value)
+    return value
+
+
+def _result(label, mesh, metrics, vertices, faces, points, started, noise, pct, method) -> dict:
+    return {
+        "id": "live",
+        "label": label,
+        "kind": "live",
+        "mesh": mesh,
+        "metrics": metrics,
+        "quality": quality(metrics),
+        "vertices": int(vertices),
+        "faces": int(faces),
+        "points": int(points),
+        "time": round(time.time() - started, 2),
+        "noise": noise,
+        "pct": pct,
+        "method": method,
+    }
+
+
+def live_variant(source: dict, params: dict) -> dict:
+    """One preview variant for the active viewport.
+
+    Sections of the model are cached between calls; the noisy cloud and its
+    hull are reused while only the share of kept triangles changes.
+    """
+    started = time.time()
+    n_angles = _param(params, "angles", 720, int, 16, 4096)
+    n_layers = _param(params, "layers", 60, int, 2, 400)
+    mode = "maxima" if params.get("mode") == "maxima" else "envelope"
     noise_model = params.get("noise_model", "angles")
     method = params.get("method", "fft")
-    noise = max(0.0, min(0.2, float(params.get("noise", 0.008))))
-    pct = max(5.0, min(100.0, float(params.get("pct", 100))))
-    harmonics = int(params.get("harmonics", 32))
-    window = int(params.get("window", 5))
-    angle = float(params.get("angle", 1.0))
-    loss = float(params.get("loss", 0.001))
-    contour_step = 3.0 / max(1, n_layers)
+    noise = _param(params, "noise", 0.008, float, 0.0, 0.2)
+    pct = _param(params, "pct", 100, float, 5.0, 100.0)
+    harmonics = _param(params, "harmonics", 32, int, 1, 200)
+    window = _param(params, "window", 5, int, 1, 30)
+    angle = _param(params, "angle", 1.0, float, 0.0, 90.0)
+    loss = _param(params, "loss", 0.001, float, 0.0, 1.0)
     key = json.dumps(
         {
             "source": source,
@@ -44,155 +79,52 @@ def live_variant(source, params):
         sort_keys=True,
         ensure_ascii=False,
     )
-    effective_method = "none" if noise <= 0 else method
+    # При нулевом шуме сглаживать нечего: форма должна совпасть с точной.
+    effective = "none" if noise <= 0 else method
 
-    with LIVE_LOCK:
-        base = LIVE.get("base")
-        if LIVE.get("key") != key:
-            v, faces, title = prepare_source(source)
-            section_polys = None
-            edge_units = []
-            normal_units = []
-            unit = None
-            if noise_model in ("edges", "normal"):
-                alphas, layers, section_polys = pipeline.build_sections_ex(
-                    v, pipeline.mesh_edges(faces), n_layers, n_angles
-                )
-                zs = np.array([z for z, _ in layers])
-                r_true = np.vstack([r for _, r in layers])
-                true_by_z = {round(z, 6): r for z, r in layers}
-                if noise_model == "edges":
-                    edge_rng = np.random.default_rng(2000)
-                    edge_units = [
-                        edge_rng.uniform(-1.0, 1.0, size=len(poly)) for _, poly in section_polys
-                    ]
-                else:
-                    normal_rng = np.random.default_rng(2000)
-                    for _, poly in section_polys:
-                        cnt = len(pipeline.resample_contour(poly, contour_step)[0])
-                        normal_units.append(normal_rng.uniform(-1.0, 1.0, size=cnt))
-            else:
-                alphas, layers = pipeline.build_sections(
-                    v, pipeline.mesh_edges(faces), n_layers, n_angles
-                )
-                zs = np.array([z for z, _ in layers])
-                r_true = np.vstack([r for _, r in layers])
-                true_by_z = {round(z, 6): r for z, r in layers}
-                unit = np.random.default_rng(12345).uniform(-1.0, 1.0, size=r_true.shape)
-            base = {
-                "title": title,
-                "alphas": alphas,
-                "zs": zs,
-                "r_true": r_true,
-                "true_by_z": true_by_z,
-                "noise_unit": unit,
-                "section_polys": section_polys,
-                "edge_units": edge_units,
-                "normal_units": normal_units,
-                "contour_step": contour_step,
-                "noise_model": noise_model,
-                "variant": None,
-                "pts": None,
-                "hull": None,
-                "contours": None,
-            }
-            LIVE["key"] = key
-            LIVE["base"] = base
+    with _LOCK:
+        if _CACHE["key"] != key:
+            v, faces, _ = prepare_source(source)
+            sections = ModelSections(
+                v, faces, n_layers, n_angles, noise_model,
+                seeds={"angles": 12345, "edges": 2000, "normal": 2000},
+            )
+            _CACHE.update(key=key, sections=sections, variant=None, pts=None, hull=None, contours=None)
+        sections: ModelSections = _CACHE["sections"]
 
-        variant = (noise, effective_method, harmonics, window)
-        if base.get("variant") != variant:
-            contours = None
-            if noise_model == "normal":
-                contours = pipeline.normal_noise_layers(
-                    base["section_polys"], base["contour_step"], noise, base["normal_units"]
-                )
-                rows = pipeline.contours_support_layers(contours, base["alphas"])
-                r = np.vstack([row for _, row in rows])
-            elif noise_model == "edges":
-                if noise > 0:
-                    noisy_layers = pipeline.edge_noise_layers(
-                        base["section_polys"], base["alphas"], noise, base["edge_units"]
-                    )
-                    r = np.vstack([row for _, row in noisy_layers])
-                else:
-                    r = base["r_true"].copy()
-            else:
-                r = base["r_true"] + noise * base["noise_unit"] if noise > 0 else base["r_true"].copy()
-            if noise <= 0:
-                # сглаживать нечего: при нулевом шуме форма должна совпадать с точной
-                rs = r
-            elif effective_method == "fft":
-                a, pinv = pipeline.fourier_design(base["alphas"], harmonics)
-                rs = pipeline.fourier_denoise_matrix(r, a, pinv)
-            elif effective_method == "uni":
-                rows = []
-                for i in range(len(base["zs"])):
-                    rows.append(pipeline.uniform_denoise_adaptive(r[i], base["r_true"][i], window, 30))
-                rs = np.vstack(rows)
-            else:
-                rs = r
-            pts = []
-            for li, z in enumerate(base["zs"]):
-                if mode == "maxima":
-                    pts += pipeline.maxima_points(base["alphas"], rs[li], float(z))
-                else:
-                    pts += pipeline.envelope_points(base["alphas"], rs[li], float(z))
-            pts = np.asarray(pts)
+        variant = (noise, effective, harmonics, window)
+        if _CACHE["variant"] != variant:
+            rows, contours = sections.noisy(noise)
+            smoothed = rows if noise <= 0 else sections.smooth(rows, effective, harmonics, window)
+            pts = sections.points(smoothed, mode)
             if len(pts) < 4:
                 raise ValueError("слишком мало точек")
-            hv, hf = pipeline.hull_compact(pts)
-            base["pts"] = pts
-            base["hull"] = (hv, hf)
-            base["contours"] = contours
-            base["variant"] = variant
+            _CACHE.update(
+                variant=variant, pts=pts, hull=pipeline.hull_compact(pts), contours=contours,
+            )
 
-        if effective_method == "none" and noise > 0 and base.get("contours") is not None:
-            smoothed = pipeline.fourier_smooth_contours(base["contours"], harmonics)
-            loft = pipeline.loft_contours(smoothed)
+        if effective == "none" and noise > 0 and _CACHE["contours"] is not None:
+            rings = pipeline.fourier_smooth_contours(_CACHE["contours"], harmonics)
+            loft = pipeline.loft_contours(rings)
             if loft is not None:
                 lv, lf = loft
-                metrics = pipeline.contours_metrics(
-                    base["true_by_z"], base["alphas"], smoothed
+                metrics = pipeline.contours_metrics(sections.true_by_z, sections.alphas, rings)
+                return _result(
+                    f"живой · шум {noise:g} · контуры (лофт, Фурье)",
+                    mesh_payload(lv, lf), metrics, len(lv), len(lf),
+                    sum(len(r) for _, r in rings), started, noise, pct, "none",
                 )
-                label = f"живой · шум {noise:g} · контуры (лофт, Фурье)"
-                return {
-                    "id": "live",
-                    "label": label,
-                    "kind": "live",
-                    "mesh": {"v": lv.tolist(), "f": [list(f) for f in lf]},
-                    "metrics": metrics,
-                    "quality": quality(metrics),
-                    "vertices": int(len(lv)),
-                    "faces": int(len(lf)),
-                    "points": int(sum(len(p) for _, p in smoothed)),
-                    "time": round(time.time() - t0, 2),
-                    "noise": noise,
-                    "pct": pct,
-                    "method": "none",
-                }
 
-        pts = base["pts"]
-        hv, hf = base["hull"]
+        pts = _CACHE["pts"]
         mp = pipeline.minimal_polyhedron(
-            pts, angle_tol_deg=angle, loss_target=loss, hull=(hv, hf), pct=pct, snap=False
+            pts, angle_tol_deg=angle, loss_target=loss, hull=_CACHE["hull"], pct=pct, snap=False
         )
         mv, mf = pipeline.polygons_to_mesh(mp["polygons"])
-        metrics = pipeline.mesh_metrics(base["true_by_z"], base["alphas"], mv, mf)
+        metrics = pipeline.mesh_metrics(sections.true_by_z, sections.alphas, mv, mf)
         label = f"живой · шум {noise:g} · оставлено {round(pct):g}%"
-        if noise > 0 and effective_method == "none":
+        if noise > 0 and effective == "none":
             label += " · без сглаживания"
-        return {
-            "id": "live",
-            "label": label,
-            "kind": "live",
-            "mesh": {"v": mv.tolist(), "f": [list(f) for f in mf]},
-            "metrics": metrics,
-            "quality": quality(metrics),
-            "vertices": int(mp["vertices"]),
-            "faces": int(mp["faces"]),
-            "points": int(len(pts)),
-            "time": round(time.time() - t0, 2),
-            "noise": noise,
-            "pct": pct,
-            "method": effective_method,
-        }
+        return _result(
+            label, mesh_payload(mv, mf), metrics, mp["vertices"], mp["faces"],
+            len(pts), started, noise, pct, effective,
+        )

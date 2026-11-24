@@ -62,13 +62,8 @@ async function runLive() {
   const srcKey = JSON.stringify(src);
   setLiveHint("обновляю…");
   try {
-    const r = await fetch("/api/live", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ source: src, params }),
-    });
-    const j = await r.json();
+    const j = await apiPost("/api/live", { source: src, params });
     if (seq !== App.liveSeq) return;
-    if (!r.ok) throw new Error(j.error || "не удалось обновить");
     if (JSON.stringify(currentLiveSource()) !== srcKey) return;
     applyLive(j.result, target);
   } catch (e) {

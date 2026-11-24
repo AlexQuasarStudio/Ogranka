@@ -1,19 +1,52 @@
-/* Three.js viewer, selection and viewport layout. */
+/* Three.js viewer, selection and viewport layout.
+ *
+ * Кадр рисуется только по запросу (requestRender): после изменения сцены,
+ * движения камеры или затухания инерции.  Оси-гизмо рисуются тем же
+ * WebGL-контекстом в углу кадра, поэтому на вьюпорт приходится один
+ * контекст, а топология модели считается один раз при загрузке меша.
+ */
+const VIEW_COLORS = {
+  fill: 0x8fc1ff,
+  highlight: 0xffb347,
+  wire: 0x9fd8ff,
+  areaLow: 0x3f7bff,
+  areaHigh: 0xff9f43,
+};
+
+function cssColor(name, fallback) {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  if (!value) return fallback;
+  try { return new THREE.Color(value).getHex(); } catch (err) { return fallback; }
+}
+
+function edgeKey(a, b, n) {
+  return a < b ? a * n + b : b * n + a;
+}
+
 class Viewer {
   constructor(card, onPick, onCam, onBoxPick) {
     this.card = card;
     this.modelSel = card.querySelector(".vmodel");
     this.select = card.querySelector(".vsel");
     this.meta = card.querySelector(".vmeta");
-    this.canvas = card.querySelector("canvas");
+    this.canvas = card.querySelector("canvas.view");
+    this.gizmoEl = card.querySelector(".gizmo");
     this.onPick = onPick;
     this.onCam = onCam;
     this.onBoxPick = onBoxPick || null;
+    this.disposed = false;
+    this._frame = 0;
+    this._w = 1;
+    this._h = 1;
+    this._gizmoRect = null;
 
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, preserveDrawingBuffer: true });
+    this.renderer = new THREE.WebGLRenderer({
+      canvas: this.canvas, antialias: true, powerPreference: "high-performance",
+    });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.autoClear = false;
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x0f141c);
+    this.scene.background = new THREE.Color(cssColor("--viewport-bg", 0x0f141c));
     this.camera = new THREE.PerspectiveCamera(45, 1, 0.01, 500);
     this.camera.up.set(0, 0, 1);
     this.controls = new THREE.OrbitControls(this.camera, this.canvas);
@@ -34,7 +67,10 @@ class Viewer {
     this._previewCount = null;
     this._marqueeW = null;
     this._marqueeH = null;
-    this.controls.addEventListener("change", () => this.onCam(this));
+    this.controls.addEventListener("change", () => {
+      this.requestRender();
+      this.onCam(this);
+    });
 
     this.mesh = null;
     this.loadSeq = 0;
@@ -42,6 +78,13 @@ class Viewer {
     this.verts = [];
     this.triFace = [];
     this.faceCentroids = [];
+    this.facePolys = [];
+    this.faceRadii = [];
+    this.faceAdj = [];
+    this.sectionZ = [];
+    this.sectionCentroid = [];
+    this.sectionVerts = [];
+    this.sectionFaces = [];
     this.solid = null;
     this.pointsObj = null;
     this.hlFaces = new Set();
@@ -64,9 +107,10 @@ class Viewer {
     this.boxDrag = null;
     this.boxVisibleOnly = true;
     this._orbitButtons = { ...this.controls.mouseButtons };
+    this.lineMats = [];
 
     this.hudCur = card.querySelector(".cur");
-    this.setupGizmo(card);
+    this.setupGizmo();
     this.canvas.addEventListener("pointermove", (e) => this.cursorInfo(e));
 
     this.raycaster = new THREE.Raycaster();
@@ -126,21 +170,54 @@ class Viewer {
       this.down = null;
       this.hideMarquee();
     });
+    this.canvas.addEventListener("webglcontextrestored", () => this.rebuild(this.mode));
 
-    new ResizeObserver(() => this.resize()).observe(this.canvas.parentElement);
+    this.resizeObserver = new ResizeObserver(() => this.resize());
+    this.resizeObserver.observe(this.canvas.parentElement);
     this.resize();
-    const loop = () => {
-      requestAnimationFrame(loop);
-      this.controls.update();
-      this.renderer.render(this.scene, this.camera);
-      this.renderGizmo();
-    };
-    loop();
+  }
+
+  // ------------------------------------------------------------ кадр
+
+  requestRender() {
+    if (this._frame || this.disposed) return;
+    this._frame = requestAnimationFrame(() => {
+      this._frame = 0;
+      this.render();
+    });
+  }
+
+  render(withGizmo = true) {
+    if (this.disposed) return;
+    // Затухание инерции: update() вернёт true и через «change» запросит кадр.
+    if (this.controls.enabled) this.controls.update();
+    const r = this.renderer;
+    r.setScissorTest(false);
+    r.setViewport(0, 0, this._w, this._h);
+    r.clear();
+    r.render(this.scene, this.camera);
+    if (withGizmo) this.renderGizmo();
+  }
+
+  snapshot() {
+    this.render(false);
+    const url = this.renderer.domElement.toDataURL("image/png");
+    this.requestRender();
+    return url;
+  }
+
+  applyTheme() {
+    this.scene.background = new THREE.Color(cssColor("--viewport-bg", 0x0f141c));
+    if (this.mesh) this.rebuild(this.mode);
+    else this.requestRender();
   }
 
   resize() {
+    if (this.disposed) return;
     const el = this.canvas.parentElement;
     const w = Math.max(120, el.clientWidth), h = Math.max(120, el.clientHeight);
+    this._w = w;
+    this._h = h;
     this.renderer.setSize(w, h, false);
     const aspect = w / h;
     if (this.camera.isOrthographicCamera) {
@@ -154,8 +231,31 @@ class Viewer {
       this.camera.aspect = aspect;
       this.camera.updateProjectionMatrix();
     }
-    if (this.lineMat) this.lineMat.resolution.set(w, h);
-    this.resizeGizmo();
+    this.lineMats.forEach((m) => m.resolution.set(w, h));
+    this.measureGizmo();
+    this.requestRender();
+  }
+
+  dispose() {
+    this.disposed = true;
+    if (this._frame) cancelAnimationFrame(this._frame);
+    this._frame = 0;
+    this.stopViewAnimation();
+    clearTimeout(this._previewTimer);
+    this.resizeObserver.disconnect();
+    this.clear();
+    if (this.gizmoScene) {
+      this.gizmoScene.traverse((obj) => {
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) {
+          if (obj.material.map) obj.material.map.dispose();
+          obj.material.dispose();
+        }
+      });
+    }
+    this.controls.dispose();
+    this.renderer.dispose();
+    this.renderer.forceContextLoss();
   }
 
   stopViewAnimation() {
@@ -177,8 +277,7 @@ class Viewer {
     const target = this.controls.target.clone();
     const pos = this.camera.position.clone();
     const up = this.camera.up.clone();
-    const el = this.canvas.parentElement;
-    const aspect = Math.max(0.01, el.clientWidth / Math.max(1, el.clientHeight));
+    const aspect = Math.max(0.01, this._w / Math.max(1, this._h));
     if (flag) {
       const dist = pos.distanceTo(target) || 3;
       const half = dist * Math.tan((this.perspCamera.fov * Math.PI / 180) / 2);
@@ -217,13 +316,11 @@ class Viewer {
     this.resize();
   }
 
-  setupGizmo(card) {
-    const canvas = card.querySelector(".gizmo");
-    if (!canvas) return;
-    this.gizmoCanvas = canvas;
-    this.gizmoRenderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
-    this.gizmoRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.gizmoRenderer.setClearColor(0x000000, 0);
+  // ------------------------------------------------------------ оси
+
+  setupGizmo() {
+    const el = this.gizmoEl;
+    if (!el) return;
     this.gizmoScene = new THREE.Scene();
     this.gizmoCamera = new THREE.OrthographicCamera(-1.25, 1.25, 1.25, -1.25, 0.1, 20);
     this.gizmoCamera.position.set(0, 0, 4);
@@ -235,6 +332,8 @@ class Viewer {
     this.gizmoGroup = new THREE.Group();
     this.gizmoMeshes = [];
     this.gizmoMats = {};
+    const shaftGeo = new THREE.CylinderGeometry(0.045, 0.045, 0.52, 12);
+    const headGeo = new THREE.ConeGeometry(0.12, 0.24, 16);
     const specs = [
       ["x", 0xff6b6b, -Math.PI / 2, 0],
       ["y", 0x6bff9d, 0, 0],
@@ -248,9 +347,9 @@ class Viewer {
       const g = new THREE.Group();
       g.rotation.z = rz;
       g.rotation.x = rx;
-      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.52, 12), mat);
+      const shaft = new THREE.Mesh(shaftGeo, mat);
       shaft.position.y = 0.34;
-      const head = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.24, 16), mat);
+      const head = new THREE.Mesh(headGeo, mat);
       head.position.y = 0.72;
       shaft.userData.axis = axis;
       head.userData.axis = axis;
@@ -270,11 +369,11 @@ class Viewer {
     this.gizmoRaycaster = new THREE.Raycaster();
     this.gizmoDown = null;
     this._gizmoHover = null;
-    canvas.addEventListener("pointerdown", (e) => {
+    el.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
       this.gizmoDown = { x: e.clientX, y: e.clientY };
     });
-    canvas.addEventListener("pointerup", (e) => {
+    el.addEventListener("pointerup", (e) => {
       e.stopPropagation();
       const down = this.gizmoDown;
       this.gizmoDown = null;
@@ -282,12 +381,11 @@ class Viewer {
       const axis = this.gizmoHit(e);
       if (axis) this.alignAxis(axis);
     });
-    canvas.addEventListener("pointermove", (e) => {
+    el.addEventListener("pointermove", (e) => {
       e.stopPropagation();
       this.setGizmoHover(this.gizmoHit(e));
     });
-    canvas.addEventListener("pointerleave", () => this.setGizmoHover(null));
-    this.resizeGizmo();
+    el.addEventListener("pointerleave", () => this.setGizmoHover(null));
   }
 
   makeAxisLabel(text, color) {
@@ -312,22 +410,36 @@ class Viewer {
     return sprite;
   }
 
-  resizeGizmo() {
-    if (!this.gizmoRenderer || !this.gizmoCanvas) return;
-    const w = Math.max(56, this.gizmoCanvas.clientWidth || 84);
-    const h = Math.max(56, this.gizmoCanvas.clientHeight || 84);
-    this.gizmoRenderer.setSize(w, h, false);
+  measureGizmo() {
+    if (!this.gizmoEl) return;
+    const cr = this.canvas.getBoundingClientRect();
+    const gr = this.gizmoEl.getBoundingClientRect();
+    if (!gr.width || !gr.height || !cr.height) {
+      this._gizmoRect = null;
+      return;
+    }
+    const x = gr.left - cr.left;
+    const top = gr.top - cr.top;
+    this._gizmoRect = { x, y: cr.height - top - gr.height, w: gr.width, h: gr.height };
   }
 
   renderGizmo() {
-    if (!this.gizmoRenderer) return;
+    const rect = this._gizmoRect;
+    if (!rect || !this.gizmoScene) return;
+    const r = this.renderer;
     this.gizmoGroup.quaternion.copy(this.camera.quaternion).invert();
-    this.gizmoRenderer.render(this.gizmoScene, this.gizmoCamera);
+    r.setScissorTest(true);
+    r.setScissor(rect.x, rect.y, rect.w, rect.h);
+    r.setViewport(rect.x, rect.y, rect.w, rect.h);
+    r.clearDepth();
+    r.render(this.gizmoScene, this.gizmoCamera);
+    r.setScissorTest(false);
+    r.setViewport(0, 0, this._w, this._h);
   }
 
   gizmoHit(e) {
-    if (!this.gizmoCanvas || !this.gizmoRenderer) return null;
-    const r = this.gizmoCanvas.getBoundingClientRect();
+    if (!this.gizmoEl || !this.gizmoScene) return null;
+    const r = this.gizmoEl.getBoundingClientRect();
     const mouse = new THREE.Vector2(
       ((e.clientX - r.left) / r.width) * 2 - 1,
       -((e.clientY - r.top) / r.height) * 2 + 1
@@ -343,25 +455,35 @@ class Viewer {
     for (const [key, mat] of Object.entries(this.gizmoMats)) {
       mat.emissiveIntensity = key === axis ? 0.55 : 0.12;
     }
-    if (this.gizmoCanvas) this.gizmoCanvas.style.cursor = axis ? "pointer" : "default";
+    if (this.gizmoEl) this.gizmoEl.style.cursor = axis ? "pointer" : "default";
+    this.requestRender();
   }
+
+  // ------------------------------------------------------------ сцена
 
   clear() {
     if (this.previewGroup) this.clearPreview();
     while (this.group.children.length) {
       const c = this.group.children.pop();
-      c.geometry && c.geometry.dispose();
-      c.material && c.material.dispose();
+      if (c.geometry) c.geometry.dispose();
+      if (c.material) c.material.dispose();
     }
+    this.lineMats = [];
     this.solid = null;
     this.pointsObj = null;
+    this.requestRender();
   }
 
   setMesh(mesh, mode, keepView = false) {
     this.mesh = mesh;
     this.mode = mode;
+    this.card.classList.toggle("is-empty", !(mesh && mesh.v && mesh.v.length));
     this.clear();
-    if (!mesh || !mesh.v || !mesh.f) return;
+    if (!mesh || !mesh.v || !mesh.f) {
+      this.analyze(null);
+      return;
+    }
+    this.analyze(mesh);
     if (!keepView) this.frame(mesh);
     this.rebuild(mode);
   }
@@ -370,29 +492,27 @@ class Viewer {
     if (!this.mesh) return;
     this.mode = mode;
     this.clear();
-    this.build(this.mesh, mode);
+    this.build(mode);
+    this.requestRender();
   }
 
-  build(mesh, mode) {
-    const v = mesh.v, faces = mesh.f;
+  /** Topology of the mesh: computed once per mesh, reused by every rebuild. */
+  analyze(mesh) {
+    const v = mesh ? mesh.v : [];
+    const faces = mesh ? mesh.f : [];
+    const nv = v.length;
     this.verts = v;
     this.faces = faces;
-    const hasSel = this.hlFaces.size > 0 || this.hlVerts.size > 0
-      || this.hlEdges.size > 0 || this.hlSections.size > 0;
-    const iso = this.isolate && hasSel;
-    const selMode = this.hlMode || "face";
-    const keepFace = (fi) => {
-      if (!iso) return true;
-      if (selMode === "edge") return false;
-      return this.hlFaces.has(fi);
-    };
-    const tris = [], triFace = [];
+
+    const tris = [];
+    const triFace = [];
     faces.forEach((f, fi) => {
-      if (!keepFace(fi)) return;
-      const ft = triangulateFace(f, v);
-      for (const t of ft) { tris.push(t); triFace.push(fi); }
+      for (const t of triangulateFace(f, v)) { tris.push(t); triFace.push(fi); }
     });
+    this.allTris = tris;
+    this.allTriFace = triFace;
     this.triFace = triFace;
+
     this.faceCentroids = faces.map((f) => {
       let x = 0, y = 0, z = 0;
       f.forEach((i) => { x += v[i][0]; y += v[i][1]; z += v[i][2]; });
@@ -406,17 +526,17 @@ class Viewer {
       return r;
     });
 
-    this.faceAdj = Array.from({ length: faces.length }, () => []);
-
+    // Сечения: вершины с одинаковой высотой образуют кольцо.
     this.sectionZ = [];
     this.sectionCentroid = [];
     this.sectionVerts = [];
-    this.vertSection = new Int32Array(v.length).fill(-1);
+    this.vertSection = new Int32Array(nv).fill(-1);
     const byZ = new Map();
     v.forEach((p, i) => {
       const key = Math.round(p[2] * 1e6) / 1e6;
-      if (!byZ.has(key)) byZ.set(key, []);
-      byZ.get(key).push(i);
+      let list = byZ.get(key);
+      if (!list) { list = []; byZ.set(key, list); }
+      list.push(i);
     });
     const rings = [...byZ.entries()].filter(([, idx]) => idx.length >= 3).sort((a, b) => a[0] - b[0]);
     rings.forEach(([z, idx], si) => {
@@ -434,48 +554,34 @@ class Viewer {
     this.sectionFaces = this.sectionZ.map(() => []);
     this.faceSections.forEach((ss, fi) => ss.forEach((si) => this.sectionFaces[si].push(fi)));
     this.sectionAdj = this.sectionZ.map((_, si) => [si - 1, si + 1].filter((k) => k >= 0 && k < this.sectionZ.length));
-    const edgeOwner = new Map();
-    faces.forEach((f, fi) => {
-      for (let i = 0; i < f.length; i++) {
-        const a = f[i], b = f[(i + 1) % f.length];
-        const key = a < b ? `${a}_${b}` : `${b}_${a}`;
-        if (edgeOwner.has(key)) {
-          const fj = edgeOwner.get(key);
-          if (fj !== fi) { this.faceAdj[fi].push(fj); this.faceAdj[fj].push(fi); }
-        } else {
-          edgeOwner.set(key, fi);
-        }
-      }
-    });
-    this.vertAdj = Array.from({ length: v.length }, () => []);
-    const vEdges = new Set();
-    faces.forEach((f) => {
-      for (let i = 0; i < f.length; i++) {
-        const a = f[i], b = f[(i + 1) % f.length];
-        const key = a < b ? `${a}_${b}` : `${b}_${a}`;
-        if (!vEdges.has(key)) {
-          vEdges.add(key);
-          this.vertAdj[a].push(b);
-          this.vertAdj[b].push(a);
-        }
-      }
-    });
 
+    // Рёбра, смежность граней и вершин — числовые ключи вместо строк.
+    this.faceAdj = Array.from({ length: faces.length }, () => []);
+    this.vertAdj = Array.from({ length: nv }, () => []);
+    this.vertEdges = Array.from({ length: nv }, () => []);
+    this.vertFaces = Array.from({ length: nv }, () => []);
     this.edges = [];
     this.edgeIndex = new Map();
-    this.vertEdges = Array.from({ length: v.length }, () => []);
-    this.vertFaces = Array.from({ length: v.length }, () => []);
+    const edgeOwner = new Map();
     faces.forEach((f, fi) => {
       f.forEach((i) => this.vertFaces[i].push(fi));
       for (let i = 0; i < f.length; i++) {
         const a = f[i], b = f[(i + 1) % f.length];
-        const key = a < b ? `${a}_${b}` : `${b}_${a}`;
-        if (this.edgeIndex.has(key)) continue;
-        const ei = this.edges.length;
-        this.edgeIndex.set(key, ei);
-        this.edges.push([a, b]);
-        this.vertEdges[a].push(ei);
-        this.vertEdges[b].push(ei);
+        const key = edgeKey(a, b, nv);
+        const owner = edgeOwner.get(key);
+        if (owner === undefined) {
+          edgeOwner.set(key, fi);
+          const ei = this.edges.length;
+          this.edgeIndex.set(key, ei);
+          this.edges.push([a, b]);
+          this.vertEdges[a].push(ei);
+          this.vertEdges[b].push(ei);
+          this.vertAdj[a].push(b);
+          this.vertAdj[b].push(a);
+        } else if (owner !== fi) {
+          this.faceAdj[fi].push(owner);
+          this.faceAdj[owner].push(fi);
+        }
       }
     });
     this.edgeAdj = this.edges.map((e, ei) => {
@@ -484,40 +590,107 @@ class Viewer {
       return [...out];
     });
     const bbMin = [Infinity, Infinity, Infinity], bbMax = [-Infinity, -Infinity, -Infinity];
-    v.forEach((p) => p.forEach((x, i) => { bbMin[i] = Math.min(bbMin[i], x); bbMax[i] = Math.max(bbMax[i], x); }));
-    this.edgeTol = Math.max(0.02, 0.02 * Math.hypot(bbMax[0] - bbMin[0], bbMax[1] - bbMin[1], bbMax[2] - bbMin[2]));
-
-    const pos = new Float32Array(tris.length * 9);
-    const col = new Float32Array(tris.length * 9);
-    const faceColor = faces.map((_, i) => new THREE.Color().setHSL((i * 0.61803398875) % 1, 0.55, 0.58));
-    const areas = faces.map((f) => polyArea3(v, f));
-    const amax = Math.max(...areas, 1e-9);
-    const hl = new THREE.Color(0xffb347);
-
-    tris.forEach((t, ti) => {
-      const fi = triFace[ti];
-      for (let j = 0; j < 3; j++) {
-        const p = v[t[j]];
-        pos.set([p[0], p[1], p[2]], ti * 9 + j * 3);
-        let c;
-        if (this.hlFaces.has(fi)) c = hl;
-        else if (mode === "face") c = faceColor[fi];
-        else if (mode === "area") c = areaColor(areas[fi] / amax);
-        else c = new THREE.Color(0x8fc1ff);
-        col.set([c.r, c.g, c.b], ti * 9 + j * 3);
+    v.forEach((p) => {
+      for (let i = 0; i < 3; i++) {
+        if (p[i] < bbMin[i]) bbMin[i] = p[i];
+        if (p[i] > bbMax[i]) bbMax[i] = p[i];
       }
     });
+    this.edgeTol = nv ? Math.max(0.02, 0.02 * Math.hypot(bbMax[0] - bbMin[0], bbMax[1] - bbMin[1], bbMax[2] - bbMin[2])) : 0.1;
 
+    // Цвета граней для режимов «разными цветами» и «по площади».
+    const areas = faces.map((f) => polyArea3(v, f));
+    const amax = areas.length ? Math.max(...areas, 1e-9) : 1;
+    this.faceHue = new Float32Array(faces.length * 3);
+    this.faceArea = new Float32Array(faces.length * 3);
+    const c = new THREE.Color();
+    const lo = new THREE.Color(VIEW_COLORS.areaLow), hi = new THREE.Color(VIEW_COLORS.areaHigh);
+    faces.forEach((_, i) => {
+      c.setHSL((i * 0.61803398875) % 1, 0.55, 0.58);
+      this.faceHue.set([c.r, c.g, c.b], i * 3);
+      c.copy(lo).lerp(hi, Math.min(1, Math.max(0, areas[i] / amax)));
+      this.faceArea.set([c.r, c.g, c.b], i * 3);
+    });
+  }
+
+  addLines(segments, color, width) {
+    if (!segments.length) return null;
+    if (THREE.LineSegments2 && THREE.LineMaterial) {
+      const geometry = new THREE.LineSegmentsGeometry().setPositions(segments);
+      const material = new THREE.LineMaterial({ color, linewidth: width });
+      material.resolution.set(Math.max(1, this._w), Math.max(1, this._h));
+      this.lineMats.push(material);
+      const line = new THREE.LineSegments2(geometry, material);
+      this.group.add(line);
+      return line;
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(segments, 3));
+    const line = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color }));
+    this.group.add(line);
+    return line;
+  }
+
+  build(mode) {
+    const v = this.verts, faces = this.faces;
+    const hasSel = this.hlFaces.size > 0 || this.hlVerts.size > 0
+      || this.hlEdges.size > 0 || this.hlSections.size > 0;
+    const iso = this.isolate && hasSel;
+    const selMode = this.hlMode || "face";
+    const keepFace = (fi) => {
+      if (!iso) return true;
+      if (selMode === "edge") return false;
+      return this.hlFaces.has(fi);
+    };
+
+    let tris = this.allTris;
+    let triFace = this.allTriFace;
+    if (iso) {
+      tris = [];
+      triFace = [];
+      this.allTris.forEach((t, ti) => {
+        const fi = this.allTriFace[ti];
+        if (keepFace(fi)) { tris.push(t); triFace.push(fi); }
+      });
+    }
+    this.triFace = triFace;
+
+    const nt = tris.length;
+    const pos = new Float32Array(nt * 9);
+    for (let ti = 0; ti < nt; ti++) {
+      const t = tris[ti];
+      for (let j = 0; j < 3; j++) {
+        const p = v[t[j]];
+        const o = ti * 9 + j * 3;
+        pos[o] = p[0]; pos[o + 1] = p[1]; pos[o + 2] = p[2];
+      }
+    }
     const geom = new THREE.BufferGeometry();
     geom.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     const useColors = mode === "face" || mode === "area" || this.hlFaces.size > 0;
-    if (useColors) geom.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    if (useColors) {
+      const col = new Float32Array(nt * 9);
+      const base = new THREE.Color(VIEW_COLORS.fill);
+      const hl = new THREE.Color(VIEW_COLORS.highlight);
+      const palette = mode === "face" ? this.faceHue : (mode === "area" ? this.faceArea : null);
+      for (let ti = 0; ti < nt; ti++) {
+        const fi = triFace[ti];
+        let r, g, b;
+        if (this.hlFaces.has(fi)) { r = hl.r; g = hl.g; b = hl.b; }
+        else if (palette) { r = palette[fi * 3]; g = palette[fi * 3 + 1]; b = palette[fi * 3 + 2]; }
+        else { r = base.r; g = base.g; b = base.b; }
+        for (let j = 0; j < 3; j++) {
+          const o = ti * 9 + j * 3;
+          col[o] = r; col[o + 1] = g; col[o + 2] = b;
+        }
+      }
+      geom.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    }
     geom.computeVertexNormals();
 
     const material = new THREE.MeshStandardMaterial({
-      color: 0x8fc1ff, vertexColors: useColors, roughness: 0.55, metalness: 0.05,
+      color: VIEW_COLORS.fill, vertexColors: useColors, roughness: 0.55, metalness: 0.05,
       flatShading: true, side: THREE.DoubleSide,
-      wireframe: false, transparent: false, opacity: 1,
     });
     this.solid = new THREE.Mesh(geom, material);
     this.solid.visible = mode !== "edges" && mode !== "points" && mode !== "wire";
@@ -536,7 +709,7 @@ class Viewer {
         const sg = new THREE.BufferGeometry();
         sg.setAttribute("position", new THREE.Float32BufferAttribute(selPos, 3));
         const sm = new THREE.MeshBasicMaterial({
-          color: 0xffb347, transparent: true, opacity: 0.32,
+          color: VIEW_COLORS.highlight, transparent: true, opacity: 0.32,
           side: THREE.DoubleSide, depthWrite: false,
           polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
         });
@@ -556,27 +729,25 @@ class Viewer {
           }
         });
       } else {
-        faces.forEach((f, fi) => {
-          if (!keepFace(fi)) return;
-          for (let i = 0; i < f.length; i++) {
-            const a = v[f[i]], b = v[f[(i + 1) % f.length]];
-            segs.push(a[0], a[1], a[2], b[0], b[1], b[2]);
+        // Каждое ребро рисуется один раз, а не по разу от каждой из двух граней.
+        this.edges.forEach((e) => {
+          if (iso) {
+            const owners = this.vertFaces[e[0]].filter((fi) => keepFace(fi) && faces[fi].includes(e[1]));
+            if (!owners.length) return;
           }
+          const a = v[e[0]], b = v[e[1]];
+          segs.push(a[0], a[1], a[2], b[0], b[1], b[2]);
         });
       }
-      if (THREE.LineSegments2 && THREE.LineMaterial) {
-        const lg = new THREE.LineSegmentsGeometry().setPositions(segs);
-        const lw = mode === "wire" ? 0.8 : (mode === "edges" ? 0.9 : 2.4);
-        const lc = mode === "wire" ? 0x9fd8ff : (mode === "edges" ? 0x9fd8ff : 0x000000);
-        const lm = new THREE.LineMaterial({ color: lc, linewidth: lw });
-        const el = this.canvas.parentElement;
-        lm.resolution.set(Math.max(1, el.clientWidth), Math.max(1, el.clientHeight));
-        this.lineMat = lm;
-        this.group.add(new THREE.LineSegments2(lg, lm));
-      } else {
-        const lg = new THREE.BufferGeometry();
-        lg.setAttribute("position", new THREE.Float32BufferAttribute(segs, 3));
-        this.group.add(new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: lc })));
+      // Плотные оболочки с тысячами рёбер не должны превращаться в сплошную сетку.
+      const count = segs.length / 6;
+      const dense = mode === "solid_edges" && count > 600;
+      const width = mode === "wire" ? 0.8 : (mode === "edges" ? 0.9 : (dense ? 1.1 : 2.4));
+      const color = mode === "solid_edges" ? cssColor("--viewport-edge", 0x000000) : VIEW_COLORS.wire;
+      const line = this.addLines(segs, color, width);
+      if (line && dense) {
+        line.material.transparent = true;
+        line.material.opacity = Math.max(0.18, Math.min(0.6, 600 / count));
       }
     }
 
@@ -588,17 +759,16 @@ class Viewer {
       const arr = pointIdx ? pointIdx.flatMap((i) => v[i]) : v.flat();
       const pg = new THREE.BufferGeometry();
       pg.setAttribute("position", new THREE.Float32BufferAttribute(arr, 3));
-      this.pointsObj = new THREE.Points(pg, new THREE.PointsMaterial({ color: 0x9fd8ff, size: mode === "points" ? 0.035 : 0.02 }));
+      this.pointsObj = new THREE.Points(pg, new THREE.PointsMaterial({ color: VIEW_COLORS.wire, size: mode === "points" ? 0.035 : 0.02 }));
       this.group.add(this.pointsObj);
     } else {
       this.pointsObj = null;
     }
 
-    const sel = [...this.hlVerts];
-    if (sel.length) {
+    if (this.hlVerts.size) {
       const sg = new THREE.BufferGeometry();
-      sg.setAttribute("position", new THREE.Float32BufferAttribute(sel.flatMap((i) => v[i]), 3));
-      this.group.add(new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xffb347, size: 0.06 })));
+      sg.setAttribute("position", new THREE.Float32BufferAttribute([...this.hlVerts].flatMap((i) => v[i]), 3));
+      this.group.add(new THREE.Points(sg, new THREE.PointsMaterial({ color: VIEW_COLORS.highlight, size: 0.06 })));
     }
 
     if (this.hlEdges.size) {
@@ -609,19 +779,7 @@ class Viewer {
         const a = v[e[0]], b = v[e[1]];
         esegs.push(a[0], a[1], a[2], b[0], b[1], b[2]);
       });
-      if (esegs.length) {
-        if (THREE.LineSegments2 && THREE.LineMaterial) {
-          const eg = new THREE.LineSegmentsGeometry().setPositions(esegs);
-          const em = new THREE.LineMaterial({ color: 0xffb347, linewidth: 4.0 });
-          const el = this.canvas.parentElement;
-          em.resolution.set(Math.max(1, el.clientWidth), Math.max(1, el.clientHeight));
-          this.group.add(new THREE.LineSegments2(eg, em));
-        } else {
-          const eg = new THREE.BufferGeometry();
-          eg.setAttribute("position", new THREE.Float32BufferAttribute(esegs, 3));
-          this.group.add(new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: 0xffb347 })));
-        }
-      }
+      this.addLines(esegs, VIEW_COLORS.highlight, 4.0);
     }
   }
 
@@ -678,7 +836,7 @@ class Viewer {
     if (!hits.length) { if (action === "replace") this.onPick(this, null, "face", "clear"); return; }
     const fi = this.triFace[hits[0].faceIndex];
     const poly = this.facePolys[fi].map((p) => p.slice());
-      this.onPick(this, this.faceCentroids[fi].slice(), "face", action, poly, fi);
+    this.onPick(this, this.faceCentroids[fi].slice(), "face", action, poly, fi);
   }
 
   setBoxSelect(on) {
@@ -871,12 +1029,13 @@ class Viewer {
       this._previewTimer = null;
     }
     this._previewCount = null;
-    if (this.previewGroup) {
+    if (this.previewGroup && this.previewGroup.children.length) {
       while (this.previewGroup.children.length) {
         const child = this.previewGroup.children.pop();
         if (child.geometry) child.geometry.dispose();
         if (child.material) child.material.dispose();
       }
+      this.requestRender();
     }
     this.updateMarqueeLabel();
   }
@@ -886,8 +1045,8 @@ class Viewer {
     this._previewCount = hits.length;
     this.updateMarqueeLabel();
     if (!hits.length || !this.previewGroup) return;
-    const color = action === "add" ? 0x55d68b : action === "subtract" ? 0xff6b7a : 0xffb347;
-    const add = (obj) => { obj.renderOrder = 40; this.previewGroup.add(obj); };
+    const color = action === "add" ? 0x55d68b : action === "subtract" ? 0xff6b7a : VIEW_COLORS.highlight;
+    const add = (obj) => { obj.renderOrder = 40; this.previewGroup.add(obj); this.requestRender(); };
     if (target === "face") {
       const pos = [];
       hits.forEach((fi) => {
@@ -1226,7 +1385,7 @@ class Viewer {
     const hits = this.raycaster.intersectObject(this.solid);
     this.hudCur.textContent = hits.length
       ? hits[0].point.toArray().map((v) => v.toFixed(2)).join(", ")
-      : "—";
+      : "";
   }
 
   copyCamera(src) {
@@ -1241,6 +1400,7 @@ class Viewer {
     this.camera.up.copy(src.camera.up);
     this.controls.target.copy(src.controls.target);
     this.controls.update();
+    this.requestRender();
   }
 
   frameTarget(mesh) {
@@ -1273,6 +1433,7 @@ class Viewer {
       this.camera.updateProjectionMatrix();
     }
     this.controls.update();
+    this.requestRender();
   }
 
   resetView(mesh) {
@@ -1318,14 +1479,29 @@ class Viewer {
 }
 function makeCard() {
   const card = document.createElement("div");
-  card.className = "viewer-card";
-  card.innerHTML = `<div class="viewer-head"><select class="vmodel" title="Модель в этом вьюпорте"></select><select class="vsel" title="Вариант обработки"></select><span class="vmeta meta"></span><button class="vdel" title="Убрать это окно">− окно</button><button class="vadd" title="Добавить окно в полноэкранную сетку">+ окно</button><button class="vmax" title="Развернуть или свернуть этот вьюпорт">⤢</button></div>
-                    <div class="canvas-wrap"><canvas></canvas>
-                      <div class="hud">
-                        <div class="axis-gizmo"><canvas class="gizmo" title="3D-оси: клик по X, Y или Z плавно выравнивает камеру" aria-label="3D-оси X, Y, Z"></canvas></div>
-                        <div class="cur">—</div>
-                      </div>
-                    </div>`;
+  card.className = "viewer-card is-empty";
+  card.innerHTML = `<div class="viewer-head">
+      <select class="vmodel" title="Модель в этом вьюпорте" aria-label="Модель в этом вьюпорте"></select>
+      <select class="vsel" title="Вариант обработки" aria-label="Вариант обработки"></select>
+      <div class="vactions">
+        <button class="vdel icon-btn" type="button" title="Убрать это окно" aria-label="Убрать это окно"><svg class="icon"><use href="#i-minus"/></svg></button>
+        <button class="vadd icon-btn" type="button" title="Добавить окно в полноэкранную сетку" aria-label="Добавить окно"><svg class="icon"><use href="#i-plus"/></svg></button>
+        <button class="vmax icon-btn" type="button" title="Развернуть или свернуть этот вьюпорт (F)" aria-label="Развернуть вьюпорт"><svg class="icon"><use href="#i-expand"/></svg></button>
+      </div>
+      <span class="vmeta meta"></span>
+    </div>
+    <div class="canvas-wrap">
+      <canvas class="view"></canvas>
+      <div class="empty-state" aria-hidden="true">
+        <svg class="icon"><use href="#i-gem"/></svg>
+        <strong>Модели пока нет</strong>
+        <span>Выберите тело или файлы слева и запустите конвейер — <kbd>R</kbd></span>
+      </div>
+      <div class="hud">
+        <div class="gizmo" role="img" title="3D-оси: клик по X, Y или Z плавно выравнивает камеру" aria-label="3D-оси X, Y, Z"></div>
+        <div class="cur"></div>
+      </div>
+    </div>`;
   $("viewers").appendChild(card);
   return card;
 }
@@ -1407,10 +1583,13 @@ function toggleSolo(v) {
     App.fullscreen = false;
     App.fullViews = [];
   }
-  App.viewers.forEach((x) => x.card.classList.remove("is-solo"));
   $("viewers").classList.toggle("fullscreen", App.fullscreen);
   document.querySelector(".workspace").classList.toggle("solo-mode", App.fullscreen);
   document.body.classList.toggle("viewer-full", App.fullscreen);
+  App.viewers.forEach((x) => {
+    const btn = x.card.querySelector(".vmax");
+    if (btn) btn.setAttribute("aria-pressed", String(App.fullscreen));
+  });
   layoutViewers();
   App.viewers.forEach((x) => x.resize());
 }
@@ -1424,6 +1603,7 @@ function addViewer() {
   v.setOrtho(App.ortho);
   v.setBoxSelect(App.boxSelect);
   card.querySelector(".vmax").onclick = () => toggleSolo(v);
+  card.querySelector(".vmax").setAttribute("aria-pressed", String(App.fullscreen));
   card.querySelector(".vadd").onclick = () => addViewer();
   card.querySelector(".vdel").onclick = () => removeViewer(v);
   card.addEventListener("pointerdown", () => setActiveViewer(v));
@@ -1461,6 +1641,7 @@ function removeViewer(target = null) {
     ? target
     : App.viewers[App.viewers.length - 1];
   App.viewers = App.viewers.filter((x) => x !== v);
+  v.dispose();
   v.card.remove();
   if (App.fullscreen) {
     App.fullViews = App.fullViews.filter((x) => x !== v);
@@ -1573,7 +1754,7 @@ function syncViewerIds(v) {
 }
 
 async function loadAllViewers() {
-  for (const v of App.viewers) await loadViewer(v);
+  await Promise.all(App.viewers.map((v) => loadViewer(v)));
   App.viewers.forEach((v) => v.applySelection(App.sel));
 }
 

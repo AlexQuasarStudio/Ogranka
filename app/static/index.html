@@ -1,23 +1,75 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
 <title>Огранка {{APP_VERSION}} — восстановление формы</title>
 <meta name="version" content="{{APP_VERSION}}">
 <meta name="build" content="{{APP_BUILD}}">
 <meta name="just-updated" content="{{JUST_UPDATED}}">
 <meta name="author" content="Дьяченко Алексей">
 <meta name="description" content="Огранка {{APP_VERSION}} — восстановление формы по зашумлённым горизонтальным сечениям">
+<script>
+  /* Тема выбирается до первой отрисовки, чтобы не было вспышки. */
+  (function () {
+    var pref = "system";
+    try { pref = localStorage.getItem("ogranka.theme") || "system"; } catch (e) { /* ignore */ }
+    var dark = pref === "dark" || (pref === "system" && !(window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches));
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    document.documentElement.dataset.themePref = pref;
+  })();
+</script>
 <link rel="icon" href="/favicon.png">
 <link rel="stylesheet" href="/style.css?v={{APP_VERSION}}-{{APP_BUILD}}">
-<script src="/vendor/three.min.js"></script>
-<script src="/vendor/OrbitControls.js"></script>
-<script src="/vendor/lines/LineSegmentsGeometry.js"></script>
-<script src="/vendor/lines/LineMaterial.js"></script>
-<script src="/vendor/lines/LineSegments2.js"></script>
+<script defer src="/vendor/three.min.js?v=r128"></script>
+<script defer src="/vendor/OrbitControls.js?v=r128"></script>
+<script defer src="/vendor/lines/LineSegmentsGeometry.js?v=r128"></script>
+<script defer src="/vendor/lines/LineMaterial.js?v=r128"></script>
+<script defer src="/vendor/lines/LineSegments2.js?v=r128"></script>
+<script defer src="/js/core.js?v={{APP_VERSION}}-{{APP_BUILD}}"></script>
+<script defer src="/js/viewer.js?v={{APP_VERSION}}-{{APP_BUILD}}"></script>
+<script defer src="/js/live.js?v={{APP_VERSION}}-{{APP_BUILD}}"></script>
+<script defer src="/js/tour.js?v={{APP_VERSION}}-{{APP_BUILD}}"></script>
+<script defer src="/js/results.js?v={{APP_VERSION}}-{{APP_BUILD}}"></script>
+<script defer src="/js/run.js?v={{APP_VERSION}}-{{APP_BUILD}}"></script>
+<script defer src="/js/releases.js?v={{APP_VERSION}}-{{APP_BUILD}}"></script>
+<script defer src="/js/shot.js?v={{APP_VERSION}}-{{APP_BUILD}}"></script>
+<script defer src="/app.js?v={{APP_VERSION}}-{{APP_BUILD}}"></script>
 </head>
 <body>
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <symbol id="i-logo" viewBox="0 0 24 24"><path d="M12 2.5 18.5 6l1.6 5.3L12 21.5 3.9 11.3 5.5 6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 2.5V13M5.5 6 12 13l6.5-7M3.9 11.3 12 13l8.1-1.7" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round" opacity=".7"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2l1.4-2h6.2L16.5 7h2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="12.8" r="3.3" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-history" viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4.5v3.2h3.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 8v4.3l2.8 1.7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11m0 0-4.2-4.2M12 15l4.2-4.2M5 19.5h14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 11v5.2M12 7.8v.1" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M9.6 9.5a2.5 2.5 0 1 1 3.7 2.2c-.8.4-1.3 1-1.3 1.9v.4M12 16.8v.1" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M19.5 14.5A7.6 7.6 0 0 1 9.5 4.5a7.6 7.6 0 1 0 10 10z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+  <symbol id="i-auto" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17z" fill="currentColor"/></symbol>
+  <symbol id="i-cube" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M3 12c1.5-4 3-4 4.5 0s3 4 4.5 0 3-4 4.5 0 3 4 4.5 0" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-smooth" viewBox="0 0 24 24"><path d="M3 15c3-7 6-7 9-3s6 4 9-3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M3 19h18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity=".5"/></symbol>
+  <symbol id="i-gem" viewBox="0 0 24 24"><path d="M6 4h12l3 5-9 11L3 9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 9h18M9 4l3 16 3-16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" opacity=".7"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3 5 13.5h6L10 21l8-10.5h-6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><path d="M4 8h16M4 16h16M8 4v16M16 4v16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 4 8.5 4.5L12 13 3.5 8.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="m3.5 12.5 8.5 4.5 8.5-4.5M3.5 16.3l8.5 4.5 8.5-4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 24 24"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/></symbol>
+  <symbol id="i-marquee" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 2.4"/></symbol>
+  <symbol id="i-reset" viewBox="0 0 24 24"><path d="M5 12a7 7 0 1 0 2-4.9M5 4.5V8h3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M7 3.5h7l4 4v13H7z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 3.5v4h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7a1.5 1.5 0 0 1 1.5-1.5h4.2l2 2.2H19a1.5 1.5 0 0 1 1.5 1.5v8.3A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12.5h8L17 7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5 15.5V6.5A1.5 1.5 0 0 1 6.5 5h9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="m6.5 6.5 11 11M17.5 6.5l-11 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+</svg>
+
 <div id="splash" class="splash" role="status" aria-live="polite" aria-label="Огранка загружается">
   <div class="splash-grid" aria-hidden="true"></div>
   <div class="splash-inner">
@@ -70,155 +122,203 @@
     <div class="splash-version">{{APP_VERSION}} · сборка {{APP_BUILD}}</div>
   </div>
 </div>
-<header>
-  <div class="brand">Огранка <span class="version">{{APP_VERSION}}</span> <span class="build">сборка {{APP_BUILD}}</span> <span class="brand-sub">восстановление формы</span></div>
+
+<header class="appbar">
+  <div class="brand">
+    <svg class="brand-mark" aria-hidden="true"><use href="#i-logo"/></svg>
+    <span class="brand-name">Огранка</span>
+    <span class="version" title="Версия">{{APP_VERSION}}</span>
+    <span class="build">сборка {{APP_BUILD}}</span>
+    <span class="brand-sub">восстановление формы по сечениям</span>
+  </div>
+  <div id="statusText" class="status" role="status" aria-live="polite">Готов к запуску</div>
   <div class="header-right">
-    <div id="statusText" class="status">Готов к запуску</div>
     <div class="vshot header-shot">
-      <button id="shotBtn" class="vshot-main" title="Скриншот приложения (Shift+S)">Скриншот</button>
-      <button id="shotToggle" class="vshot-toggle" title="Что снимать" aria-label="Что снимать">▾</button>
-      <div id="shotMenu" class="vshot-menu">
-        <button type="button" data-shot-target="viewport">Вьюпорта<small>S</small></button>
-        <button type="button" data-shot-target="app">Приложения<small>Shift+S</small></button>
+      <button id="shotBtn" class="vshot-main" type="button" title="Скриншот приложения (Shift+S)"><svg class="icon"><use href="#i-camera"/></svg><span>Скриншот</span></button>
+      <button id="shotToggle" class="vshot-toggle" type="button" title="Что снимать" aria-label="Что снимать" aria-haspopup="menu"><svg class="icon"><use href="#i-chevron"/></svg></button>
+      <div id="shotMenu" class="vshot-menu" role="menu">
+        <button type="button" role="menuitem" data-shot-target="viewport">Вьюпорта<small>S</small></button>
+        <button type="button" role="menuitem" data-shot-target="app">Приложения<small>Shift+S</small></button>
       </div>
     </div>
-    <button id="historyBtn" class="history-btn" title="История изменений">История</button>
-    <button id="updateBtn" class="update-btn hidden" title="Доступно обновление">Доступно обновление</button>
-    <button id="aboutBtn" class="help-btn about-btn" title="О программе (I)">i</button>
-    <button id="helpBtn" class="help-btn" title="Справка (?)">?</button>
+    <button id="updateBtn" class="update-btn hidden" type="button" title="Доступно обновление"><svg class="icon"><use href="#i-download"/></svg><span>Доступно обновление</span></button>
+    <button id="historyBtn" class="icon-btn" type="button" title="История изменений" aria-label="История изменений"><svg class="icon"><use href="#i-history"/></svg></button>
+    <button id="themeBtn" class="icon-btn" type="button" title="Тема: как в системе" aria-label="Сменить тему"><svg class="icon"><use href="#i-auto"/></svg></button>
+    <button id="aboutBtn" class="icon-btn" type="button" title="О программе (I)" aria-label="О программе"><svg class="icon"><use href="#i-info"/></svg></button>
+    <button id="helpBtn" class="icon-btn" type="button" title="Справка (?)" aria-label="Справка"><svg class="icon"><use href="#i-help"/></svg></button>
   </div>
 </header>
 
 <main>
-  <aside class="panel">
-    <h3>Источник</h3>
-    <div class="demo-grid">
-      <button class="demo" data-demo="cube" title="Куб: 8 вершин, 6 граней">Куб</button>
-      <button class="demo" data-demo="prism" title="Правильная восьмиугольная призма: 16 вершин, 10 граней">Призма</button>
-      <button class="demo" data-demo="octa">Октаэдр</button>
-      <button class="demo" data-demo="icosa">Икосаэдр</button>
-      <button class="demo" data-demo="dodeca">Додекаэдр</button>
-      <button class="demo" data-demo="diamond">Бриллиант</button>
+  <aside class="panel" aria-label="Параметры расчёта">
+    <div class="panel-scroll">
+      <section class="pcard" aria-labelledby="hSource">
+        <h3 id="hSource"><svg class="icon"><use href="#i-cube"/></svg>Источник</h3>
+        <div class="demo-grid">
+          <button class="demo" type="button" data-demo="cube" title="Куб: 8 вершин, 6 граней">Куб</button>
+          <button class="demo" type="button" data-demo="prism" title="Правильная восьмиугольная призма: 16 вершин, 10 граней">Призма</button>
+          <button class="demo" type="button" data-demo="octa">Октаэдр</button>
+          <button class="demo" type="button" data-demo="icosa">Икосаэдр</button>
+          <button class="demo" type="button" data-demo="dodeca">Додекаэдр</button>
+          <button class="demo" type="button" data-demo="diamond">Бриллиант</button>
+        </div>
+        <div class="file-row">
+          <label class="file-drop" for="fileInput" title="Можно выбрать сразу несколько файлов"><svg class="icon"><use href="#i-file"/></svg>Файлы OBJ/TXT</label>
+          <button id="dirBtn" class="file-drop" type="button" title="Выбрать папку с .obj и .txt, включая подпапки"><svg class="icon"><use href="#i-folder"/></svg>Папка</button>
+        </div>
+        <input type="file" id="fileInput" accept=".obj,.txt" multiple hidden>
+        <input type="file" id="dirInput" webkitdirectory hidden>
+        <div id="fileName" class="hint">демо: октаэдр</div>
+      </section>
+
+      <section class="pcard" aria-labelledby="hNoise">
+        <h3 id="hNoise"><svg class="icon"><use href="#i-wave"/></svg>Шум</h3>
+        <div class="chips">
+          <label class="chip" title="Шум r8: амплитуда 0.008"><input type="checkbox" id="noise8" checked><span>r8 · 0.008</span></label>
+          <label class="chip" title="Шум r80: амплитуда 0.08"><input type="checkbox" id="noise80" checked><span>r80 · 0.08</span></label>
+          <label class="chip" title="Свои уровни шума через запятую"><input type="checkbox" id="noiseCustom"><span>свой</span></label>
+        </div>
+        <input id="customNoise" class="wide" value="0.02, 0.05" title="Значения через запятую" aria-label="Свои уровни шума">
+        <label class="row"><span>модель шума</span>
+          <select id="noiseModel" title="По углам — основной режим; второй режим экспериментальный">
+            <option value="angles" selected>по углам</option>
+            <option value="normal">по нормали (эксперимент)</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="pcard" aria-labelledby="hSmooth">
+        <h3 id="hSmooth"><svg class="icon"><use href="#i-smooth"/></svg>Сглаживание</h3>
+        <div class="chips">
+          <label class="chip" title="Ряд Фурье + метод наименьших квадратов"><input type="checkbox" id="mFft" checked><span>Фурье + МНК</span></label>
+          <label class="chip" title="Скользящее среднее с подбором окна по зонам"><input type="checkbox" id="mUni" checked><span>«соседи»</span></label>
+          <label class="chip" title="Без сглаживания — для сравнения"><input type="checkbox" id="mNone"><span>без</span></label>
+        </div>
+        <label class="row"><span>M гармоник</span><input type="number" id="harm" title="Число гармоник ряда; не меньше числа вершин сечения" value="32" min="2" max="64"></label>
+        <label class="row"><span>окно k</span><input type="number" id="win" title="Полуширина окна усреднения" value="5" min="1" max="15"></label>
+      </section>
+
+      <section class="pcard" aria-labelledby="hRestore">
+        <h3 id="hRestore"><svg class="icon"><use href="#i-gem"/></svg>Восстановление</h3>
+        <label class="row"><span>режим</span>
+          <select id="mode" title="Полуплоскости — для реальных огранок; максимумы — исходный метод">
+            <option value="envelope">полуплоскости</option>
+            <option value="maxima">максимумы</option>
+          </select>
+        </label>
+        <label class="row"><span>допуск площади, %</span><input type="number" id="lossPct" value="0.1" min="0.01" max="10" step="0.01" title="Сколько площади разрешено потерять при упрощении"></label>
+        <label class="row"><span>угол слияния, °</span><input type="number" id="angleDeg" value="1" min="0.1" max="20" step="0.1" title="Грани с углом меньше этого сливаются"></label>
+        <label class="switch" title="Строить минимальный многогранник автоматически"><input type="checkbox" id="minimal" checked><span class="switch-track" aria-hidden="true"></span><span>минимальный многогранник</span></label>
+      </section>
+
+      <section class="pcard" aria-labelledby="hLive">
+        <h3 id="hLive"><svg class="icon"><use href="#i-bolt"/></svg>Живой предпросмотр</h3>
+        <label class="row range-row"><span>шум</span><input id="liveNoise" type="range" min="0" max="0.1" step="0.002" value="0.008" title="Уровень шума; активное окно обновляется автоматически"><output id="liveNoiseVal">0.008</output></label>
+        <label class="row range-row"><span>оставлено</span><input id="liveSimplify" type="range" min="15" max="100" step="1" value="100" title="Доля оставленных треугольников; 100% — без упрощения, 15% — сильное"><output id="liveSimplifyVal">100%</output></label>
+        <div id="liveHint" class="hint">Активное окно обновится.</div>
+      </section>
+
+      <section class="pcard" aria-labelledby="hGrid">
+        <h3 id="hGrid"><svg class="icon"><use href="#i-grid"/></svg>Сетка</h3>
+        <label class="row"><span>слоёв</span><input type="number" id="layers" title="Число горизонтальных сечений" value="60" min="10" max="120"></label>
+        <label class="row"><span>направлений</span><input type="number" id="angles" title="Число направлений на слой" value="720" min="90" max="1440"></label>
+      </section>
+
+      <div class="app-foot">Огранка {{APP_VERSION}} · сборка {{APP_BUILD}}<br>Дьяченко Алексей · мехмат МГУ<br>Науч. рук. — Валединский В.Д.</div>
     </div>
-    <label class="file-drop" for="fileInput" title="Можно выбрать сразу несколько файлов">Файлы: OBJ или TXT (можно много)</label>
-    <input type="file" id="fileInput" accept=".obj,.txt" multiple hidden>
-    <button id="dirBtn" class="file-drop" type="button" title="Выбрать папку с .obj и .txt, включая подпапки">Папка с моделями (с подпапками)</button>
-    <input type="file" id="dirInput" webkitdirectory hidden>
-    <div id="fileName" class="hint">демо: октаэдр</div>
-
-    <h3>Шум</h3>
-    <label class="check"><input type="checkbox" id="noise8" title="Шум r8: амплитуда 0.008" checked> r8 — 0.008</label>
-    <label class="check"><input type="checkbox" id="noise80" title="Шум r80: амплитуда 0.08" checked> r80 — 0.08</label>
-    <label class="check"><input type="checkbox" id="noiseCustom" title="Свои уровни шума через запятую"> свой уровень:</label>
-    <input id="customNoise" class="wide" value="0.02, 0.05" title="значения через запятую">
-    <div class="row"><span>модель шума</span>
-      <select id="noiseModel" title="По углам — основной режим; второй режим экспериментальный">
-        <option value="angles" selected>по углам</option>
-        <option value="normal">по нормали к ребру (экспериментальный)</option>
-      </select>
+    <div class="panel-actions">
+      <button id="levelsBtn" class="levels-btn" type="button" title="6 уровней: 100, 70, 50, 35, 25 и 15 % оставленных треугольников"><svg class="icon"><use href="#i-layers"/></svg>6 уровней упрощения</button>
+      <button id="runBtn" class="primary" type="button" title="Запустить весь конвейер (R)"><svg class="icon"><use href="#i-play"/></svg>Запустить конвейер<kbd>R</kbd></button>
     </div>
-
-    <h3>Сглаживание</h3>
-    <label class="check"><input type="checkbox" id="mFft" title="Ряд Фурье + метод наименьших квадратов" checked> Фурье + МНК</label>
-    <label class="check"><input type="checkbox" id="mUni" title="Скользящее среднее по окну k" checked> «соседи»</label>
-    <label class="check"><input type="checkbox" id="mNone" title="Без сглаживания — для сравнения"> без сглаживания</label>
-    <div class="row"><span>M гармоник</span><input type="number" id="harm" title="Число гармоник ряда; не меньше числа вершин сечения" value="32" min="2" max="64"></div>
-    <div class="row"><span>окно k</span><input type="number" id="win" title="Полуширина окна усреднения" value="5" min="1" max="15"></div>
-
-    <h3>Восстановление</h3>
-    <div class="row"><span>допуск площади, %</span><input type="number" id="lossPct" value="0.1" min="0.01" max="10" step="0.01" title="Сколько площади разрешено потерять при упрощении"></div>
-    <div class="row"><span>угол слияния, °</span><input type="number" id="angleDeg" value="1" min="0.1" max="20" step="0.1" title="Грани с углом меньше этого сливаются"></div>
-    <div class="row"><span>режим</span>
-      <select id="mode" title="Полуплоскости — для реальных огранок; максимумы — исходный метод">
-        <option value="envelope">полуплоскости</option>
-        <option value="maxima">максимумы</option>
-      </select>
-    </div>
-    <label class="check"><input type="checkbox" id="minimal" title="Строить минимальный многогранник автоматически" checked> минимальный многогранник</label>
-
-    <h3>Живой предпросмотр</h3>
-    <div class="row"><span>шум</span><input id="liveNoise" type="range" min="0" max="0.1" step="0.002" value="0.008" title="Уровень шума; активное окно обновляется автоматически"><output id="liveNoiseVal">0.008</output></div>
-    <div class="row"><span>оставлено</span><input id="liveSimplify" type="range" min="15" max="100" step="1" value="100" title="Доля оставленных треугольников; 100% — без упрощения, 15% — сильное"><output id="liveSimplifyVal">100%</output></div>
-    <div id="liveHint" class="hint">Активное окно обновится.</div>
-
-    <h3>Сетка</h3>
-    <div class="row"><span>слоёв</span><input type="number" id="layers" title="Число горизонтальных сечений" value="60" min="10" max="120"></div>
-    <div class="row"><span>направлений</span><input type="number" id="angles" title="Число направлений на слой" value="720" min="90" max="1440"></div>
-
-    <button id="levelsBtn" class="levels-btn" title="6 уровней: 100, 70, 50, 35, 25 и 15 % оставленных треугольников">6 уровней упрощения</button>
-    <button id="runBtn" title="Запустить весь конвейер (R)" class="primary">Запустить конвейер</button>
-    <div class="app-foot">Огранка {{APP_VERSION}} · сборка {{APP_BUILD}}<br>Дьяченко Алексей · мехмат МГУ<br>Науч. рук. — Валединский В.Д.</div>
   </aside>
 
-  <section class="workspace">
+  <section class="workspace" aria-label="Результаты">
     <div class="model-row">
-      <label title="Модель; , и . переключают в активном вьюпорте">модель <select id="modelSel"></select></label>
+      <label class="model-pick" title="Модель; , и . переключают в активном вьюпорте"><span>Модель</span><select id="modelSel"></select></label>
       <span id="batchInfo" class="meta"></span>
     </div>
 
     <div id="viewers" class="viewer-grid"></div>
 
-    <div id="hsplit" class="split-h" title="Потяните, чтобы изменить высоту вьюпортов"></div>
+    <div id="hsplit" class="split-h" role="separator" aria-orientation="horizontal" title="Потяните, чтобы изменить высоту вьюпортов"></div>
     <div id="workspaceBottom" class="workspace-bottom">
-    <div class="toolbar">
-      <label>раскраска
-        <select id="colorMode" title="Режим раскраски (1–7)">
-          <option value="solid_edges">заливка + рёбра</option>
-          <option value="solid">однотонная</option>
-          <option value="face">грани разными цветами</option>
-          <option value="area">по площади грани</option>
-          <option value="wire">каркас</option>
-          <option value="edges">рёбра</option>
-          <option value="points">вершины</option>
-        </select>
-      </label>
-      <label>выделять
-        <select id="selTarget" title="Что выделять (V)">
-          <option value="face">грани</option>
-          <option value="vertex">вершины</option>
-          <option value="edge">рёбра</option>
-          <option value="section">сечения</option>
-        </select>
-      </label>
-      <button id="boxSel" class="tool-toggle" aria-pressed="false" title="Режим рамки (B): ЛКМ выделяет элементы под рамкой, Shift — добавить, Ctrl — убрать, ПКМ — вращать">Рамка</button>
-      <button id="selInvert" title="Инвертировать выделение (Shift+I)">Инверсия</button>
-      <button id="selGrow" title="Добавить соседние грани (Shift+])">+1 грань</button>
-      <button id="selShrink" title="Убрать крайние грани (Shift+[)">−1 грань</button>
-      <button id="selCopy" title="Скопировать сводку выделения">Копировать</button>
-      <button id="addView" title="Добавить окно (+, до 6)">+ окно</button>
-      <button id="delView" title="Убрать окно (−), минимум одно">− окно</button>
-      <label class="check"><input type="checkbox" id="syncCam" title="Общая камера (C)" checked> общая камера</label>
-      <button id="selAll" title="Выделить всё (A)">Выделить всё</button>
-      <button id="selClear" title="Снять выделение (Alt+A)">Снять выделение</button>
-      <label class="check"><input type="checkbox" id="isoSel" title="Скрыть всё, кроме выделенного (L)"> только выделенное</label>
-      <label class="check"><input type="checkbox" id="orthoSel" title="Ортогональный вид (P)"> ортогональный вид</label>
-      <button id="resetBtn" title="Сбросить вид (G)">Сбросить вид</button>
-      <button id="objBtn" title="Скачать OBJ (O)">Скачать OBJ</button>
-      <button id="objSelBtn" title="Скачать только выделенные грани" disabled>OBJ выделения</button>
-      <button id="clearCache" title="Удалить сохранённые результаты и загруженные файлы">Очистить кеш</button>
-      <a id="csvLink" href="/api/export.csv">CSV метрик</a>
-    </div>
+      <div class="toolbar" role="toolbar" aria-label="Инструменты вьюпортов">
+        <div class="tgroup" role="group" aria-label="Отображение">
+          <span class="tgroup-label">Вид</span>
+          <select id="colorMode" title="Режим раскраски (1–7)" aria-label="Режим раскраски">
+            <option value="solid_edges">заливка + рёбра</option>
+            <option value="solid">однотонная</option>
+            <option value="face">грани разными цветами</option>
+            <option value="area">по площади грани</option>
+            <option value="wire">каркас</option>
+            <option value="edges">рёбра</option>
+            <option value="points">вершины</option>
+          </select>
+          <label class="toggle" title="Ортогональный вид (P)"><input type="checkbox" id="orthoSel"><span>орто</span></label>
+          <button id="resetBtn" type="button" title="Сбросить вид (G)"><svg class="icon"><use href="#i-reset"/></svg>Сбросить вид</button>
+        </div>
+        <div class="tgroup" role="group" aria-label="Выделение">
+          <span class="tgroup-label">Выделение</span>
+          <select id="selTarget" title="Что выделять (V)" aria-label="Что выделять">
+            <option value="face">грани</option>
+            <option value="vertex">вершины</option>
+            <option value="edge">рёбра</option>
+            <option value="section">сечения</option>
+          </select>
+          <button id="boxSel" class="tool-toggle" type="button" aria-pressed="false" title="Режим рамки (B): ЛКМ выделяет элементы под рамкой, Shift — добавить, Ctrl — убрать, ПКМ — вращать"><svg class="icon"><use href="#i-marquee"/></svg>Рамка</button>
+          <button id="selAll" type="button" title="Выделить всё (A)">Всё</button>
+          <button id="selClear" type="button" title="Снять выделение (Alt+A, Esc)">Снять</button>
+          <button id="selInvert" type="button" title="Инвертировать выделение (Shift+I)">Инверсия</button>
+          <button id="selGrow" type="button" title="Добавить соседние грани (Shift+])">+1 грань</button>
+          <button id="selShrink" type="button" title="Убрать крайние грани (Shift+[)">−1 грань</button>
+          <label class="toggle" title="Скрыть всё, кроме выделенного (L)"><input type="checkbox" id="isoSel"><span>только выделенное</span></label>
+          <button id="selCopy" type="button" title="Скопировать сводку выделения"><svg class="icon"><use href="#i-copy"/></svg>Сводка</button>
+        </div>
+        <div class="tgroup" role="group" aria-label="Окна">
+          <span class="tgroup-label">Окна</span>
+          <button id="addView" type="button" title="Добавить окно (+, до 6)" aria-label="Добавить окно"><svg class="icon"><use href="#i-plus"/></svg></button>
+          <button id="delView" type="button" title="Убрать окно (−), минимум одно" aria-label="Убрать окно"><svg class="icon"><use href="#i-minus"/></svg></button>
+          <label class="toggle" title="Общая камера (C)"><input type="checkbox" id="syncCam" checked><span>общая камера</span></label>
+        </div>
+        <div class="tgroup" role="group" aria-label="Экспорт">
+          <span class="tgroup-label">Экспорт</span>
+          <button id="objBtn" type="button" title="Скачать OBJ активного окна (O)">OBJ</button>
+          <button id="objSelBtn" type="button" title="Скачать только выделенные грани (Shift+O)" disabled>OBJ выделения</button>
+          <a id="csvLink" class="btn" href="/api/export.csv" title="Все метрики в CSV">CSV</a>
+          <button id="clearCache" class="danger-ghost" type="button" title="Удалить сохранённые результаты и загруженные файлы"><svg class="icon"><use href="#i-trash"/></svg>Очистить кеш</button>
+        </div>
+      </div>
 
-    <div id="boxHint" class="diff box-hint hidden">Рамка: ЛКМ — выделить элементы выбранного типа, Shift — добавить, Ctrl — убрать, ПКМ — вращать. Выход — B или Esc.</div>
-    <div class="diff" id="selectionInfo">Выделение: —</div>
-    <div class="diff" id="diffLine">Сравнение: —</div>
-    <div class="table-wrap">
-      <table id="metricsTable">
-        <thead>
-          <tr><th>вариант</th><th>качество</th><th>MSE</th><th>RMSE</th><th>d<sub>max</sub></th><th>вершин</th><th>граней</th><th>точек</th><th>время</th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
+      <div class="info-lines">
+        <div id="boxHint" class="diff box-hint hidden">Рамка: ЛКМ — выделить элементы выбранного типа, Shift — добавить, Ctrl — убрать, ПКМ — вращать. Выход — B или Esc.</div>
+        <div class="diff" id="selectionInfo">Выделение: —</div>
+        <div class="diff" id="diffLine">Сравнение: —</div>
+      </div>
 
-    <div class="table-wrap batch">
-      <table id="batchTable">
-        <thead>
-          <tr><th>модель</th><th>лучший со сглаживанием</th><th>MSE</th><th>RMSE</th><th>d<sub>max</sub></th><th>качество</th><th>время</th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
+      <div class="tables">
+        <section class="table-card">
+          <h4>Варианты модели <small>клик — в окно 2, Shift+клик — в окно 1</small></h4>
+          <div class="table-wrap">
+            <table id="metricsTable">
+              <thead>
+                <tr><th scope="col">вариант</th><th scope="col">качество</th><th scope="col">MSE</th><th scope="col">RMSE</th><th scope="col">d<sub>max</sub></th><th scope="col">вершин</th><th scope="col">граней</th><th scope="col">точек</th><th scope="col">время</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+        <section class="table-card">
+          <h4>Пакет моделей <small>лучший вариант со сглаживанием</small></h4>
+          <div class="table-wrap batch">
+            <table id="batchTable">
+              <thead>
+                <tr><th scope="col">модель</th><th scope="col">лучший со сглаживанием</th><th scope="col">MSE</th><th scope="col">RMSE</th><th scope="col">d<sub>max</sub></th><th scope="col">качество</th><th scope="col">время</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
     </div>
     <div id="loadOverlay" class="load-overlay hidden" aria-hidden="true">
       <div class="load-rings"><span></span><span></span><span></span></div>
@@ -235,14 +335,13 @@
     <div class="bar"><div id="barFill"></div></div>
     <div class="prow psmall"><span id="progressDetail">—</span><span id="progressTime"></span></div>
   </div>
-  <button id="progressClose" class="pclose hidden" title="Скрыть">×</button>
+  <button id="progressClose" class="pclose icon-btn hidden" type="button" title="Скрыть" aria-label="Скрыть"><svg class="icon"><use href="#i-close"/></svg></button>
 </div>
-
 
 <div id="fullLive" class="full-live" aria-label="Живой предпросмотр в полноэкранном режиме">
   <div class="full-live-head">
     <span class="full-live-title">Живой предпросмотр</span>
-    <button id="fullLiveToggle" class="full-live-toggle" type="button" aria-expanded="true" aria-controls="fullLiveBody" title="Свернуть панель">⌄</button>
+    <button id="fullLiveToggle" class="full-live-toggle" type="button" aria-expanded="true" aria-controls="fullLiveBody" title="Свернуть панель"><svg class="icon"><use href="#i-chevron"/></svg></button>
   </div>
   <div id="fullLiveBody" class="full-live-body">
     <div class="full-live-body-inner">
@@ -262,10 +361,10 @@
 </div>
 
 <div id="helpModal" class="modal hidden">
-  <div class="modal-card">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
     <div class="modal-head">
-      <h2>Справка</h2>
-      <button id="helpClose" class="help-close" title="Закрыть">×</button>
+      <h2 id="helpTitle">Справка</h2>
+      <button id="helpClose" class="help-close" type="button" title="Закрыть" aria-label="Закрыть"><svg class="icon"><use href="#i-close"/></svg></button>
     </div>
     <div class="modal-body">
       <h3>Оценка качества</h3>
@@ -274,15 +373,15 @@
       и dmax ≤ 0.30; иначе <b>плохо</b>. Бейдж стоит в таблице вариантов,
       у каждого окна и в пакетной таблице.</p>
       <h3>Выделение</h3>
-      <p>«Выделять» переключает грани, вершины, рёбра и сечения (V — по кругу).
+      <p>«Выделение» переключает грани, вершины, рёбра и сечения (V — по кругу).
       Клик — один элемент, Shift — путь по соседям от последней выбранной,
       Ctrl/Cmd — добавить или убрать, клик по пустому — снять; при смене
       режима выделение не сбрасывается. Для вершин работает та же логика
       родитель-ребёнок: подсвечиваются родительские грани и все их вершины;
       для рёбер — путь по общим вершинам. «Только выделенное» (L) скрывает
-      всё остальное. A — выделить всё, Alt+A — снять. Выделение сразу видно
-      во всех окнах: если разбиение другое, подсвечиваются все грани,
-      покрывающие выбранную область, и их вершины.</p>
+      всё остальное. A — выделить всё в активном окне, Alt+A — снять.
+      Выделение сразу видно во всех окнах: если разбиение другое,
+      подсвечиваются все грани, покрывающие выбранную область, и их вершины.</p>
       <h3>Рамка</h3>
       <p>Кнопка «Рамка» (B) включает режим, в котором левая кнопка мыши не
       вращает модель, а тянет прямоугольник. При отпускании выделяются
@@ -290,31 +389,34 @@
       Shift — добавить, Ctrl/Cmd — убрать. Вращение в этом режиме — правой
       кнопкой, зум — колесом. Повторное B или Esc выключает рамку. Когда
       рамка выключена и справка закрыта, Esc снимает всё выделение (как Alt+A),
-      в том числе в полноэкранном виде. При смене
-      типа выделения ранее выбранные элементы сохраняются и остаются
-      подсвеченными: можно набрать грани, переключиться на рёбра и добавить
-      их к тому же набору. «Инверсия» (Shift+I) работает с активным типом;
-      «+1 грань» и «−1 грань» (Shift+] и Shift+[) расширяют или сужают
-      выделение граней по соседям. Пока рамка протягивается, кандидаты
-      подсвечиваются сразу: синим — замена, зелёным — добавление, красным —
-      вычитание; в подписи рамки видно количество. Сводка показывает
-      количество по типам, площадь и долю поверхности, число вершин.
-      «Копировать» кладёт в буфер текстовую сводку, а не геометрию;
+      в том числе в полноэкранном виде. При смене типа выделения ранее
+      выбранные элементы сохраняются и остаются подсвеченными. «Инверсия»
+      (Shift+I) работает с активным типом; «+1 грань» и «−1 грань» (Shift+] и
+      Shift+[) расширяют или сужают выделение граней по соседям. Пока рамка
+      протягивается, кандидаты подсвечиваются сразу: жёлтым — замена,
+      зелёным — добавление, красным — вычитание; в подписи рамки видно
+      количество. «Сводка» кладёт в буфер текстовую сводку выделения, а
       «OBJ выделения» сохраняет только выбранные грани.</p>
       <h3>Окна, размер и камера</h3>
-      <p>Окон от 1 до 6: «+ окно» и «− окно», в каждом свой вариант.
-      Галочка «общая камера» повторяет вращение и зум во всех окнах. Кнопка «⤢» разворачивает вьюпорт на всю область и показывает все окна; в полноэкранном режиме кнопки «+ окно» и «− окно» в шапке вьюпорта добавляют и убирают окна, не выходя из него. Повторное нажатие «⤢» возвращает сетку.</p>
-      <p>3D-оси в правом нижнем углу вьюпорта показывают ориентацию камеры. Клик по X, Y или Z плавно выравнивает камеру по этой оси. Ортогональный вид включается галочкой в панели или клавишей P.</p>
+      <p>Окон от 1 до 6: кнопки «+» и «−» в группе «Окна», в каждом свой вариант.
+      Переключатель «общая камера» повторяет вращение и зум во всех окнах.
+      Кнопка развёртывания в шапке вьюпорта показывает все окна на весь экран;
+      там же можно добавлять и убирать окна. Повторное нажатие или F
+      возвращает сетку. Высоту вьюпортов меняет разделитель.</p>
+      <p>3D-оси в правом нижнем углу вьюпорта показывают ориентацию камеры.
+      Клик по X, Y или Z плавно выравнивает камеру по этой оси.
+      Ортогональный вид включается переключателем «орто» или клавишей P.</p>
       <h3>Данные</h3>
       <p>Демо-тела, несколько файлов OBJ/TXT или папка с подпапками.
-      TXT — три числа в строке: x y z.</p>
+      TXT — три числа в строке: x y z. Имена файлов могут быть на любом языке.</p>
       <h3>Шум и методы</h3>
       <p>r8 — 0.008, r80 — 0.08, свои уровни через запятую — несколько сразу.
       «По углам» — независимый шум опорной функции, как в отчёте.
       Обычная строка «без сглаживания» показывает выпуклую оболочку, а «контуры
       (лофт, Фурье)» — те же сечения, каждое кольцо которых периодически
       сглажено рядом Фурье до сшивания слоёв.
-      Фурье+МНК: M — число гармоник. «Соседи»: k — полуширина окна.
+      Фурье+МНК: M — число гармоник. «Соседи»: k — минимальная полуширина окна,
+      по каждой зоне между минимумами подбирается лучшее окно.
       Полуплоскости — основной режим для реальных огранок, максимумы —
       исходный метод для правильных многогранников.</p>
       <h3>Минимальный многогранник</h3>
@@ -322,32 +424,34 @@
       <h3>Живой предпросмотр</h3>
       <p>Ползунки шума и доли оставленных треугольников обновляют активное
       окно без запуска конвейера. «Оставлено» — 100% без упрощения, 15% —
-      сильное упрощение; движение вправо сохраняет больше граней.
-      При шуме 0 сглаживание не применяется — форма совпадает с точной.
-      Кнопка «6 уровней» строит уровни 100, 70, 50, 35,
+      сильное упрощение. При шуме 0 сглаживание не применяется — форма
+      совпадает с точной. Кнопка «6 уровней» строит уровни 100, 70, 50, 35,
       25 и 15 % оставленных треугольников. Предпросмотр не попадает в таблицу
       и сохраняется только после запуска конвейера. В полноэкранном режиме
-      панель живого предпросмотра доступна слева снизу; её можно свернуть
-      кнопкой со стрелкой. Новый запуск добавляет модели в список, старые
-      остаются до «Очистить кеш»; одинаковые имена различаются временем прогона.</p>
+      панель живого предпросмотра доступна слева снизу. Новый запуск добавляет
+      модели в список, старые остаются до «Очистить кеш».</p>
       <h3>Модели во вьюпортах</h3>
       <p>У каждого окна есть свой выбор модели: можно сравнивать разные прогоны
-      рядом. Верхний список «модель» задаёт модель сразу для всех окон, а выбор
+      рядом. Список «Модель» задаёт модель сразу для всех окон, а выбор
       в шапке окна меняет только это окно.</p>
+      <h3>Оформление</h3>
+      <p>Кнопка темы в шапке переключает «как в системе», светлую и тёмную тему.</p>
       <h3>Горячие клавиши</h3>
-      <p><b>R</b> — запуск, <b>1–7</b> — режим отображения, <b>F</b> — развернуть
-      выбранный вьюпорт на всё окно (повторно — вернуть сетку), <b>+/−</b> — добавить
-      или убрать окно, <b>V</b> — грани → вершины → рёбра → сечения,
-      <b>L</b> — только выделенное, <b>P</b> — ортогональный вид,
-      <b>C</b> — общая камера, <b>A</b> — выделить всё, <b>Alt+A</b> — снять,
-      <b>G</b> — сбросить вид, <b>O</b> — скачать OBJ, <b>S</b> — скриншот вьюпорта,
-      <b>Shift+S</b> — скриншот приложения,
-      <b>,</b> и <b>.</b> — предыдущая и следующая модель в активном вьюпорте,
-      <b>[</b> и <b>]</b> — вариант обработки в нём, <b>?</b> — справка,
-      <b>I</b> — о программе.
-      Хоткеи работают и в русской, и в английской раскладке.</p>
+      <p><kbd>R</kbd> — запуск, <kbd>1</kbd>–<kbd>7</kbd> — режим отображения, <kbd>F</kbd> — развернуть
+      вьюпорт (повторно — вернуть сетку), <kbd>+</kbd>/<kbd>−</kbd> — добавить
+      или убрать окно, <kbd>V</kbd> — грани → вершины → рёбра → сечения,
+      <kbd>B</kbd> — рамка, <kbd>L</kbd> — только выделенное, <kbd>P</kbd> — ортогональный вид,
+      <kbd>C</kbd> — общая камера, <kbd>A</kbd> — выделить всё, <kbd>Alt+A</kbd> — снять,
+      <kbd>G</kbd> — сбросить вид, <kbd>O</kbd> — скачать OBJ, <kbd>S</kbd> — скриншот вьюпорта,
+      <kbd>Shift+S</kbd> — скриншот приложения,
+      <kbd>,</kbd> и <kbd>.</kbd> — предыдущая и следующая модель в активном вьюпорте,
+      <kbd>[</kbd> и <kbd>]</kbd> — вариант обработки в нём, <kbd>?</kbd> — справка,
+      <kbd>I</kbd> — о программе.
+      Клавиши работают и в русской, и в английской раскладке.</p>
       <h3>Экспорт</h3>
-      <p>OBJ и PNG сохраняются из активного подсвеченного вьюпорта. В macOS-приложении открывается системный диалог сохранения, в браузере файлы попадают в папку загрузок. CSV — все метрики.</p>
+      <p>OBJ и PNG сохраняются из активного вьюпорта. В приложении открывается
+      системный диалог сохранения, в браузере файлы попадают в папку загрузок.
+      CSV — все метрики.</p>
       <h3>О программе</h3>
       <p><b>Огранка {{APP_VERSION}}</b>. Создатель — Дьяченко Алексей, 5 курс,
       мехмат МГУ, кафедра вычислительной математики.
@@ -357,23 +461,30 @@
 </div>
 
 <div id="aboutModal" class="modal hidden">
-  <div class="modal-card about-card">
+  <div class="modal-card about-card" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
     <div class="modal-head">
-      <h2>О программе</h2>
-      <button id="aboutClose" class="help-close" title="Закрыть">×</button>
+      <h2 id="aboutTitle">О программе</h2>
+      <button id="aboutClose" class="help-close" type="button" title="Закрыть" aria-label="Закрыть"><svg class="icon"><use href="#i-close"/></svg></button>
     </div>
     <div class="modal-body">
-      <p><b>Огранка {{APP_VERSION}} · сборка {{APP_BUILD}}</b> — восстановление формы по зашумлённым
-      горизонтальным сечениям и построение минимального многогранника.</p>
+      <div class="about-hero">
+        <svg class="about-mark" aria-hidden="true"><use href="#i-logo"/></svg>
+        <div>
+          <div class="about-name">Огранка {{APP_VERSION}}</div>
+          <div class="about-build">сборка {{APP_BUILD}}</div>
+        </div>
+      </div>
+      <p>Восстановление формы по зашумлённым горизонтальным сечениям и
+      построение минимального многогранника.</p>
       <p><b>Создатель:</b> Дьяченко Алексей, 5 курс,
       мехмат МГУ, кафедра вычислительной математики.</p>
       <p><b>Научный руководитель:</b> Валединский Владимир Дмитриевич.</p>
-      <p class="about-copy">© 2026 Дьяченко Алексей</p>
+      <p class="about-copy">© 2026 Дьяченко Алексей · MIT</p>
       <div class="about-actions">
-        <button id="tourBtn" class="tour-start">Пройти тур</button>
-        <button id="checkUpdates" class="update-check">Проверить обновления</button>
-        <button id="changelogBtn" class="update-check">История изменений</button>
-        <button id="feedbackBtn" class="update-check">Обратная связь</button>
+        <button id="tourBtn" class="tour-start" type="button">Пройти тур</button>
+        <button id="checkUpdates" class="update-check" type="button">Проверить обновления</button>
+        <button id="changelogBtn" class="update-check" type="button">История изменений</button>
+        <button id="feedbackBtn" class="update-check" type="button">Обратная связь</button>
       </div>
       <p id="updateState" class="update-state" aria-live="polite"></p>
     </div>
@@ -381,13 +492,13 @@
 </div>
 
 <div id="updateModal" class="modal hidden">
-  <div class="modal-card update-card">
+  <div class="modal-card update-card" role="dialog" aria-modal="true" aria-labelledby="updateTitle">
     <div class="modal-head">
       <div>
         <h2 id="updateTitle">Доступно обновление</h2>
         <div id="updateMeta" class="update-meta"></div>
       </div>
-      <button id="updateClose" class="help-close" title="Закрыть">×</button>
+      <button id="updateClose" class="help-close" type="button" title="Закрыть" aria-label="Закрыть"><svg class="icon"><use href="#i-close"/></svg></button>
     </div>
     <div class="modal-body update-body">
       <div id="updateNotes" class="update-notes"></div>
@@ -395,21 +506,21 @@
       <div id="updateProgress" class="update-progress hidden"><span id="updateProgressFill"></span></div>
       <p id="updateInstallHint" class="update-hint"></p>
       <div class="update-actions">
-        <button id="updateDownload" class="update-download">Установить и перезапустить</button>
-        <button id="updateRelease" class="update-release">Страница релиза</button>
+        <button id="updateDownload" class="update-download" type="button">Установить и перезапустить</button>
+        <button id="updateRelease" class="update-release" type="button">Страница релиза</button>
       </div>
     </div>
   </div>
 </div>
 
 <div id="changelogModal" class="modal hidden">
-  <div class="modal-card changelog-card">
+  <div class="modal-card changelog-card" role="dialog" aria-modal="true" aria-labelledby="changelogTitle">
     <div class="modal-head">
       <div>
-        <h2>История изменений</h2>
+        <h2 id="changelogTitle">История изменений</h2>
         <div id="changelogMeta" class="update-meta"></div>
       </div>
-      <button id="changelogClose" class="help-close" title="Закрыть">×</button>
+      <button id="changelogClose" class="help-close" type="button" title="Закрыть" aria-label="Закрыть"><svg class="icon"><use href="#i-close"/></svg></button>
     </div>
     <div class="modal-body">
       <div id="changelogList" class="changelog-list">
@@ -420,21 +531,21 @@
 </div>
 
 <div id="feedbackModal" class="modal hidden">
-  <div class="modal-card feedback-card github-card">
+  <div class="modal-card feedback-card github-card" role="dialog" aria-modal="true" aria-labelledby="feedbackTitle">
     <div class="modal-head">
       <div>
-        <h2>Обратная связь</h2>
+        <h2 id="feedbackTitle">Обратная связь</h2>
         <div class="update-meta">GitHub · можно приложить файлы и скриншоты</div>
       </div>
-      <button id="feedbackClose" class="help-close" title="Закрыть">×</button>
+      <button id="feedbackClose" class="help-close" type="button" title="Закрыть" aria-label="Закрыть"><svg class="icon"><use href="#i-close"/></svg></button>
     </div>
     <div class="modal-body">
       <div class="feedback-tabs" role="tablist">
-        <button class="feedback-tab active" data-feedback-tab="send" role="tab">Отправить</button>
-        <button class="feedback-tab" data-feedback-tab="issues" role="tab">Проблемы GitHub</button>
+        <button class="feedback-tab active" type="button" data-feedback-tab="send" role="tab" aria-selected="true">Отправить</button>
+        <button class="feedback-tab" type="button" data-feedback-tab="issues" role="tab" aria-selected="false">Проблемы GitHub</button>
       </div>
       <div id="feedbackPanes" class="feedback-panes">
-      <div id="feedbackSendPane" class="feedback-pane">
+      <div id="feedbackSendPane" class="feedback-pane" role="tabpanel">
         <label class="feedback-field">Тип
           <select id="feedbackType">
             <option value="Ошибка">Ошибка</option>
@@ -443,26 +554,28 @@
             <option value="Другое">Другое</option>
           </select>
         </label>
-        <label class="feedback-field">Имя <span>(необязательно)</span>
-          <input id="feedbackName" type="text" maxlength="120" autocomplete="name">
-        </label>
-        <label class="feedback-field">Контакт <span>(необязательно)</span>
-          <input id="feedbackContact" type="text" maxlength="200" autocomplete="email">
-        </label>
+        <div class="feedback-grid">
+          <label class="feedback-field">Имя <span>(необязательно)</span>
+            <input id="feedbackName" type="text" maxlength="120" autocomplete="name">
+          </label>
+          <label class="feedback-field">Контакт <span>(необязательно)</span>
+            <input id="feedbackContact" type="text" maxlength="200" autocomplete="email">
+          </label>
+        </div>
         <label class="feedback-field">Сообщение
           <textarea id="feedbackText" rows="6" maxlength="8000" placeholder="Что случилось или что стоит улучшить?"></textarea>
         </label>
         <p class="feedback-hint">Откроется GitHub в браузере, где вы уже авторизованы. Текст подставится автоматически; там можно приложить файлы и скриншоты.</p>
         <div class="feedback-actions">
-          <button id="feedbackOpenBrowser" class="feedback-send">Открыть в браузере</button>
-          <button id="feedbackCopy">Скопировать текст</button>
+          <button id="feedbackOpenBrowser" class="feedback-send" type="button">Открыть в браузере</button>
+          <button id="feedbackCopy" type="button">Скопировать текст</button>
         </div>
         <p id="feedbackStatus" class="feedback-status" aria-live="polite"></p>
       </div>
-      <div id="feedbackIssuesPane" class="feedback-pane hidden">
+      <div id="feedbackIssuesPane" class="feedback-pane hidden" role="tabpanel">
         <div class="github-issues-head">
           <span id="githubIssuesMeta">Загружаю проблемы…</span>
-          <button id="githubIssuesRefresh" class="update-check">Обновить</button>
+          <button id="githubIssuesRefresh" class="update-check" type="button">Обновить</button>
         </div>
         <div id="githubIssuesList" class="github-issues-list">
           <p class="feedback-empty">Загружаю…</p>
@@ -484,40 +597,40 @@
     </div>
     <div id="shotCropTools" class="shot-panel-row">
       <span class="shot-kicker">Область</span>
-      <button id="shotCropAll">Всё окно</button>
-      <button id="shotCropApply" class="shot-primary">Применить кроп</button>
+      <button id="shotCropAll" type="button">Всё окно</button>
+      <button id="shotCropApply" class="shot-primary" type="button">Применить кроп</button>
     </div>
     <div id="shotEditTools" class="shot-panel-row hidden">
       <span class="shot-kicker">Пометки</span>
-      <button class="shot-tool active" data-shot-tool="move" title="Перетаскивать скриншот и пометки">Перетаскивать</button>
-      <button class="shot-tool" data-shot-tool="circle">Круг</button>
-      <button class="shot-tool" data-shot-tool="line">Линия</button>
-      <button class="shot-tool" data-shot-tool="arrow">Стрелка</button>
-      <button class="shot-tool" data-shot-tool="text">Текст</button>
-      <button class="shot-tool" data-shot-tool="marker">Маркер</button>
+      <button class="shot-tool active" type="button" data-shot-tool="move" title="Перетаскивать скриншот и пометки">Перетаскивать</button>
+      <button class="shot-tool" type="button" data-shot-tool="circle">Круг</button>
+      <button class="shot-tool" type="button" data-shot-tool="line">Линия</button>
+      <button class="shot-tool" type="button" data-shot-tool="arrow">Стрелка</button>
+      <button class="shot-tool" type="button" data-shot-tool="text">Текст</button>
+      <button class="shot-tool" type="button" data-shot-tool="marker">Маркер</button>
       <span class="shot-divider"></span>
       <div class="shot-colors" aria-label="Цвет">
-        <button class="shot-swatch active" data-shot-color="#ff4d4f" style="--swatch:#ff4d4f" title="Красный"></button>
-        <button class="shot-swatch" data-shot-color="#ffd166" style="--swatch:#ffd166" title="Жёлтый"></button>
-        <button class="shot-swatch" data-shot-color="#4ade80" style="--swatch:#4ade80" title="Зелёный"></button>
-        <button class="shot-swatch" data-shot-color="#38bdf8" style="--swatch:#38bdf8" title="Голубой"></button>
-        <button class="shot-swatch" data-shot-color="#a78bfa" style="--swatch:#a78bfa" title="Фиолетовый"></button>
-        <button class="shot-swatch" data-shot-color="#ffffff" style="--swatch:#ffffff" title="Белый"></button>
+        <button class="shot-swatch active" type="button" data-shot-color="#ff4d4f" style="--swatch:#ff4d4f" title="Красный" aria-label="Красный"></button>
+        <button class="shot-swatch" type="button" data-shot-color="#ffd166" style="--swatch:#ffd166" title="Жёлтый" aria-label="Жёлтый"></button>
+        <button class="shot-swatch" type="button" data-shot-color="#4ade80" style="--swatch:#4ade80" title="Зелёный" aria-label="Зелёный"></button>
+        <button class="shot-swatch" type="button" data-shot-color="#38bdf8" style="--swatch:#38bdf8" title="Голубой" aria-label="Голубой"></button>
+        <button class="shot-swatch" type="button" data-shot-color="#a78bfa" style="--swatch:#a78bfa" title="Фиолетовый" aria-label="Фиолетовый"></button>
+        <button class="shot-swatch" type="button" data-shot-color="#ffffff" style="--swatch:#ffffff" title="Белый" aria-label="Белый"></button>
       </div>
-      <input id="shotColor" type="color" value="#ff4d4f" title="Свой цвет">
-      <input id="shotWidth" type="range" min="1" max="14" value="3" title="Толщина">
-      <button id="shotUndo" class="shot-history" title="Отменить (Ctrl+Z)" aria-label="Отменить">↶</button>
-      <button id="shotRedo" class="shot-history" title="Повторить (Ctrl+Shift+Z)" aria-label="Повторить">↷</button>
-      <button id="shotDelete" title="Удалить выбранную пометку">Удалить</button>
-      <button id="shotSave" class="shot-primary">Сохранить</button>
+      <input id="shotColor" type="color" value="#ff4d4f" title="Свой цвет" aria-label="Свой цвет">
+      <input id="shotWidth" type="range" min="1" max="14" value="3" title="Толщина" aria-label="Толщина">
+      <button id="shotUndo" class="shot-history" type="button" title="Отменить (Ctrl+Z)" aria-label="Отменить">↶</button>
+      <button id="shotRedo" class="shot-history" type="button" title="Повторить (Ctrl+Shift+Z)" aria-label="Повторить">↷</button>
+      <button id="shotDelete" type="button" title="Удалить выбранную пометку">Удалить</button>
+      <button id="shotSave" class="shot-primary" type="button">Сохранить</button>
     </div>
     <div class="shot-panel-foot">
       <span class="shot-zoom-label">Масштаб</span>
-      <button id="shotZoomOut" title="Уменьшить">−</button>
+      <button id="shotZoomOut" type="button" title="Уменьшить" aria-label="Уменьшить">−</button>
       <span id="shotZoomValue">100%</span>
-      <button id="shotZoomIn" title="Увеличить">+</button>
+      <button id="shotZoomIn" type="button" title="Увеличить" aria-label="Увеличить">+</button>
       <span id="shotHint" class="shot-hint">Выберите область кропа или нажмите «Всё окно».</span>
-      <button id="shotClose" class="shot-close" title="Закрыть (Esc)">Закрыть</button>
+      <button id="shotClose" class="shot-close" type="button" title="Закрыть (Esc)">Закрыть</button>
     </div>
   </div>
   <textarea id="shotTextInput" class="shot-text-input hidden" spellcheck="false" placeholder="Текст"></textarea>
@@ -529,38 +642,32 @@
     <strong>Обновление установлено</strong>
     <span id="restartToastText"></span>
   </div>
-  <button id="restartToastClose" class="corner-toast-close" title="Закрыть">×</button>
+  <button id="restartToastClose" class="corner-toast-close" type="button" title="Закрыть" aria-label="Закрыть"><svg class="icon"><use href="#i-close"/></svg></button>
 </div>
 
 <div id="updateToast" class="corner-toast update-toast hidden" role="status" aria-live="polite">
-  <div class="corner-toast-mark update-toast-mark" aria-hidden="true">↓</div>
+  <div class="corner-toast-mark update-toast-mark" aria-hidden="true"><svg class="icon"><use href="#i-download"/></svg></div>
   <div class="corner-toast-copy">
     <strong>Доступно обновление</strong>
     <span id="updateToastText"></span>
   </div>
-  <button id="updateToastOpen" class="corner-toast-action">Открыть</button>
-  <button id="updateToastClose" class="corner-toast-close" title="Закрыть">×</button>
+  <button id="updateToastOpen" class="corner-toast-action" type="button">Открыть</button>
+  <button id="updateToastClose" class="corner-toast-close" type="button" title="Закрыть" aria-label="Закрыть"><svg class="icon"><use href="#i-close"/></svg></button>
 </div>
 
 <div id="tour" class="tour hidden">
   <div id="tourHole" class="tour-hole" hidden></div>
-  <div id="tourCard" class="tour-card">
+  <div id="tourCard" class="tour-card" role="dialog" aria-modal="true" aria-labelledby="tourTitle">
     <div id="tourStepLabel" class="tour-step"></div>
     <h2 id="tourTitle"></h2>
     <p id="tourText"></p>
     <div class="tour-actions">
-      <button id="tourSkip" class="tour-skip">Пропустить</button>
+      <button id="tourSkip" class="tour-skip" type="button">Пропустить</button>
       <span class="tour-spacer"></span>
-      <button id="tourPrev">Назад</button>
-      <button id="tourNext" class="primary">Далее</button>
+      <button id="tourPrev" type="button">Назад</button>
+      <button id="tourNext" class="primary" type="button">Далее</button>
     </div>
   </div>
 </div>
-
-<script src="/js/core.js?v={{APP_VERSION}}-{{APP_BUILD}}"></script>
-<script src="/js/viewer.js?v={{APP_VERSION}}-{{APP_BUILD}}"></script>
-<script src="/js/live.js?v={{APP_VERSION}}-{{APP_BUILD}}"></script>
-<script src="/js/tour.js?v={{APP_VERSION}}-{{APP_BUILD}}"></script>
-<script src="/app.js?v={{APP_VERSION}}-{{APP_BUILD}}"></script>
 </body>
 </html>

@@ -1,36 +1,42 @@
-"""Demo/file sources and reconstruction quality labels."""
+"""Источники моделей (демо-тела, OBJ/TXT) и оценка качества восстановления."""
+from __future__ import annotations
+
 import os
 
 import numpy as np
 
 from core import pipeline
 
+DEMO_TITLES = {
+    "octa": "Октаэдр",
+    "icosa": "Икосаэдр",
+    "dodeca": "Додекаэдр",
+    "diamond": "Бриллиант",
+    "cube": "Куб",
+    "prism": "Восьмиугольная призма",
+}
+DEMO_NAMES = ["octa", "icosa", "dodeca", "diamond", "cube", "prism"]
 
-def demo_body(name):
-    phi = (1 + 5**0.5) / 2
+GOOD_RMSE = 0.03
+GOOD_DMAX = 0.15
+MEDIUM_RMSE = 0.12
+MEDIUM_DMAX = 0.30
+MODEL_EXTENSIONS = (".obj", ".txt")
+
+
+def demo_body(name: str) -> np.ndarray:
+    """Vertices of a built-in demo body."""
+    phi = (1 + 5 ** 0.5) / 2
     if name == "octa":
         v = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]
     elif name == "icosa":
         v = [
-            [0, 1, phi],
-            [0, 1, -phi],
-            [0, -1, phi],
-            [0, -1, -phi],
-            [1, phi, 0],
-            [1, -phi, 0],
-            [-1, phi, 0],
-            [-1, -phi, 0],
-            [phi, 0, 1],
-            [phi, 0, -1],
-            [-phi, 0, 1],
-            [-phi, 0, -1],
+            [0, 1, phi], [0, 1, -phi], [0, -1, phi], [0, -1, -phi],
+            [1, phi, 0], [1, -phi, 0], [-1, phi, 0], [-1, -phi, 0],
+            [phi, 0, 1], [phi, 0, -1], [-phi, 0, 1], [-phi, 0, -1],
         ]
     elif name == "dodeca":
-        v = []
-        for a in (1, -1):
-            for b in (1, -1):
-                for c in (1, -1):
-                    v.append([a, b, c])
+        v = [[a, b, c] for a in (1, -1) for b in (1, -1) for c in (1, -1)]
         for a in (1, -1):
             for b in (1, -1):
                 v += [[0, a / phi, b * phi], [a / phi, b * phi, 0], [a * phi, 0, b / phi]]
@@ -53,14 +59,7 @@ def demo_body(name):
     return np.asarray(v, float)
 
 
-GOOD_RMSE = 0.03
-GOOD_DMAX = 0.15
-MEDIUM_RMSE = 0.12
-MEDIUM_DMAX = 0.30
-MODEL_EXTENSIONS = (".obj", ".txt")
-
-
-def scan_folder(folder):
+def scan_folder(folder: str) -> list[dict]:
     """Return model files below folder, recursively, in stable display order."""
     root = os.path.abspath(os.path.expanduser(folder))
     if not os.path.isdir(root):
@@ -72,11 +71,7 @@ def scan_folder(folder):
             if name.startswith(".") or not name.lower().endswith(MODEL_EXTENSIONS):
                 continue
             path = os.path.join(base, name)
-            found.append({
-                "kind": "file",
-                "path": path,
-                "name": os.path.relpath(path, root),
-            })
+            found.append({"kind": "file", "path": path, "name": os.path.relpath(path, root)})
     found.sort(key=lambda item: item["name"].lower())
     return found
 
@@ -108,37 +103,39 @@ def quality(m):
     return "bad"
 
 
-def prepare_source(source, report=None):
+def prepare_source(source: dict, report=None):
+    """Load and normalise a source; returns ``(vertices, hull faces, title)``."""
+
     def say(text, frac):
         if report:
             report(text, frac)
 
-    if source["kind"] == "demo":
+    kind = source.get("kind") if isinstance(source, dict) else None
+    if kind == "demo":
+        name = source.get("name")
+        if name not in DEMO_TITLES:
+            raise ValueError(f"неизвестное тело: {name}")
         say("демо-тело", 0.01)
-        v = pipeline.normalize_mesh(demo_body(source["name"]), flip=False)
-        title = {
-            "octa": "Октаэдр",
-            "icosa": "Икосаэдр",
-            "dodeca": "Додекаэдр",
-            "diamond": "Бриллиант",
-            "cube": "Куб",
-            "prism": "Восьмиугольная призма",
-        }[source["name"]]
+        v = pipeline.normalize_mesh(demo_body(name), flip=False)
         say("нормализация", 0.03)
         v, faces = pipeline.hull(v)
         say("выпуклая оболочка", 0.05)
-        return v, faces, title
+        return v, faces, DEMO_TITLES[name]
+    if kind != "file":
+        raise ValueError("неизвестный источник модели")
 
-    path = source["path"]
+    path = source.get("path") or ""
+    if not os.path.isfile(path):
+        raise ValueError(f"файл не найден: {os.path.basename(path) or path}")
+    is_obj = path.lower().endswith(".obj")
     say("чтение файла", 0.01)
     with open(path, encoding="utf-8", errors="ignore") as fh:
         text = fh.read()
-    say("разбор OBJ" if path.lower().endswith(".obj") else "разбор точек", 0.02)
-    if path.lower().endswith(".obj"):
-        v, faces = pipeline.parse_obj(text)
+    say("разбор OBJ" if is_obj else "разбор точек", 0.02)
+    if is_obj:
+        v, _ = pipeline.parse_obj(text)
     else:
         v = pipeline.parse_points(text)
-        faces = []
     if len(v) < 4:
         raise ValueError("меньше четырёх точек")
     say("нормализация", 0.04)
