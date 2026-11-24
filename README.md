@@ -65,7 +65,8 @@ python3 app/app.py
 ```
 
 По умолчанию окно открывается на порту 8765. Полезные ключи:
-`--port 8770`, `--no-window` (только браузер).
+`--port 8770`, `--no-window` (только браузер), `--self-test` (быстрая
+проверка установки или сборки, код выхода 0 — всё в порядке).
 
 fast-simplification — обязательный движок декцимации; Open3D для приложения не нужен.
 Собственного QEM/кластерного fallback больше нет: без fast-simplification
@@ -76,8 +77,8 @@ fast-simplification — обязательный движок декцимаци
 python3 -m pip install open3d   # только для повторения экспериментов отчёта
 ```
 
-Готовые сборки в репозиторий не входят из-за размера: `Огранка.app` — около
-57 МБ, `Ogranka.exe` — около 26 МБ. Собираются локально, инструкции ниже.
+Готовые сборки в репозиторий не входят: их публикует CI в GitHub Releases
+(macOS, Windows, Linux x86_64 и arm64). Локальная сборка описана ниже.
 
 ### 3D-эксперименты
 
@@ -110,21 +111,31 @@ python3 export3D_obj.py          # выгрузка OBJ
 | `Отчет/Dyachenko_AM.tex` | Основной текст курсовой |
 | `Отчет/fig*.png`, `Отчет/app_ui.jpg` | Рисунки для отчёта |
 | `app/` | Приложение «Огранка» |
-| `app/app.py` | HTTP-сервер, API, задания и сохранение прогонов |
+| `app/app.py` | Точка входа: ключи запуска, окно, `--self-test` |
+| `app/server.py` | Локальный HTTP-сервер: статика и JSON API, защита от CSRF |
+| `app/jobs.py` | Задания конвейера, прогресс, сохранение прогонов, CSV |
+| `app/releases.py` | GitHub: обновления, история изменений, issues (с кэшем) |
+| `app/native.py` | Мост pywebview: диалоги сохранения, снимки окна и экрана |
+| `app/paths.py`, `app/versioning.py` | Пути данных; сравнение версий и сборок |
 | `app/config.py` | Версия, автор и подписи приложения |
-| `app/sources.py` | Демо-тела и подготовка OBJ/TXT |
+| `app/sources.py` | Демо-тела, подготовка OBJ/TXT, оценка качества |
 | `app/live.py` | Кэш и расчёт живого предпросмотра |
-| `app/platform_ui.py` | Окна Windows/macOS, About и консоль |
+| `app/updater.py`, `app/delta.py` | Установка обновлений, дельта-загрузка |
+| `app/platform_ui.py` | Окна Windows/macOS/Linux, About и консоль |
 | `app/qhull_compat.py` | Подключение Qhull без полного SciPy |
-| `app/qhull_stub/` | Минимальный namespace для `_qhull` в сборке |
+| `app/qhull_bundle.py` | Сборка Qhull с заглушками LAPACK и array-API для `.spec` |
+| `app/ogranka.spec` | Единый PyInstaller-спек для macOS, Windows и Linux |
 | `app/core/pipeline.py` | Публичный фасад вычислительного ядра |
+| `app/core/variants.py` | Сечения модели, шум, сглаживание, точки — общая часть конвейера и предпросмотра |
 | `app/core/geometry.py`, `denoise.py`, `simplify.py`, `minimal.py`, `metrics.py` | Геометрия, сглаживание, QEM, минимальный многогранник, метрики |
 | `app/static/` | Интерфейс: HTML, CSS, JS, локальный three.js |
-| `app/static/app.js` | Оркестрация: результаты, прогресс, запуск, hotkeys |
-| `app/static/js/` | `core.js`, `viewer.js`, `live.js`, `tour.js` |
-| `app/requirements.txt` | Зависимости приложения |
-| `app/build_windows.bat` | Сборка `Ogranka.exe` на Windows (onefile) |
-| `app/build_version.py` | Генерирует `version_info.txt` из `config.py` |
+| `app/static/app.js` | Запуск интерфейса: тема, связи элементов, горячие клавиши |
+| `app/static/js/` | `core.js`, `viewer.js`, `results.js`, `run.js`, `live.js`, `releases.js`, `shot.js`, `tour.js` |
+| `app/requirements.txt`, `app/requirements-build.txt` | Зависимости приложения и сборки |
+| `app/build_windows.bat`, `app/build_linux.sh` | Сборка `Ogranka.exe` (onefile) и AppImage с самопроверкой |
+| `app/build_version.py` | Генерирует `version_info.txt` и `build_info.py` из `config.py` |
+| `app/tests/` | Модульные, регрессионные и E2E-тесты |
+| `ruff.toml`, `.editorconfig` | Проверка кода и единый стиль файлов |
 | `app/icon.icns`, `app/icon.ico`, `app/icon.png` | Иконки macOS, Windows и Linux |
 | `app/AppRun`, `app/ogranka.desktop` | Точка входа и запись меню AppImage |
 | `reconstruct3D/` | 3D-конвейер и эксперименты |
@@ -143,17 +154,17 @@ python3 export3D_obj.py          # выгрузка OBJ
 | `reconstruct3D/real_data/` | Исходные OBJ сканера (не в git) |
 | `denoise.py`, `denoise_FFT.py`, `denoise_uniform.py` | 2D-сглаживание |
 | `reconstruct.py`, `compare.py`, `visualize.py` | 2D-восстановление и сравнение |
-| `Огранка.app` | Готовая macOS-сборка, 57 МБ (не в git) |
-| `Ogranka.exe` | Готовая Windows-сборка, 26 МБ (не в git) |
+| `Огранка.app`, `Ogranka.exe` | Локальные сборки (не в git) |
 
 > Карта каталога поддерживается в актуальном состоянии. При добавлении,
 > удалении или переименовании файлов обновляйте этот раздел.
 
 ## Что не хранится в git
 
-- `Огранка.app` — около 57 МБ, `Ogranka.exe` — около 26 МБ; собираются локально.
-- `app/build/`, `app/dist/`, `app/dist_new/` — промежуточные артефакты
-  PyInstaller.
+- `Огранка.app`, `Ogranka.exe` — собираются локально или в CI.
+- `app/build/`, `app/dist/`, `app/dist_new/`, `app/build_linux/`,
+  `app/dist_linux/` — промежуточные артефакты PyInstaller.
+- `app/version_info.txt`, `app/build_info.py` — генерируются перед сборкой.
 - `reconstruct3D/real_data/` — сырые OBJ со сканера (179 МБ).
 - `reconstruct3D/out3D/`, `out3D_real/` — результаты экспериментов;
   воспроизводятся скриптами.
@@ -166,14 +177,16 @@ python3 export3D_obj.py          # выгрузка OBJ
 
 ```bash
 cd app
-python3 -m PyInstaller --noconfirm --clean --distpath dist_new --workpath build Ogranka.spec
+python3 -m pip install -r requirements.txt -r requirements-build.txt
+python3 build_version.py
+python3 -m PyInstaller --noconfirm --clean --distpath dist_new --workpath build ogranka.spec
+dist_new/Ogranka.app/Contents/MacOS/Ogranka --self-test
 ```
 
 Готовый бандл — `app/dist_new/Ogranka.app`; его можно переименовать в
 `Огранка.app` и положить в корень. Внутри только Python, NumPy, Qhull-расширение
-и fast-simplification; полный SciPy в сборку не входит. Для дополнительного
-уменьшения на ~2 МБ можно пройтись `strip -x` по `.so`/`.dylib` и подписать
-бандл заново.
+и fast-simplification; полный SciPy и его OpenBLAS в сборку не входят
+(см. `app/qhull_bundle.py`).
 
 ### Windows
 
@@ -183,17 +196,30 @@ python3 -m PyInstaller --noconfirm --clean --distpath dist_new --workpath build 
 app\build_windows.bat
 ```
 
-Скрипт ставит зависимости и собирает один файл `dist\Ogranka.exe`
-(`--onefile`, fast-simplification внутри, иконка `icon.ico`). Первый запуск onefile
-распаковывается 15–30 секунд; SmartScreen может предупредить о неизвестном
-издателе.
+Скрипт ставит зависимости, собирает один файл `dist\Ogranka.exe` по
+`ogranka.spec` и запускает самопроверку. SmartScreen может предупредить о
+неизвестном издателе.
+
+### Linux
+
+```bash
+bash app/build_linux.sh
+```
+
+Скрипт собирает папку PyInstaller, проверяет её, упаковывает AppImage для
+текущей архитектуры, проверяет AppImage и готовит `.zsync` и `.delta.json`.
 
 ## Проверки
 
 ```bash
 python -m unittest discover -s app/tests -t app
+python app/app.py --self-test
+ruff check app
 python reconstruct3D/benchmark_real.py
 ```
+
+E2E-тесты можно прогнать и на собранном приложении:
+`OGRANKA_E2E_BINARY=app/dist_linux/Ogranka/Ogranka python -m unittest discover -s app/tests -t app -p test_e2e.py`.
 
 ## Использование материалов
 
