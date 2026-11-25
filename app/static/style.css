@@ -684,6 +684,7 @@ body.progress-on .full-live { bottom: 108px; }
   transition: opacity .22s ease, transform .28s var(--ease);
 }
 .corner-toast.hidden {
+  display: flex !important;
   opacity: 0; transform: translateY(12px); pointer-events: none; visibility: hidden;
   transition: opacity .22s ease, transform .28s var(--ease), visibility 0s linear .28s;
 }
