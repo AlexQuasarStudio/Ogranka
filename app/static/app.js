@@ -347,9 +347,13 @@ function init() {
     $("batchTable").querySelector("tbody").innerHTML = "";
     $("metricsTable").querySelector("tbody").innerHTML = "";
     App.viewers.forEach((v) => { v.select.innerHTML = ""; v.meta.textContent = ""; v.setMesh(null, App.mode); });
+    clearSelection();
     $("batchInfo").textContent = "кеш очищен · приветствие при следующем запуске";
     $("diffLine").textContent = "Сравнение: —";
-    $("selectionInfo").textContent = "Выделение: —";
+    const status = $("statusText");
+    status.textContent = "Готов к запуску";
+    status.title = "";
+    status.classList.remove("running");
     resetTourSeen();
     App.liveSeq++;
     clearTimeout(App.liveTimer);
@@ -452,11 +456,8 @@ function init() {
   $("aboutModal").onclick = (e) => { if (e.target.id === "aboutModal") $("aboutModal").classList.add("hidden"); };
   $("updateModal").onclick = (e) => { if (e.target.id === "updateModal") $("updateModal").classList.add("hidden"); };
   $("tourSkip").onclick = finishTour;
-  $("tourPrev").onclick = () => { if (App.tourStep > 0) showTourStep(App.tourStep - 1); };
-  $("tourNext").onclick = () => {
-    if (App.tourStep >= TOUR_STEPS.length - 1) finishTour();
-    else showTourStep(App.tourStep + 1);
-  };
+  $("tourPrev").onclick = tourPrev;
+  $("tourNext").onclick = tourNext;
   window.addEventListener("resize", () => {
     if ($("tour").classList.contains("hidden")) return;
     const step = TOUR_STEPS[App.tourStep];
@@ -468,7 +469,15 @@ function init() {
     if (!$("shotLayer").classList.contains("hidden")) return;
     if (tag === "input" || tag === "select" || tag === "textarea" || e.target.isContentEditable) return;
     if (!$("tour").classList.contains("hidden")) {
-      if (e.key === "Escape") finishTour();
+      if (e.key === "Escape") {
+        finishTour();
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        tourNext();
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        tourPrev();
+      }
       return;
     }
     if (e.key === "Escape") {

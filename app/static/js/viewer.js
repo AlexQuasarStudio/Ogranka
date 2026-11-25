@@ -120,12 +120,10 @@ class Viewer {
     this.raycaster.params.Points.threshold = 0.05;
     this.down = null;
     this.canvas.addEventListener("pointerdown", (e) => {
-      const current = activeViewer();
-      if (current && current !== this) {
+      if (activeViewer() !== this) {
         setActiveViewer(this);
         this.down = null;
         this.boxDrag = null;
-        return;
       }
       if (this.boxSelect && e.button === 0) {
         e.preventDefault();
@@ -154,7 +152,7 @@ class Viewer {
         e.preventDefault();
         const drag = this.boxDrag;
         this.boxDrag = null;
-        this.hideMarquee();
+        this.hideMarquee(true);
         try { this.canvas.releasePointerCapture(drag.pointerId); } catch (err) { /* ignore */ }
         if (Math.abs(e.clientX - drag.x0) < 5 && Math.abs(e.clientY - drag.y0) < 5) {
           this.pick(e.clientX, e.clientY, e.shiftKey, e.ctrlKey || e.metaKey);
@@ -916,9 +914,9 @@ class Viewer {
     label.textContent = this._previewCount == null ? size : `${size} · ${this._previewCount}`;
   }
 
-  hideMarquee() {
+  hideMarquee(keepPreview = false) {
     if (this.marqueeEl) this.marqueeEl.classList.add("hidden");
-    this.clearPreview();
+    if (!keepPreview) this.clearPreview();
   }
 
   pointVisible(p) {
@@ -1045,6 +1043,7 @@ class Viewer {
       if (seq !== this._boxSeq) return;
       this.boxBusy = false;
       if (status) status.classList.remove("running");
+      this.clearPreview();
       if (found && this.onBoxPick) this.onBoxPick(this, found.hits, action, found.target);
       else if (status) status.textContent = "Рамка: ничего не выбрано";
     }));

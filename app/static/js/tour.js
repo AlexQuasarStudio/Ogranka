@@ -103,6 +103,15 @@ function showTourStep(i, animate = true) {
   }
 }
 
+function tourPrev() {
+  if (App.tourStep > 0) showTourStep(App.tourStep - 1);
+}
+
+function tourNext() {
+  if (App.tourStep >= TOUR_STEPS.length - 1) finishTour();
+  else showTourStep(App.tourStep + 1);
+}
+
 function startTour(force = false) {
   if (!force && tourSeen()) return;
   clearTimeout(App.tourCloseTimer);
