@@ -479,11 +479,26 @@ class Viewer {
     this.requestRender();
   }
 
+  setEmptyState(title, text) {
+    const empty = this.card.querySelector(".empty-state");
+    if (!empty) return;
+    const strong = empty.querySelector("strong");
+    const span = empty.querySelector("span");
+    if (strong) strong.textContent = title;
+    if (span) span.textContent = text;
+  }
+
   setMesh(mesh, mode, keepView = false) {
     this.cancelBoxWork();
     this.mesh = mesh;
     this.mode = mode;
     this.card.classList.toggle("is-empty", !(mesh && mesh.v && mesh.v.length));
+    if (!mesh || !mesh.v || !mesh.f) {
+      this.setEmptyState(
+        "Модели пока нет",
+        "Выберите тело или файлы слева и запустите конвейер — R",
+      );
+    }
     this.clear();
     if (!mesh || !mesh.v || !mesh.f) {
       this.analyze(null);
@@ -1768,9 +1783,11 @@ async function loadViewer(v) {
   const model = App.models[v.modelIdx] || currentModel();
   const result = model && model.results ? model.results.find((x) => x.id === id) : null;
   if (result && result.kind === "fail") {
+    const error = result.error || "Модель вырождена";
     v.setMesh(null, App.mode, false);
-    v.meta.textContent = result.error || "Модель вырождена";
-    v.meta.title = result.error || "";
+    v.setEmptyState("Модель вырождена", error.replace(/^Модель вырождена:\s*/i, ""));
+    v.meta.textContent = error;
+    v.meta.title = error;
     updateDiff();
     selectionText();
     return;
