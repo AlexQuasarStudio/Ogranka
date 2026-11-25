@@ -1722,6 +1722,16 @@ async function loadViewer(v) {
   if (!id) return;
   const seq = (v.loadSeq || 0) + 1;
   v.loadSeq = seq;
+  const model = App.models[v.modelIdx] || currentModel();
+  const result = model && model.results ? model.results.find((x) => x.id === id) : null;
+  if (result && result.kind === "fail") {
+    v.setMesh(null, App.mode, false);
+    v.meta.textContent = result.error || "Модель вырождена";
+    v.meta.title = result.error || "";
+    updateDiff();
+    selectionText();
+    return;
+  }
   try {
     const r = await meshOf(id);
     if (v.loadSeq !== seq) return;

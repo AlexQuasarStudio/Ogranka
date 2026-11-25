@@ -187,6 +187,7 @@ def _run_variant(mi, vi, rv, method, sections: ModelSections, p: RunParams, repo
             "label": label,
             "kind": "fail",
             "mesh": None,
+            "error": f"Модель вырождена: после обработки осталось {len(pts)} точек (для оболочки нужно не меньше 4)",
             "metrics": dict(EMPTY_METRICS),
             "quality": None,
             "vertices": 0,

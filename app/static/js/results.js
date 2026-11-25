@@ -110,7 +110,9 @@ function renderTable(results) {
     const m = r.metrics || {};
     tr.className = [hasMesh(r) ? "" : "fail", activeId && r.id === activeId ? "selected" : ""]
       .filter(Boolean).join(" ");
-    tr.innerHTML = `<td>${escapeHtml(r.label)}</td><td>${badge(r.quality)}</td><td>${fmt(m.mse)}</td>
+    const quality = r.kind === "fail" ? '<span class="badge bad">вырождена</span>' : badge(r.quality);
+    tr.title = r.error || "";
+    tr.innerHTML = `<td>${escapeHtml(r.label)}</td><td>${quality}</td><td>${fmt(m.mse)}</td>
       <td>${fmt(m.rmse)}</td><td>${fmt(m.dmax)}</td><td>${r.vertices ?? "—"}</td>
       <td>${r.faces ?? "—"}</td><td>${r.points ?? "—"}</td>
       <td>${r.time != null ? r.time + " с" : "—"}</td>`;
