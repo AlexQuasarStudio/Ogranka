@@ -2107,14 +2107,26 @@ function broadcastSelection() {
   updateSelectionActions();
 }
 
+function viewerSelectionCount(x, mode) {
+  if (!x) return 0;
+  return mode === "face" ? (x.selFaces ? x.selFaces.size : 0)
+    : mode === "section" ? (x.hlSections ? x.hlSections.size : 0)
+    : mode === "edge" ? (x.hlEdges ? x.hlEdges.size : 0)
+    : (x.hlVerts ? x.hlVerts.size : 0);
+}
+
 function selectionText() {
   ensureSelBuckets();
   const info = $("selectionInfo");
   const v = activeViewer() || App.viewers[0];
   const counts = {};
-  SEL_MODES.forEach((mode) => { counts[mode] = selectionCount(mode); });
-  const total = selectionTotal();
-  if (!info || !total || !v || !v.mesh) {
+  let total = 0;
+  SEL_MODES.forEach((mode) => {
+    counts[mode] = viewerSelectionCount(v, mode);
+    total += counts[mode];
+  });
+  const anyTotal = selectionTotal();
+  if (!info || !anyTotal || !v || !v.mesh) {
     if (info) info.textContent = "Выделение: —";
     updateSelectionActions();
     return;
@@ -2123,7 +2135,10 @@ function selectionText() {
     const n = counts[mode];
     return `${plural(n, ...SEL_WORDS[mode])}: ${n}`;
   });
-  let text = `Выделение: ${total} ${plural(total, "элемент", "элемента", "элементов")} · ${parts.join(" · ")}`;
+  const partsText = parts.length ? ` · ${parts.join(" · ")}` : "";
+  const activeNo = App.viewers.indexOf(v) + 1;
+  const scope = App.viewers.length > 1 ? ` (окно ${activeNo})` : "";
+  let text = `Выделение${scope}: ${total} ${plural(total, "элемент", "элемента", "элементов")}${partsText}`;
   const faceIds = v.selFaces || new Set();
   let title = "";
   if (faceIds.size) {
@@ -2143,13 +2158,9 @@ function selectionText() {
   }
   const active = App.sel.mode;
   const per = App.viewers.map((x, i) => {
-    const n = active === "face" ? (x.selFaces ? x.selFaces.size : 0)
-      : active === "section" ? (x.hlSections ? x.hlSections.size : 0)
-      : active === "edge" ? (x.hlEdges ? x.hlEdges.size : 0)
-      : (x.hlVerts ? x.hlVerts.size : 0);
-    const isActive = x === v;
-    if (!n && !isActive) return null;
-    return `окно ${i + 1}${isActive ? " (активно)" : ""}: ${n}`;
+    if (x === v) return null;
+    const n = viewerSelectionCount(x, active);
+    return n ? `окно ${i + 1}: ${n}` : null;
   }).filter(Boolean);
   if (per.length) text += " · " + per.join(" · ");
   info.textContent = text;
