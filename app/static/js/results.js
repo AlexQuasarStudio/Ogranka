@@ -79,6 +79,7 @@ function syncPrimaryFromViewer(v) {
   if (sel) sel.value = String(App.modelIdx);
   if ($("metricsTable")) renderTable(model.results);
   updateBatchInfo();
+  updateDiff();
 }
 
 async function setActiveViewerModel(idx) {
@@ -102,11 +103,13 @@ async function cycleActiveModel(delta) {
 
 function renderTable(results) {
   const tb = $("metricsTable").querySelector("tbody");
+  const activeId = activeViewer()?.select?.value;
   tb.innerHTML = "";
   orderedResults(results).forEach((r) => {
     const tr = document.createElement("tr");
     const m = r.metrics || {};
-    tr.className = hasMesh(r) ? "" : "fail";
+    tr.className = [hasMesh(r) ? "" : "fail", activeId && r.id === activeId ? "selected" : ""]
+      .filter(Boolean).join(" ");
     tr.innerHTML = `<td>${escapeHtml(r.label)}</td><td>${badge(r.quality)}</td><td>${fmt(m.mse)}</td>
       <td>${fmt(m.rmse)}</td><td>${fmt(m.dmax)}</td><td>${r.vertices ?? "—"}</td>
       <td>${r.faces ?? "—"}</td><td>${r.points ?? "—"}</td>
@@ -114,8 +117,8 @@ function renderTable(results) {
     tr.onclick = async (e) => {
       const target = e.shiftKey ? App.viewers[0] : App.viewers[1];
       if (!target) return;
-      setActiveViewer(target);
       target.select.value = r.id;
+      setActiveViewer(target);
       await loadViewer(target);
     };
     tb.appendChild(tr);

@@ -2078,7 +2078,9 @@ function selectionText() {
       : active === "section" ? (x.hlSections ? x.hlSections.size : 0)
       : active === "edge" ? (x.hlEdges ? x.hlEdges.size : 0)
       : (x.hlVerts ? x.hlVerts.size : 0);
-    return n ? `окно ${i + 1}: ${n}` : null;
+    const isActive = x === v;
+    if (!n && !isActive) return null;
+    return `окно ${i + 1}${isActive ? " (активно)" : ""}: ${n}`;
   }).filter(Boolean);
   if (per.length) text += " · " + per.join(" · ");
   info.textContent = text;

@@ -330,11 +330,12 @@ async function cycleViewerResult(delta) {
 function fmtDur(sec) {
   const value = Math.max(0, Number(sec) || 0);
   const tenths = Math.round(value * 10) / 10;
+  if (tenths < 60) return `${tenths.toFixed(1)} с`;
   const h = Math.floor(tenths / 3600);
   const m = Math.floor((tenths % 3600) / 60);
   const s = Math.max(0, tenths - h * 3600 - m * 60);
-  const ss = s.toFixed(1).padStart(4, "0");
-  return h ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+  const tail = `${s.toFixed(1)} с`;
+  return h ? `${h} ч ${m} мин ${tail}` : `${m} мин ${tail}`;
 }
 
 function download(name, text, type = "text/plain") {
