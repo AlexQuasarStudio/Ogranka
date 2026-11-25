@@ -147,6 +147,7 @@ class Viewer {
       this.boxDrag.x1 = e.clientX;
       this.boxDrag.y1 = e.clientY;
       this.showMarquee(this.boxDrag.x0, this.boxDrag.y0, this.boxDrag.x1, this.boxDrag.y1);
+      this.queuePreview();
     });
     this.canvas.addEventListener("pointerup", (e) => {
       if (this.boxDrag) {
