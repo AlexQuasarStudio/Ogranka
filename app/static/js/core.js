@@ -192,6 +192,18 @@ function polyArea3(v, f) {
   return 0.5 * Math.hypot(nx, ny, nz);
 }
 
+function faceNormal3(v, f) {
+  let nx = 0, ny = 0, nz = 0;
+  for (let i = 0; i < f.length; i++) {
+    const a = v[f[i]], b = v[f[(i + 1) % f.length]];
+    nx += (a[1] - b[1]) * (a[2] + b[2]);
+    ny += (a[2] - b[2]) * (a[0] + b[0]);
+    nz += (a[0] - b[0]) * (a[1] + b[1]);
+  }
+  const len = Math.hypot(nx, ny, nz);
+  return len > 1e-12 ? [nx / len, ny / len, nz / len] : [0, 0, 0];
+}
+
 // ---------------------------------------------------------------- API
 
 /* POST-запросы несут заголовок X-Ogranka: сервер отклоняет запросы без него,
