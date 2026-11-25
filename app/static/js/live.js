@@ -40,6 +40,10 @@ async function runLive() {
     setLiveHint("Дождитесь завершения конвейера");
     return;
   }
+  if (!App.models.length) {
+    setLiveHint("Сначала запустите конвейер");
+    return;
+  }
   const seq = ++App.liveSeq;
   const target = App.activeViewer && App.viewers.includes(App.activeViewer)
     ? App.activeViewer
