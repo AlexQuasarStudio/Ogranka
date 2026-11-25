@@ -61,7 +61,7 @@ class ModelSections:
             verts, edge_array(faces), int(n_layers), int(n_angles), progress=progress
         )
         if not layers:
-            raise ValueError("модель не пересекается ни одним сечением")
+            raise ValueError("Модель вырождена: ни одно горизонтальное сечение не пересекает тело")
         self.alphas = alphas
         self.zs = np.array([z for z, _ in layers])
         self.r_true = np.vstack([r for _, r in layers])

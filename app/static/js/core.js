@@ -328,9 +328,13 @@ async function cycleViewerResult(delta) {
 }
 
 function fmtDur(sec) {
-  sec = Math.max(0, Math.round(sec || 0));
-  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
-  return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+  const value = Math.max(0, Number(sec) || 0);
+  const tenths = Math.round(value * 10) / 10;
+  const h = Math.floor(tenths / 3600);
+  const m = Math.floor((tenths % 3600) / 60);
+  const s = Math.max(0, tenths - h * 3600 - m * 60);
+  const ss = s.toFixed(1).padStart(4, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
 }
 
 function download(name, text, type = "text/plain") {
