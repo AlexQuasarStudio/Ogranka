@@ -40,7 +40,9 @@ function updateProgress(st) {
   if (st.state === "running" && eta == null && p > 2 && p < 100) eta = elapsed * (100 - p) / p;
   const parts = [];
   if (elapsed >= 1) parts.push(`прошло ${fmtDur(elapsed)}`);
-  if (st.state === "running" && eta) parts.push(`осталось ~${fmtDur(eta)}`);
+  if (st.state === "running" && eta != null && eta > 0) {
+    parts.push(eta < 0.1 ? "осталось < 0.1 с" : `осталось ~${fmtDur(eta)}`);
+  }
   $("progressTime").textContent = parts.join(" · ");
   const busy = App.uploading || (st.state === "running" && (st.progress || 0) < 0.30);
   $("loadOverlay").classList.toggle("hidden", !busy);

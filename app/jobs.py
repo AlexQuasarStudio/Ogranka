@@ -106,12 +106,12 @@ def stage(text: str, progress: float, detail: str = "", eta=None, **extra) -> No
         elapsed = time.time() - started
         p = max(0.0, min(1.0, float(progress)))
         if eta is None and p > 0.02:
-            eta = max(1, int(elapsed / p * (1 - p)))
+            eta = max(0.0, elapsed / p * (1.0 - p))
         job.update(
             stage=text,
             detail=detail,
             progress=round(p, 4),
-            eta=eta,
+            eta=round(eta, 2) if eta is not None else None,
             elapsed=round(elapsed, 1),
             updated=time.time(),
         )
